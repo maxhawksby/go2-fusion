@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08131c">
+  <title>Oak Control</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Oak Control home">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span>
+        <strong>OAK CONTROL</strong>
+        <small>UNITREE GO2 OPERATIONS</small>
+      </span>
+    </a>
+
+    <div class="topbar-status">
+      <span class="mode-pill"><i></i> Mock mode</span>
+      <span class="clock" id="clock">--:--:--</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">ROBOT WORKSPACE / OAK</p>
+        <h1>Ready when<br><em>you are.</em></h1>
+        <p class="hero-copy">A safe control surface for movement, perception, mapping, and voice interaction.</p>
+      </div>
+
+      <div class="connection-card panel">
+        <div class="panel-heading">
+          <span>Connection</span>
+          <span class="tag">SIMULATED</span>
+        </div>
+        <div class="robot-orbit" aria-hidden="true">
+          <div class="orbit orbit-outer"></div>
+          <div class="orbit orbit-inner"></div>
+          <div class="robot-glyph">
+            <span class="body"></span>
+            <span class="head"></span>
+            <i class="leg l1"></i><i class="leg l2"></i><i class="leg l3"></i><i class="leg l4"></i>
+          </div>
+        </div>
+        <div class="connection-state">
+          <div>
+            <small>STATUS</small>
+            <strong id="connection-label">Offline simulator</strong>
+          </div>
+          <button class="secondary" id="simulate-connect">Start simulation</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="status-grid" aria-label="Robot sensors">
+      <article class="metric panel"><span class="metric-icon camera-icon"></span><div><small>CAMERA</small><strong data-sensor="camera">Standby</strong></div><i></i></article>
+      <article class="metric panel"><span class="metric-icon lidar-icon"></span><div><small>LIDAR</small><strong data-sensor="lidar">Standby</strong></div><i></i></article>
+      <article class="metric panel"><span class="metric-icon imu-icon"></span><div><small>IMU</small><strong data-sensor="imu">Standby</strong></div><i></i></article>
+      <article class="metric panel"><span class="metric-icon map-icon"></span><div><small>MAP</small><strong data-sensor="map">No session</strong></div><i></i></article>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="panel movement-panel">
+        <div class="panel-heading">
+          <div><span>Manual movement</span><small>Hold a key or button to drive</small></div>
+          <span class="keyboard-hint">WASD</span>
+        </div>
+        <div class="drive-body">
+          <div class="drive-pad" aria-label="Movement controls">
+            <button class="drive-key forward" data-motion="forward" aria-label="Move forward"><kbd>W</kbd><span>Forward</span></button>
+            <button class="drive-key left" data-motion="left" aria-label="Turn left"><kbd>A</kbd><span>Left</span></button>
+            <button class="drive-key stop-key" id="stop-button" aria-label="Stop robot"><span class="stop-square"></span><strong>STOP</strong></button>
+            <button class="drive-key right" data-motion="right" aria-label="Turn right"><kbd>D</kbd><span>Right</span></button>
+            <button class="drive-key back" data-motion="back" aria-label="Move backward"><kbd>S</kbd><span>Back</span></button>
+          </div>
+          <div class="velocity-readout">
+            <div class="velocity-ring"><span id="velocity-value">0.00</span><small>m/s</small></div>
+            <p id="motion-label">Standing by</p>
+            <small>Mock output only</small>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel voice-panel">
+        <div class="panel-heading">
+          <div><span>Voice command</span><small>Speak or type a supported instruction</small></div>
+          <span class="tag safe">DRY RUN</span>
+        </div>
+        <div class="voice-orb" id="voice-orb" aria-hidden="true"><span></span><i></i><i></i><i></i></div>
+        <button class="talk-button" id="talk-button"><span class="mic-icon"></span><strong>Push to talk</strong><small id="voice-support">Checking microphone support…</small></button>
+        <form class="command-form" id="command-form">
+          <input id="command-input" autocomplete="off" placeholder="Try “stand up” or “turn left”" aria-label="Voice command text">
+          <button type="submit" aria-label="Interpret command">→</button>
+        </form>
+        <div class="interpretation" id="interpretation">Waiting for a command.</div>
+      </article>
+
+      <article class="panel actions-panel">
+        <div class="panel-heading">
+          <div><span>Quick actions</span><small>Robot API command previews</small></div>
+        </div>
+        <div class="action-grid">
+          <button data-action="stand up"><span>↑</span><strong>Stand</strong><small>API 1004</small></button>
+          <button data-action="sit down"><span>⌄</span><strong>Sit</strong><small>API 1009</small></button>
+          <button data-action="stretch"><span>↔</span><strong>Stretch</strong><small>API 1017</small></button>
+          <button data-action="recover"><span>↻</span><strong>Recover</strong><small>API 1006</small></button>
+        </div>
+      </article>
+
+      <article class="panel perception-panel">
+        <div class="panel-heading">
+          <div><span>Perception</span><small>Visualization entry points</small></div>
+        </div>
+        <div class="visual-preview">
+          <div class="scan-line"></div>
+          <div class="point p1"></div><div class="point p2"></div><div class="point p3"></div><div class="point p4"></div>
+          <span>LIVE DATA PLACEHOLDER</span>
+        </div>
+        <div class="perception-actions">
+          <button data-tool="foxglove">Open Foxglove <span>↗</span></button>
+          <button data-tool="mapping">Mapping workspace <span>→</span></button>
+        </div>
+      </article>
+
+      <article class="panel log-panel">
+        <div class="panel-heading">
+          <div><span>Command history</span><small>Nothing is sent to ROS in mock mode</small></div>
+          <button class="text-button" id="clear-log">Clear</button>
+        </div>
+        <ol class="command-log" id="command-log">
+          <li class="empty-log">Commands will appear here.</li>
+        </ol>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    <span><i class="safety-dot"></i> Robot publishing disabled</span>
+    <span>GO2 FUSION · TEAM 48</span>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
