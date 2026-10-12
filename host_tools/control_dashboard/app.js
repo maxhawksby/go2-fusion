@@ -244,9 +244,13 @@ $("#command-form").addEventListener("submit", (event) => {
 });
 $("#clear-log").addEventListener("click", () => { state.log = []; logList.innerHTML = '<li class="empty-log">Commands will appear here.</li>'; });
 
+const FOXGLOVE_URL = "https://app.foxglove.dev/~/view?ds=foxglove-websocket&ds.url=ws%3A%2F%2Flocalhost%3A8765&openIn=desktop";
 $$('[data-tool]').forEach((button) => button.addEventListener("click", () => {
-  const name = button.dataset.tool === "foxglove" ? "Foxglove at ws://localhost:8765" : "Mapping workspace (not connected yet)";
-  addLog("tool", name);
+  window.open(FOXGLOVE_URL, "_blank", "noopener,noreferrer");
+  const message = button.dataset.tool === "mapping"
+    ? "Opened Foxglove. Add a Map panel and select /map."
+    : "Opened Foxglove at ws://localhost:8765 for camera, LiDAR, and other ROS topics.";
+  addLog("tool", message);
 }));
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -256,67 +260,59 @@ if (SpeechRecognition) {
   recognition.lang = "en-US";
   recognition.interimResults = true;
   recognition.continuous = true;
-  let voiceHeld = false;
+  let listeningRequested = false;
   let recognitionActive = false;
   let transcript = "";
 
-  $("#voice-support").textContent = "Hold this button while you speak";
+  $("#voice-support").textContent = "Press once to begin";
 
-  const startListening = (event) => {
-    event.preventDefault();
-    if (voiceHeld || recognitionActive) return;
-    voiceHeld = true;
+  const startListening = () => {
+    if (listeningRequested || recognitionActive) return;
+    listeningRequested = true;
     transcript = "";
     try {
       recognition.start();
     } catch (error) {
-      voiceHeld = false;
+      listeningRequested = false;
       addLog("unknown", `Microphone error: ${error.message}`);
     }
   };
 
-  const stopListening = (event) => {
-    event?.preventDefault();
-    if (!voiceHeld) return;
-    voiceHeld = false;
+  const stopListening = () => {
+    if (!listeningRequested && !recognitionActive) return;
+    listeningRequested = false;
     if (recognitionActive) recognition.stop();
   };
 
-  talkButton.addEventListener("pointerdown", startListening);
-  window.addEventListener("pointerup", stopListening);
-  window.addEventListener("pointercancel", stopListening);
-  talkButton.addEventListener("keydown", (event) => {
-    if ((event.key === " " || event.key === "Enter") && !event.repeat) startListening(event);
+  talkButton.addEventListener("click", () => {
+    if (listeningRequested || recognitionActive) stopListening();
+    else startListening();
   });
-  talkButton.addEventListener("keyup", (event) => {
-    if (event.key === " " || event.key === "Enter") stopListening(event);
-  });
-  talkButton.addEventListener("contextmenu", (event) => event.preventDefault());
 
   recognition.addEventListener("start", () => {
     recognitionActive = true;
     talkButton.classList.add("listening");
-    talkButton.querySelector("strong").textContent = "Listening...";
-    $("#voice-support").textContent = "Release the button to finish";
-    $("#listening-status").textContent = "Listening now — release to process";
+    talkButton.querySelector("strong").textContent = "Stop and process";
+    $("#voice-support").textContent = "Press again when you are finished";
+    $("#listening-status").textContent = "Listening now...";
     $("#listening-status").classList.add("live");
-    if (!voiceHeld) recognition.stop();
+    if (!listeningRequested) recognition.stop();
   });
   recognition.addEventListener("end", () => {
     recognitionActive = false;
+    listeningRequested = false;
     talkButton.classList.remove("listening");
-    talkButton.querySelector("strong").textContent = "Hold to talk";
-    $("#voice-support").textContent = "Hold this button while you speak";
+    talkButton.querySelector("strong").textContent = "Start listening";
+    $("#voice-support").textContent = "Press once to begin";
     $("#listening-status").textContent = transcript ? `Heard: “${transcript}”` : "Microphone idle";
     $("#listening-status").classList.remove("live");
     if (transcript.trim()) interpret(transcript.trim(), "microphone");
     transcript = "";
-    voiceHeld = false;
   });
   recognition.addEventListener("result", (event) => {
     transcript = [...event.results].map((result) => result[0].transcript).join(" ").trim();
     $("#command-input").value = transcript;
-    $("#listening-status").textContent = transcript ? `Hearing: “${transcript}”` : "Listening now — release to process";
+    $("#listening-status").textContent = transcript ? `Hearing: “${transcript}”` : "Listening now...";
   });
   recognition.addEventListener("error", (event) => {
     if (event.error !== "aborted") addLog("unknown", `Microphone error: ${event.error}`);

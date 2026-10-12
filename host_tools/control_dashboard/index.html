@@ -71,13 +71,13 @@
 
       <article class="panel voice-panel" id="voice">
         <div class="panel-heading">
-          <div><span>Voice command</span><small>Hold the button while speaking, then release</small></div><span class="tag safe">DRY RUN</span>
+          <div><span>Voice command</span><small>Start listening, speak, then stop to process</small></div><span class="tag safe">DRY RUN</span>
         </div>
         <div class="voice-instructions">
-          <span class="step">1</span><p>Press and hold</p><span class="step">2</span><p>Speak clearly</p><span class="step">3</span><p>Release to process</p>
+          <span class="step">1</span><p>Press Start listening</p><span class="step">2</span><p>Speak clearly</p><span class="step">3</span><p>Press Stop and process</p>
         </div>
         <button class="talk-button" id="talk-button" type="button">
-          <span class="mic-icon" aria-hidden="true"></span><strong>Hold to talk</strong><small id="voice-support">Checking microphone support...</small>
+          <span class="mic-icon" aria-hidden="true"></span><strong>Start listening</strong><small id="voice-support">Checking microphone support...</small>
         </button>
         <div class="listening-status" id="listening-status" aria-live="polite">Microphone idle</div>
         <form class="command-form" id="command-form">
@@ -101,10 +101,11 @@
       </article>
 
       <article class="panel perception-panel" id="perception">
-        <div class="panel-heading"><div><span>Perception</span><small>Live sensor and object-detection entry points</small></div></div>
-        <div class="visual-preview"><div class="scan-line"></div><div class="point p1"></div><div class="point p2"></div><div class="point p3"></div><div class="point p4"></div><span>LiDAR PREVIEW</span></div>
+        <div class="panel-heading"><div><span>Sensor visualization</span><small>Live camera, LiDAR, and maps open in Foxglove</small></div></div>
+        <div class="visual-preview"><div class="scan-line"></div><div class="point p1"></div><div class="point p2"></div><div class="point p3"></div><div class="point p4"></div><span>VISUAL PLACEHOLDER · NOT LIVE DATA</span></div>
         <div class="object-list" id="object-list"><p>Switch to Robot Mode to read detections.</p></div>
-        <div class="perception-actions"><button data-tool="foxglove" type="button">Open Foxglove <span>↗</span></button><button data-tool="mapping" type="button">Mapping workspace <span>→</span></button></div>
+        <div class="perception-note">Camera, point clouds, laser scans, and the SLAM map are available through the ROS Foxglove connection. This page currently shows connection status and detected-object summaries.</div>
+        <div class="perception-actions"><button data-tool="foxglove" type="button">Open sensor feeds <span>↗</span></button><button data-tool="mapping" type="button">View map in Foxglove <span>↗</span></button></div>
       </article>
 
       <article class="panel log-panel">

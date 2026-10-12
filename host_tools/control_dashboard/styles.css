@@ -91,6 +91,7 @@ h1 { max-width: 690px; margin: 0 0 18px; color: var(--navy); font-size: clamp(40
 .point { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 4px rgba(11,79,156,.12); } .p1 { top: 31%; left: 29%; } .p2 { top: 64%; left: 68%; } .p3 { top: 25%; left: 72%; } .p4 { top: 72%; left: 38%; }
 .object-list { min-height: 48px; margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; } .object-list p { margin: 0; color: var(--muted); font-size: 13px; }
 .object-chip { padding: 8px 10px; border: 1px solid #c9d9ec; border-radius: 7px; background: var(--pale-blue); } .object-chip strong { display: block; color: var(--navy); text-transform: capitalize; } .object-chip small { color: var(--muted); }
+.perception-note { margin: 0 0 14px; padding: 11px 12px; border-left: 4px solid var(--blue); color: var(--muted); background: var(--pale-blue); font-size: 12px; line-height: 1.55; }
 .perception-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; } .perception-actions button { padding: 12px; border: 1px solid #cbd7e6; border-radius: 8px; color: var(--navy); background: var(--white); display: flex; justify-content: space-between; font-weight: 650; }
 .perception-actions button:hover { border-color: var(--blue); background: var(--pale-blue); } .perception-actions span { color: var(--blue); }
 .log-panel { grid-column: 1 / -1; } .text-button { border: 0; color: var(--blue); background: transparent; font-weight: 700; }
