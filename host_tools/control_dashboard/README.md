@@ -1,8 +1,7 @@
 # Oak Control dashboard prototype
 
-This is Noah's laptop-side interface prototype for the Go2 fusion. It is deliberately isolated from ROS and cannot
-send anything to the robot. It demonstrates the intended controls, command interpretation and visualization layout
-while the shared stop and keyboard-control fixes are reviewed.
+This is Noah's laptop-side interface for the Go2 fusion. It starts in Mock Mode. Robot Mode talks only to the local
+`go2_dashboard_bridge` API and shows live ROS topic status plus normalized object detections.
 
 ## Run
 
@@ -21,19 +20,29 @@ Stop the server with `Ctrl+C`.
 
 - Start the simulated connection and watch the sensor cards change state.
 - Hold WASD or the on-screen direction buttons. Releasing the control produces one mock stop event.
-- Try `stand up`, `sit down`, `stretch`, `recover`, `move forward`, `turn left`, `dance`, or `stop`.
+- Try `stand up`, `sit down`, `stretch`, `recover`, `show me love`, `dance`, `say I am here`, or `stop`.
 - Use the quick-action buttons and inspect the command history.
+- Switch to Robot Mode to read the bridge at `http://localhost:8080`.
 
 ## Safety boundary
 
-The prototype has no ROS dependency, network client or robot credentials. Every command stays in the browser. The
-future ROS adapter should be added only after the zero-velocity and keyboard-idle fixes reach `master` and are verified
-on the robot.
+Mock Mode cannot reach ROS. The bridge starts read-only, and live actions return an error unless it is deliberately
+started with `allow_commands:=true`. Live WASD and voice movement remain disabled in Robot Mode.
 
 ## Planned integration
 
-1. Add a small ROS 2 adapter behind an explicit Mock/Robot mode boundary.
-2. Give the dashboard its own twist-mux input rather than sharing another controller's topic.
-3. Publish posture and Sport API actions on `/webrtc_req`.
-4. Reuse `/tts`, `/detected_objects_dict`, `/navigate_to_object`, and the existing Foxglove bridge.
-5. Keep `stop`, speed limits, press-and-hold movement, and connection loss handling local and deterministic.
+Inside the running ROS container, build and start the bridge read-only:
+
+```shell
+cbs go2_dashboard_bridge
+ros2 run go2_dashboard_bridge dashboard_bridge
+```
+
+When physically present with the robot, opt into posture, gesture, Stop, and TTS commands:
+
+```shell
+ros2 run go2_dashboard_bridge dashboard_bridge --ros-args -p allow_commands:=true
+```
+
+The next control milestone is a dedicated twist-mux input for the dashboard. It needs speed limits, press-and-hold
+publishing, one stop on release, focus/connection-loss stops, and a robot test before live WASD is enabled.

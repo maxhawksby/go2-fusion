@@ -1,9 +1,9 @@
+import { dashboardApi } from "./dashboard-api.js";
 import { parseCommand } from "./command-parser.js";
 
-const state = { connected: false, moving: null, log: [] };
+const state = { mode: "mock", connected: false, commandEnabled: false, moving: null, log: [] };
 const motionSpeeds = { forward: 0.2, back: -0.15, left: 0, right: 0 };
 const motionLabels = { forward: "Moving forward", back: "Moving backward", left: "Turning left", right: "Turning right" };
-
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const clock = $("#clock");
@@ -16,6 +16,12 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 1000);
 
+function escapeHtml(value) {
+  const node = document.createElement("div");
+  node.textContent = value;
+  return node.innerHTML;
+}
+
 function addLog(kind, message) {
   state.log.unshift({ kind, message, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
   state.log = state.log.slice(0, 8);
@@ -24,13 +30,112 @@ function addLog(kind, message) {
   `).join("");
 }
 
-function escapeHtml(value) {
-  const node = document.createElement("div");
-  node.textContent = value;
-  return node.innerHTML;
+function showInterpretation(title, detail) {
+  interpretation.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span>`;
 }
 
+function setSensor(name, online, onlineText = "Online", offlineText = "Offline") {
+  const element = $(`[data-sensor="${name}"]`);
+  if (!element) return;
+  element.textContent = online ? onlineText : offlineText;
+  element.closest(".metric").classList.toggle("online", online);
+}
+
+function renderObjects(objects) {
+  const list = $("#object-list");
+  if (!objects.length) {
+    list.innerHTML = "<p>No remembered objects. Start the detector and put an object in view.</p>";
+    return;
+  }
+  list.innerHTML = objects.slice(0, 8).map((object) => `
+    <div class="object-chip"><strong>${escapeHtml(object.label)}</strong><small>${object.distance.toFixed(2)} m · ${object.bearing_deg.toFixed(1)}°</small></div>
+  `).join("");
+}
+
+async function refreshRobotState({ announce = false } = {}) {
+  if (state.mode !== "robot") return;
+  try {
+    const [status, detection] = await Promise.all([dashboardApi.status(), dashboardApi.objects()]);
+    state.connected = status.robot_connected;
+    state.commandEnabled = status.command_enabled;
+    $("#connection-label").textContent = status.robot_connected ? "Robot heartbeat active" : "Bridge online · robot offline";
+    $("#simulate-connect").textContent = "Refresh ROS";
+    $(".connection-card").classList.toggle("connected", status.robot_connected);
+    setSensor("camera", status.topics.camera, "Publishing", "Offline");
+    setSensor("lidar", status.topics.lidar, "Publishing", "Offline");
+    setSensor("imu", status.topics.imu, "Publishing", "Offline");
+    setSensor("objects", status.topics.objects, `${detection.objects.length} detected`, "Detector offline");
+    renderObjects(detection.objects);
+    const safety = status.command_enabled ? "Live actions enabled · movement disabled" : "Read-only Robot Mode · commands disabled";
+    $("#safety-status").innerHTML = `<i class="safety-dot"></i> ${safety}`;
+    if (announce) addLog("system", status.robot_connected ? "ROS bridge and robot heartbeat found" : "ROS bridge found; waiting for robot heartbeat");
+  } catch (error) {
+    state.connected = false;
+    state.commandEnabled = false;
+    $("#connection-label").textContent = "Dashboard bridge offline";
+    $("#simulate-connect").textContent = "Retry bridge";
+    $(".connection-card").classList.remove("connected");
+    ["camera", "lidar", "imu", "objects"].forEach((name) => setSensor(name, false));
+    $("#object-list").innerHTML = "<p>Start go2_dashboard_bridge inside the ROS container.</p>";
+    $("#safety-status").innerHTML = '<i class="safety-dot"></i> Robot publishing unavailable';
+    if (announce) addLog("unknown", error.message);
+  }
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  state.connected = false;
+  state.commandEnabled = false;
+  stopMotion("mode change", false);
+  const robotMode = mode === "robot";
+  $("#mode-toggle").classList.toggle("robot", robotMode);
+  $("#mode-toggle span").textContent = robotMode ? "Robot mode" : "Mock mode";
+  $(".connection-card .tag").textContent = robotMode ? "ROS BRIDGE" : "SIMULATED";
+  if (robotMode) {
+    $("#connection-label").textContent = "Checking dashboard bridge…";
+    $("#simulate-connect").textContent = "Refresh ROS";
+    addLog("system", "Robot Mode selected; movement remains disabled");
+    refreshRobotState({ announce: true });
+  } else {
+    $("#connection-label").textContent = "Offline simulator";
+    $("#simulate-connect").textContent = "Start simulation";
+    $(".connection-card").classList.remove("connected");
+    setSensor("camera", false, "Simulated", "Standby");
+    setSensor("lidar", false, "Simulated", "Standby");
+    setSensor("imu", false, "Simulated", "Standby");
+    setSensor("objects", false, "Demo loaded", "Detector offline");
+    $("#object-list").innerHTML = "<p>Switch to Robot Mode to read detections.</p>";
+    $("#safety-status").innerHTML = '<i class="safety-dot"></i> Robot publishing disabled';
+    addLog("system", "Mock Mode selected");
+  }
+}
+
+$("#mode-toggle").addEventListener("click", () => setMode(state.mode === "mock" ? "robot" : "mock"));
+setInterval(() => refreshRobotState(), 1500);
+
+$("#simulate-connect").addEventListener("click", () => {
+  if (state.mode === "robot") {
+    refreshRobotState({ announce: true });
+    return;
+  }
+  state.connected = !state.connected;
+  $("#simulate-connect").textContent = state.connected ? "Stop simulation" : "Start simulation";
+  $("#connection-label").textContent = state.connected ? "Simulator online" : "Offline simulator";
+  $(".connection-card").classList.toggle("connected", state.connected);
+  setSensor("camera", state.connected, "Simulated", "Standby");
+  setSensor("lidar", state.connected, "Simulated", "Standby");
+  setSensor("imu", state.connected, "Simulated", "Standby");
+  setSensor("objects", state.connected, "Demo loaded", "Detector offline");
+  addLog("system", state.connected ? "Mock simulation started" : "Mock simulation stopped");
+});
+
 function setMotion(direction, source = "control") {
+  if (state.mode === "robot") {
+    showInterpretation("Live movement disabled", "WASD needs its own twist-mux lane and a robot test.");
+    if (state.moving !== "blocked") addLog("unknown", `Blocked live ${direction} request (${source})`);
+    state.moving = "blocked";
+    return;
+  }
   if (state.moving === direction) return;
   state.moving = direction;
   $$("[data-motion]").forEach((button) => button.classList.toggle("active", button.dataset.motion === direction));
@@ -39,39 +144,66 @@ function setMotion(direction, source = "control") {
   addLog("motion", `${motionLabels[direction]} (${source}, mock only)`);
 }
 
-function stopMotion(source = "control") {
+function stopMotion(source = "control", log = true) {
   if (!state.moving && source !== "stop") return;
   state.moving = null;
   $$("[data-motion]").forEach((button) => button.classList.remove("active"));
   $("#velocity-value").textContent = "0.00";
   $("#motion-label").textContent = "Standing by";
-  addLog("stop", `Stop (${source}, mock only)`);
+  if (log) addLog("stop", `Stop (${source}${state.mode === "mock" ? ", mock only" : ""})`);
 }
 
-function interpret(raw, source = "typed") {
+async function performAction(action, label, source) {
+  showInterpretation(label, state.mode === "mock" ? `Recognized from ${source}; execution disabled` : `Sending from ${source}…`);
+  if (state.mode === "mock") {
+    addLog("action", `${label} (${source}, dry run)`);
+    return;
+  }
+  try {
+    await dashboardApi.action(action);
+    showInterpretation(label, "Queued through ROS");
+    addLog("action", `${label} queued through ROS`);
+  } catch (error) {
+    showInterpretation("Command blocked", error.message);
+    addLog("unknown", error.message);
+  }
+}
+
+async function interpret(raw, source = "typed") {
   const command = parseCommand(raw);
   if (command.type === "unknown") {
-    interpretation.innerHTML = `<strong>Not recognized</strong><span>“${escapeHtml(raw)}”</span>`;
+    showInterpretation("Not recognized", `“${raw}”`);
     addLog("unknown", `Could not map “${raw}”`);
     return;
   }
-
-  interpretation.innerHTML = `<strong>${command.label}</strong><span>Recognized from ${source}; execution disabled</span>`;
-  if (command.type === "stop") stopMotion("voice command");
-  else addLog(command.type, `${command.label} (${source}, dry run)`);
+  if (command.type === "motion") {
+    if (state.mode === "robot") {
+      showInterpretation("Live movement disabled", "Movement needs its own reviewed control lane.");
+      addLog("unknown", `Blocked ${command.label.toLowerCase()} voice request`);
+    } else {
+      addLog("motion", `${command.label} (${source}, dry run)`);
+      showInterpretation(command.label, `Recognized from ${source}; execution disabled`);
+    }
+    return;
+  }
+  if (command.type === "tts") {
+    showInterpretation(command.label, state.mode === "mock" ? "Speech preview only" : "Sending to /tts…");
+    if (state.mode === "mock") {
+      addLog("action", `${command.label} (${source}, dry run)`);
+      return;
+    }
+    try {
+      await dashboardApi.tts(command.value);
+      showInterpretation(command.label, "Queued on /tts");
+      addLog("action", `${command.label} queued on /tts`);
+    } catch (error) {
+      showInterpretation("Speech blocked", error.message);
+      addLog("unknown", error.message);
+    }
+    return;
+  }
+  await performAction(command.value, command.label, source);
 }
-
-$("#simulate-connect").addEventListener("click", () => {
-  state.connected = !state.connected;
-  $("#simulate-connect").textContent = state.connected ? "Stop simulation" : "Start simulation";
-  $("#connection-label").textContent = state.connected ? "Simulator online" : "Offline simulator";
-  $(".connection-card").classList.toggle("connected", state.connected);
-  $$('[data-sensor]').forEach((sensor) => {
-    sensor.textContent = state.connected ? (sensor.dataset.sensor === "map" ? "Demo loaded" : "Simulated") : (sensor.dataset.sensor === "map" ? "No session" : "Standby");
-    sensor.closest(".metric").classList.toggle("online", state.connected);
-  });
-  addLog("system", state.connected ? "Mock simulation started" : "Mock simulation stopped");
-});
 
 const keyMap = { w: "forward", a: "left", s: "back", d: "right" };
 const heldKeys = new Set();
@@ -86,21 +218,24 @@ window.addEventListener("keyup", (event) => {
   const key = event.key.toLowerCase();
   if (!keyMap[key]) return;
   heldKeys.delete(key);
-  if (heldKeys.size === 0) stopMotion("key release");
+  if (heldKeys.size === 0) stopMotion("key release", state.mode === "mock");
 });
-window.addEventListener("blur", () => { heldKeys.clear(); stopMotion("window focus lost"); });
+window.addEventListener("blur", () => { heldKeys.clear(); stopMotion("window focus lost", state.mode === "mock"); });
 
 $$('[data-motion]').forEach((button) => {
   const start = (event) => { event.preventDefault(); setMotion(button.dataset.motion, "button"); };
-  const stop = (event) => { event.preventDefault(); stopMotion("button release"); };
+  const stop = (event) => { event.preventDefault(); stopMotion("button release", state.mode === "mock"); };
   button.addEventListener("pointerdown", start);
   button.addEventListener("pointerup", stop);
   button.addEventListener("pointercancel", stop);
   button.addEventListener("pointerleave", (event) => { if (event.buttons) stop(event); });
 });
 
-$("#stop-button").addEventListener("click", () => stopMotion("stop"));
-$$('[data-action]').forEach((button) => button.addEventListener("click", () => interpret(button.dataset.action, "quick action")));
+$("#stop-button").addEventListener("click", () => {
+  stopMotion("stop");
+  if (state.mode === "robot") performAction("stop", "Stop movement", "stop button");
+});
+$$('[data-action]').forEach((button) => button.addEventListener("click", () => performAction(button.dataset.action, button.dataset.label, "quick action")));
 $("#command-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const input = $("#command-input");
@@ -110,8 +245,8 @@ $("#command-form").addEventListener("submit", (event) => {
 $("#clear-log").addEventListener("click", () => { state.log = []; logList.innerHTML = '<li class="empty-log">Commands will appear here.</li>'; });
 
 $$('[data-tool]').forEach((button) => button.addEventListener("click", () => {
-  const name = button.dataset.tool === "foxglove" ? "Foxglove connection at ws://localhost:8765" : "Mapping workspace";
-  addLog("tool", `${name} selected (placeholder)`);
+  const name = button.dataset.tool === "foxglove" ? "Foxglove at ws://localhost:8765" : "Mapping workspace (not connected yet)";
+  addLog("tool", name);
 }));
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;

@@ -3,8 +3,14 @@ import test from "node:test";
 import { parseCommand } from "./command-parser.js";
 
 test("recognizes stop words before movement", () => {
-  assert.equal(parseCommand("please stop now").type, "stop");
-  assert.equal(parseCommand("freeze").type, "stop");
+  assert.equal(parseCommand("please stop now").value, "stop");
+  assert.equal(parseCommand("freeze").value, "stop");
+});
+
+test("maps speech output without treating it as an action", () => {
+  assert.deepEqual(parseCommand("say I am here"), {
+    type: "tts", label: "Say “I am here”", value: "I am here", raw: "say I am here"
+  });
 });
 
 test("maps basic movement commands", () => {

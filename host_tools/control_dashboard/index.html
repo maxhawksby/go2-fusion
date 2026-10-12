@@ -21,7 +21,7 @@
     </a>
 
     <div class="topbar-status">
-      <span class="mode-pill"><i></i> Mock mode</span>
+      <button class="mode-pill" id="mode-toggle"><i></i><span>Mock mode</span></button>
       <span class="clock" id="clock">--:--:--</span>
     </div>
   </header>
@@ -62,7 +62,7 @@
       <article class="metric panel"><span class="metric-icon camera-icon"></span><div><small>CAMERA</small><strong data-sensor="camera">Standby</strong></div><i></i></article>
       <article class="metric panel"><span class="metric-icon lidar-icon"></span><div><small>LIDAR</small><strong data-sensor="lidar">Standby</strong></div><i></i></article>
       <article class="metric panel"><span class="metric-icon imu-icon"></span><div><small>IMU</small><strong data-sensor="imu">Standby</strong></div><i></i></article>
-      <article class="metric panel"><span class="metric-icon map-icon"></span><div><small>MAP</small><strong data-sensor="map">No session</strong></div><i></i></article>
+      <article class="metric panel"><span class="metric-icon map-icon"></span><div><small>OBJECTS</small><strong data-sensor="objects">Detector offline</strong></div><i></i></article>
     </section>
 
     <section class="workspace-grid">
@@ -106,10 +106,14 @@
           <div><span>Quick actions</span><small>Robot API command previews</small></div>
         </div>
         <div class="action-grid">
-          <button data-action="stand up"><span>↑</span><strong>Stand</strong><small>API 1004</small></button>
-          <button data-action="sit down"><span>⌄</span><strong>Sit</strong><small>API 1009</small></button>
-          <button data-action="stretch"><span>↔</span><strong>Stretch</strong><small>API 1017</small></button>
-          <button data-action="recover"><span>↻</span><strong>Recover</strong><small>API 1006</small></button>
+          <button data-action="stand" data-label="Stand up"><span>↑</span><strong>Stand</strong><small>API 1004</small></button>
+          <button data-action="sit" data-label="Sit down"><span>⌄</span><strong>Sit</strong><small>API 1009</small></button>
+          <button data-action="stretch" data-label="Stretch"><span>↔</span><strong>Stretch</strong><small>API 1017</small></button>
+          <button data-action="recover" data-label="Recovery stand"><span>↻</span><strong>Recover</strong><small>API 1006</small></button>
+          <button data-action="hello" data-label="Hello"><span>⌁</span><strong>Hello</strong><small>API 1016</small></button>
+          <button data-action="finger_heart" data-label="Show love"><span>♡</span><strong>Love</strong><small>API 1036</small></button>
+          <button data-action="dance1" data-label="Dance 1"><span>♪</span><strong>Dance 1</strong><small>API 1022</small></button>
+          <button data-action="dance2" data-label="Dance 2"><span>♫</span><strong>Dance 2</strong><small>API 1023</small></button>
         </div>
       </article>
 
@@ -122,6 +126,7 @@
           <div class="point p1"></div><div class="point p2"></div><div class="point p3"></div><div class="point p4"></div>
           <span>LIVE DATA PLACEHOLDER</span>
         </div>
+        <div class="object-list" id="object-list"><p>Switch to Robot Mode to read detections.</p></div>
         <div class="perception-actions">
           <button data-tool="foxglove">Open Foxglove <span>↗</span></button>
           <button data-tool="mapping">Mapping workspace <span>→</span></button>
@@ -141,7 +146,7 @@
   </main>
 
   <footer>
-    <span><i class="safety-dot"></i> Robot publishing disabled</span>
+    <span id="safety-status"><i class="safety-dot"></i> Robot publishing disabled</span>
     <span>GO2 FUSION · TEAM 48</span>
   </footer>
 
