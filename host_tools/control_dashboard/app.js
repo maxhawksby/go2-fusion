@@ -263,6 +263,21 @@ if (SpeechRecognition) {
   let listeningRequested = false;
   let recognitionActive = false;
   let transcript = "";
+  const BrowserAudioContext = window.AudioContext || window.webkitAudioContext;
+  let audioContext;
+
+  const playReadyTone = () => {
+    if (!BrowserAudioContext) return;
+    audioContext ||= new BrowserAudioContext();
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.frequency.value = 740;
+    gain.gain.setValueAtTime(0.035, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.08);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.08);
+  };
 
   $("#voice-support").textContent = "Press once to begin";
 
@@ -270,10 +285,17 @@ if (SpeechRecognition) {
     if (listeningRequested || recognitionActive) return;
     listeningRequested = true;
     transcript = "";
+    talkButton.classList.add("starting");
+    talkButton.querySelector("strong").textContent = "Starting microphone...";
+    $("#voice-support").textContent = "Wait for the ready tone";
+    $("#listening-status").textContent = "Opening Chrome speech recognition...";
     try {
       recognition.start();
     } catch (error) {
       listeningRequested = false;
+      talkButton.classList.remove("starting");
+      talkButton.querySelector("strong").textContent = "Start listening";
+      $("#voice-support").textContent = "Press once to begin";
       addLog("unknown", `Microphone error: ${error.message}`);
     }
   };
@@ -291,16 +313,19 @@ if (SpeechRecognition) {
 
   recognition.addEventListener("start", () => {
     recognitionActive = true;
+    talkButton.classList.remove("starting");
     talkButton.classList.add("listening");
     talkButton.querySelector("strong").textContent = "Stop and process";
     $("#voice-support").textContent = "Press again when you are finished";
     $("#listening-status").textContent = "Listening now...";
     $("#listening-status").classList.add("live");
+    playReadyTone();
     if (!listeningRequested) recognition.stop();
   });
   recognition.addEventListener("end", () => {
     recognitionActive = false;
     listeningRequested = false;
+    talkButton.classList.remove("starting");
     talkButton.classList.remove("listening");
     talkButton.querySelector("strong").textContent = "Start listening";
     $("#voice-support").textContent = "Press once to begin";
@@ -315,6 +340,7 @@ if (SpeechRecognition) {
     $("#listening-status").textContent = transcript ? `Hearing: “${transcript}”` : "Listening now...";
   });
   recognition.addEventListener("error", (event) => {
+    talkButton.classList.remove("starting");
     if (event.error !== "aborted") addLog("unknown", `Microphone error: ${event.error}`);
   });
 } else {

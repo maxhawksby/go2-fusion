@@ -65,11 +65,14 @@ h1 { max-width: 690px; margin: 0 0 18px; color: var(--navy); font-size: clamp(40
 .voice-panel { display: flex; flex-direction: column; }
 .voice-instructions { margin: 22px 0 18px; display: grid; grid-template-columns: 28px 1fr; gap: 8px 10px; align-items: center; }
 .voice-instructions p { margin: 0; color: var(--muted); font-size: 13px; } .step { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; color: var(--white); background: var(--blue); font-size: 12px; font-weight: 800; }
-.talk-button { width: 100%; min-height: 112px; border: 2px solid var(--blue); border-radius: 13px; background: var(--pale-blue); color: var(--navy); display: grid; grid-template-columns: 52px 1fr; grid-template-rows: auto auto; column-gap: 16px; align-items: center; padding: 20px 24px; text-align: left; touch-action: none; }
+.talk-button { width: 100%; min-height: 112px; border: 2px solid var(--blue); border-radius: 13px; background: var(--pale-blue); color: var(--navy); display: grid; grid-template-columns: 52px 1fr; grid-template-rows: auto auto; column-gap: 16px; align-items: center; padding: 20px 24px; text-align: left; touch-action: none; position: relative; overflow: hidden; }
 .talk-button:hover { background: #dceafb; } .talk-button .mic-icon { grid-row: 1 / 3; width: 48px; height: 48px; border-radius: 50%; background: var(--blue); position: relative; }
 .mic-icon::before { content: ""; position: absolute; width: 11px; height: 20px; border: 2px solid var(--white); border-radius: 8px; left: 17px; top: 10px; }
 .mic-icon::after { content: ""; position: absolute; width: 19px; height: 12px; border: 2px solid var(--white); border-top: 0; border-radius: 0 0 12px 12px; left: 13px; top: 22px; }
 .talk-button strong { align-self: end; font-size: 21px; } .talk-button small { align-self: start; color: var(--muted); font-size: 13px; }
+.talk-button.starting { border-color: #c88714; background: #fff6df; box-shadow: 0 0 0 5px rgba(200,135,20,.1); }
+.talk-button.starting::after { content: ""; position: absolute; left: 0; bottom: 0; height: 5px; width: 92%; background: #c88714; animation: mic-buffer 2s ease-out both; }
+@keyframes mic-buffer { from { width: 0; } to { width: 92%; } }
 .talk-button.listening { border-color: var(--danger); color: var(--white); background: var(--danger); box-shadow: 0 0 0 5px rgba(201,54,62,.12); }
 .talk-button.listening .mic-icon { background: var(--white); } .talk-button.listening .mic-icon::before, .talk-button.listening .mic-icon::after { border-color: var(--danger); } .talk-button.listening small { color: #ffe7e8; }
 .listening-status { margin: 10px 0 16px; padding: 9px 12px; border-radius: 7px; color: var(--muted); background: #f4f7fb; font-size: 13px; text-align: center; }
