@@ -20,6 +20,7 @@ Stop the server with `Ctrl+C`.
 
 - Start the simulated connection and watch the sensor cards change state.
 - Hold WASD or the on-screen direction buttons. Releasing the control produces one mock stop event.
+- Hold the voice button while speaking and release it to process the recognized phrase.
 - Try `stand up`, `sit down`, `stretch`, `recover`, `show me love`, `dance`, `say I am here`, or `stop`.
 - Use the quick-action buttons and inspect the command history.
 - Switch to Robot Mode to read the bridge at `http://localhost:8080`.
@@ -46,3 +47,6 @@ ros2 run go2_dashboard_bridge dashboard_bridge --ros-args -p allow_commands:=tru
 
 The next control milestone is a dedicated twist-mux input for the dashboard. It needs speed limits, press-and-hold
 publishing, one stop on release, focus/connection-loss stops, and a robot test before live WASD is enabled.
+
+The Go2 product image in `assets/unitree-go2.jpg` comes from the
+[official Unitree store](https://shop.unitree.com/en-au/products/unitree-go2).

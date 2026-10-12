@@ -60,7 +60,7 @@ async function refreshRobotState({ announce = false } = {}) {
     state.commandEnabled = status.command_enabled;
     $("#connection-label").textContent = status.robot_connected ? "Robot heartbeat active" : "Bridge online · robot offline";
     $("#simulate-connect").textContent = "Refresh ROS";
-    $(".connection-card").classList.toggle("connected", status.robot_connected);
+    $(".robot-card").classList.toggle("connected", status.robot_connected);
     setSensor("camera", status.topics.camera, "Publishing", "Offline");
     setSensor("lidar", status.topics.lidar, "Publishing", "Offline");
     setSensor("imu", status.topics.imu, "Publishing", "Offline");
@@ -74,7 +74,7 @@ async function refreshRobotState({ announce = false } = {}) {
     state.commandEnabled = false;
     $("#connection-label").textContent = "Dashboard bridge offline";
     $("#simulate-connect").textContent = "Retry bridge";
-    $(".connection-card").classList.remove("connected");
+    $(".robot-card").classList.remove("connected");
     ["camera", "lidar", "imu", "objects"].forEach((name) => setSensor(name, false));
     $("#object-list").innerHTML = "<p>Start go2_dashboard_bridge inside the ROS container.</p>";
     $("#safety-status").innerHTML = '<i class="safety-dot"></i> Robot publishing unavailable';
@@ -90,7 +90,7 @@ function setMode(mode) {
   const robotMode = mode === "robot";
   $("#mode-toggle").classList.toggle("robot", robotMode);
   $("#mode-toggle span").textContent = robotMode ? "Robot mode" : "Mock mode";
-  $(".connection-card .tag").textContent = robotMode ? "ROS BRIDGE" : "SIMULATED";
+  $(".robot-card .tag").textContent = robotMode ? "ROS BRIDGE" : "SIMULATED";
   if (robotMode) {
     $("#connection-label").textContent = "Checking dashboard bridge…";
     $("#simulate-connect").textContent = "Refresh ROS";
@@ -99,7 +99,7 @@ function setMode(mode) {
   } else {
     $("#connection-label").textContent = "Offline simulator";
     $("#simulate-connect").textContent = "Start simulation";
-    $(".connection-card").classList.remove("connected");
+    $(".robot-card").classList.remove("connected");
     setSensor("camera", false, "Simulated", "Standby");
     setSensor("lidar", false, "Simulated", "Standby");
     setSensor("imu", false, "Simulated", "Standby");
@@ -121,7 +121,7 @@ $("#simulate-connect").addEventListener("click", () => {
   state.connected = !state.connected;
   $("#simulate-connect").textContent = state.connected ? "Stop simulation" : "Start simulation";
   $("#connection-label").textContent = state.connected ? "Simulator online" : "Offline simulator";
-  $(".connection-card").classList.toggle("connected", state.connected);
+  $(".robot-card").classList.toggle("connected", state.connected);
   setSensor("camera", state.connected, "Simulated", "Standby");
   setSensor("lidar", state.connected, "Simulated", "Standby");
   setSensor("imu", state.connected, "Simulated", "Standby");
@@ -254,18 +254,73 @@ const talkButton = $("#talk-button");
 if (SpeechRecognition) {
   const recognition = new SpeechRecognition();
   recognition.lang = "en-US";
-  recognition.interimResults = false;
-  recognition.continuous = false;
-  $("#voice-support").textContent = "Browser microphone available";
-  talkButton.addEventListener("click", () => recognition.start());
-  recognition.addEventListener("start", () => { talkButton.classList.add("listening"); $("#voice-orb").classList.add("listening"); $("#voice-support").textContent = "Listening…"; });
-  recognition.addEventListener("end", () => { talkButton.classList.remove("listening"); $("#voice-orb").classList.remove("listening"); $("#voice-support").textContent = "Browser microphone available"; });
-  recognition.addEventListener("result", (event) => {
-    const transcript = event.results[0][0].transcript;
-    $("#command-input").value = transcript;
-    interpret(transcript, "microphone");
+  recognition.interimResults = true;
+  recognition.continuous = true;
+  let voiceHeld = false;
+  let recognitionActive = false;
+  let transcript = "";
+
+  $("#voice-support").textContent = "Hold this button while you speak";
+
+  const startListening = (event) => {
+    event.preventDefault();
+    if (voiceHeld || recognitionActive) return;
+    voiceHeld = true;
+    transcript = "";
+    try {
+      recognition.start();
+    } catch (error) {
+      voiceHeld = false;
+      addLog("unknown", `Microphone error: ${error.message}`);
+    }
+  };
+
+  const stopListening = (event) => {
+    event?.preventDefault();
+    if (!voiceHeld) return;
+    voiceHeld = false;
+    if (recognitionActive) recognition.stop();
+  };
+
+  talkButton.addEventListener("pointerdown", startListening);
+  window.addEventListener("pointerup", stopListening);
+  window.addEventListener("pointercancel", stopListening);
+  talkButton.addEventListener("keydown", (event) => {
+    if ((event.key === " " || event.key === "Enter") && !event.repeat) startListening(event);
   });
-  recognition.addEventListener("error", (event) => addLog("unknown", `Microphone error: ${event.error}`));
+  talkButton.addEventListener("keyup", (event) => {
+    if (event.key === " " || event.key === "Enter") stopListening(event);
+  });
+  talkButton.addEventListener("contextmenu", (event) => event.preventDefault());
+
+  recognition.addEventListener("start", () => {
+    recognitionActive = true;
+    talkButton.classList.add("listening");
+    talkButton.querySelector("strong").textContent = "Listening...";
+    $("#voice-support").textContent = "Release the button to finish";
+    $("#listening-status").textContent = "Listening now — release to process";
+    $("#listening-status").classList.add("live");
+    if (!voiceHeld) recognition.stop();
+  });
+  recognition.addEventListener("end", () => {
+    recognitionActive = false;
+    talkButton.classList.remove("listening");
+    talkButton.querySelector("strong").textContent = "Hold to talk";
+    $("#voice-support").textContent = "Hold this button while you speak";
+    $("#listening-status").textContent = transcript ? `Heard: “${transcript}”` : "Microphone idle";
+    $("#listening-status").classList.remove("live");
+    if (transcript.trim()) interpret(transcript.trim(), "microphone");
+    transcript = "";
+    voiceHeld = false;
+  });
+  recognition.addEventListener("result", (event) => {
+    transcript = [...event.results].map((result) => result[0].transcript).join(" ").trim();
+    $("#command-input").value = transcript;
+    $("#listening-status").textContent = transcript ? `Hearing: “${transcript}”` : "Listening now — release to process";
+  });
+  recognition.addEventListener("error", (event) => {
+    if (event.error !== "aborted") addLog("unknown", `Microphone error: ${event.error}`);
+  });
 } else {
   $("#voice-support").textContent = "Use Chrome/Edge or type below";
   talkButton.disabled = true;
