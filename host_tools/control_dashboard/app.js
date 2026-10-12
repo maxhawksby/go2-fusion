@@ -262,7 +262,9 @@ if (SpeechRecognition) {
   recognition.continuous = true;
   let listeningRequested = false;
   let recognitionActive = false;
+  let startupTimer = null;
   let transcript = "";
+  const MICROPHONE_BUFFER_MS = 2000;
   const BrowserAudioContext = window.AudioContext || window.webkitAudioContext;
   let audioContext;
 
@@ -289,20 +291,33 @@ if (SpeechRecognition) {
     talkButton.querySelector("strong").textContent = "Starting microphone...";
     $("#voice-support").textContent = "Wait for the ready tone";
     $("#listening-status").textContent = "Opening Chrome speech recognition...";
-    try {
-      recognition.start();
-    } catch (error) {
-      listeningRequested = false;
-      talkButton.classList.remove("starting");
-      talkButton.querySelector("strong").textContent = "Start listening";
-      $("#voice-support").textContent = "Press once to begin";
-      addLog("unknown", `Microphone error: ${error.message}`);
-    }
+    startupTimer = window.setTimeout(() => {
+      startupTimer = null;
+      if (!listeningRequested) return;
+      try {
+        recognition.start();
+      } catch (error) {
+        listeningRequested = false;
+        talkButton.classList.remove("starting");
+        talkButton.querySelector("strong").textContent = "Start listening";
+        $("#voice-support").textContent = "Press once to begin";
+        $("#listening-status").textContent = "Microphone idle";
+        addLog("unknown", `Microphone error: ${error.message}`);
+      }
+    }, MICROPHONE_BUFFER_MS);
   };
 
   const stopListening = () => {
     if (!listeningRequested && !recognitionActive) return;
     listeningRequested = false;
+    if (startupTimer !== null) {
+      window.clearTimeout(startupTimer);
+      startupTimer = null;
+      talkButton.classList.remove("starting");
+      talkButton.querySelector("strong").textContent = "Start listening";
+      $("#voice-support").textContent = "Press once to begin";
+      $("#listening-status").textContent = "Microphone idle";
+    }
     if (recognitionActive) recognition.stop();
   };
 
@@ -325,6 +340,7 @@ if (SpeechRecognition) {
   recognition.addEventListener("end", () => {
     recognitionActive = false;
     listeningRequested = false;
+    startupTimer = null;
     talkButton.classList.remove("starting");
     talkButton.classList.remove("listening");
     talkButton.querySelector("strong").textContent = "Start listening";
