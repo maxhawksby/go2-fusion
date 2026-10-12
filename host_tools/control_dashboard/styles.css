@@ -71,7 +71,7 @@ h1 { max-width: 690px; margin: 0 0 18px; color: var(--navy); font-size: clamp(40
 .mic-icon::after { content: ""; position: absolute; width: 19px; height: 12px; border: 2px solid var(--white); border-top: 0; border-radius: 0 0 12px 12px; left: 13px; top: 22px; }
 .talk-button strong { align-self: end; font-size: 21px; } .talk-button small { align-self: start; color: var(--muted); font-size: 13px; }
 .talk-button.starting { border-color: #c88714; background: #fff6df; box-shadow: 0 0 0 5px rgba(200,135,20,.1); }
-.talk-button.starting::after { content: ""; position: absolute; left: 0; bottom: 0; height: 5px; width: 92%; background: #c88714; animation: mic-buffer 2s ease-out both; }
+.talk-button.starting::after { content: ""; position: absolute; left: 0; bottom: 0; height: 5px; width: 92%; background: #c88714; animation: mic-buffer 3s ease-out both; }
 @keyframes mic-buffer { from { width: 0; } to { width: 92%; } }
 .talk-button.listening { border-color: var(--danger); color: var(--white); background: var(--danger); box-shadow: 0 0 0 5px rgba(201,54,62,.12); }
 .talk-button.listening .mic-icon { background: var(--white); } .talk-button.listening .mic-icon::before, .talk-button.listening .mic-icon::after { border-color: var(--danger); } .talk-button.listening small { color: #ffe7e8; }

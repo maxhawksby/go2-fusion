@@ -264,7 +264,7 @@ if (SpeechRecognition) {
   let recognitionActive = false;
   let startupTimer = null;
   let transcript = "";
-  const MICROPHONE_BUFFER_MS = 2000;
+  const MICROPHONE_BUFFER_MS = 3000;
   const BrowserAudioContext = window.AudioContext || window.webkitAudioContext;
   let audioContext;
 
