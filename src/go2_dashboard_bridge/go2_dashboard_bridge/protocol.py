@@ -11,8 +11,8 @@ SPORT_ACTIONS = {
         "api_id": 1004,
         "label": "Stand up and enable handheld control",
         "followups": [
-            {"api_id": 1002, "parameter": {}},
-            {"api_id": 1027, "parameter": {"data": True}},
+            {"api_id": 1002, "parameter": {}, "delay_sec": 2.0},
+            {"api_id": 1027, "parameter": {"data": True}, "delay_sec": 2.4},
         ],
     },
     "stand_down": {"api_id": 1005, "label": "Stand down"},

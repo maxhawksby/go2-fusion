@@ -82,6 +82,7 @@ class DashboardBridge(Node):
         self._obstacle_query_in_flight = False
         self._obstacle_error = None
         self._commands = queue.SimpleQueue()
+        self._delayed_sport_commands = []
         self.create_timer(0.05, self._drain_commands)
         self.create_timer(1.0, self._refresh_obstacle_avoidance)
 
@@ -219,6 +220,12 @@ class DashboardBridge(Node):
         self._commands.put(("obstacle_avoidance", enabled))
 
     def _drain_commands(self):
+        now = time.monotonic()
+        ready = [item for item in self._delayed_sport_commands if item[0] <= now]
+        self._delayed_sport_commands = [item for item in self._delayed_sport_commands if item[0] > now]
+        for _, action_name, command in ready:
+            self._publish_sport_command(action_name, command)
+
         while True:
             try:
                 command_type, value = self._commands.get_nowait()
@@ -226,20 +233,10 @@ class DashboardBridge(Node):
                 return
             if command_type == "action":
                 action = SPORT_ACTIONS[value]
-                commands = [
-                    {"api_id": action["api_id"], "parameter": action.get("parameter", {})},
-                    *action.get("followups", []),
-                ]
-                for command in commands:
-                    message = WebRtcReq()
-                    message.id = 0
-                    message.topic = "rt/api/sport/request"
-                    message.api_id = command["api_id"]
-                    message.parameter = json.dumps(command.get("parameter", {}))
-                    message.priority = 1 if value == "stop" else 0
-                    self.sport_publisher.publish(message)
-                command_ids = ", ".join(str(command["api_id"]) for command in commands)
-                self.get_logger().info(f"Dashboard action: {value} ({command_ids})")
+                self._publish_sport_command(value, action)
+                for followup in action.get("followups", []):
+                    due = time.monotonic() + float(followup.get("delay_sec", 0.0))
+                    self._delayed_sport_commands.append((due, value, followup))
             elif command_type == "tts":
                 message = String()
                 message.data = value
@@ -247,6 +244,16 @@ class DashboardBridge(Node):
                 self.get_logger().info("Dashboard published a TTS request")
             elif command_type == "obstacle_avoidance":
                 self._set_obstacle_avoidance(value)
+
+    def _publish_sport_command(self, action_name, command):
+        message = WebRtcReq()
+        message.id = 0
+        message.topic = "rt/api/sport/request"
+        message.api_id = command["api_id"]
+        message.parameter = json.dumps(command.get("parameter", {}))
+        message.priority = 1 if action_name == "stop" else 0
+        self.sport_publisher.publish(message)
+        self.get_logger().info(f"Dashboard action: {action_name} ({command['api_id']})")
 
     @web.middleware
     async def _cors_middleware(self, request, handler):

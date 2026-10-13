@@ -27,8 +27,8 @@ def test_added_dashboard_actions_use_unitree_sport_api_ids():
     assert SPORT_ACTIONS["stand_down"]["api_id"] == 1005
     assert SPORT_ACTIONS["pounce"]["api_id"] == 1032
     assert SPORT_ACTIONS["stand"]["followups"] == [
-        {"api_id": 1002, "parameter": {}},
-        {"api_id": 1027, "parameter": {"data": True}},
+        {"api_id": 1002, "parameter": {}, "delay_sec": 2.0},
+        {"api_id": 1027, "parameter": {"data": True}, "delay_sec": 2.4},
     ]
 
 
