@@ -90,21 +90,33 @@
         <div class="panel-heading"><div><span>Robot actions</span><small>Supported Go2 posture and gesture commands</small></div></div>
         <div class="action-grid">
           <button data-action="stand" data-label="Stand up" type="button"><span>01</span><strong>Stand</strong><small>API 1004</small></button>
-          <button data-action="sit" data-label="Sit down" type="button"><span>02</span><strong>Sit</strong><small>API 1009</small></button>
-          <button data-action="stretch" data-label="Stretch" type="button"><span>03</span><strong>Stretch</strong><small>API 1017</small></button>
-          <button data-action="recover" data-label="Recovery stand" type="button"><span>04</span><strong>Recover</strong><small>API 1006</small></button>
-          <button data-action="hello" data-label="Hello" type="button"><span>05</span><strong>Hello</strong><small>API 1016</small></button>
-          <button data-action="finger_heart" data-label="Show love" type="button"><span>06</span><strong>Love</strong><small>API 1036</small></button>
-          <button data-action="dance1" data-label="Dance 1" type="button"><span>07</span><strong>Dance 1</strong><small>API 1022</small></button>
-          <button data-action="dance2" data-label="Dance 2" type="button"><span>08</span><strong>Dance 2</strong><small>API 1023</small></button>
+          <button data-action="stand_down" data-label="Lay down" type="button"><span>02</span><strong>Lay Down</strong><small>API 1005</small></button>
+          <button data-action="sit" data-label="Sit down" type="button"><span>03</span><strong>Sit</strong><small>API 1009</small></button>
+          <button data-action="stretch" data-label="Stretch" type="button"><span>04</span><strong>Stretch</strong><small>API 1017</small></button>
+          <button data-action="recover" data-label="Recovery stand" type="button"><span>05</span><strong>Recover</strong><small>API 1006</small></button>
+          <button data-action="hello" data-label="Hello" type="button"><span>06</span><strong>Hello</strong><small>API 1016</small></button>
+          <button data-action="finger_heart" data-label="Show love" type="button"><span>07</span><strong>Love</strong><small>API 1036</small></button>
+          <button data-action="dance1" data-label="Dance 1" type="button"><span>08</span><strong>Dance 1</strong><small>API 1022</small></button>
+          <button data-action="dance2" data-label="Dance 2" type="button"><span>09</span><strong>Dance 2</strong><small>API 1023</small></button>
+          <button data-action="pounce" data-label="Front pounce" type="button"><span>10</span><strong>Pounce</strong><small>API 1032</small></button>
+          <button data-action="wiggle_hips" data-label="Wiggle hips" type="button"><span>11</span><strong>Wiggle Hips</strong><small>API 1033</small></button>
+          <button data-action="wallow" data-label="Wallow" type="button"><span>12</span><strong>Wallow</strong><small>API 1021</small></button>
+        </div>
+        <div class="obstacle-control">
+          <div><strong>Obstacle avoidance</strong><small id="obstacle-status">Reading driver setting...</small></div>
+          <button class="switch" id="obstacle-toggle" type="button" role="switch" aria-checked="false" disabled><span></span><b>Off</b></button>
         </div>
       </article>
 
       <article class="panel perception-panel" id="perception">
         <div class="panel-heading"><div><span>Sensor visualization</span><small>Live camera, LiDAR, and maps open in Foxglove</small></div></div>
-        <div class="visual-preview"><div class="scan-line"></div><div class="point p1"></div><div class="point p2"></div><div class="point p3"></div><div class="point p4"></div><span>VISUAL PLACEHOLDER · NOT LIVE DATA</span></div>
+        <div class="visual-preview camera-preview">
+          <img id="camera-feed" alt="Live camera feed from Oak" hidden>
+          <div class="camera-placeholder" id="camera-placeholder"><strong>Camera preview</strong><span>Switch to Robot Mode to load the live feed.</span></div>
+          <span id="camera-source">CAMERA OFFLINE</span>
+        </div>
         <div class="object-list" id="object-list"><p>Switch to Robot Mode to read detections.</p></div>
-        <div class="perception-note">Camera, point clouds, laser scans, and the SLAM map are available through the ROS Foxglove connection. This page currently shows connection status and detected-object summaries.</div>
+        <div class="perception-note">The dashboard shows the live camera and uses the annotated detector feed when available. Point clouds, laser scans, and the SLAM map remain in Foxglove.</div>
         <div class="perception-actions"><button data-tool="foxglove" type="button">Open sensor feeds <span>↗</span></button><button data-tool="mapping" type="button">View map in Foxglove <span>↗</span></button></div>
       </article>
 

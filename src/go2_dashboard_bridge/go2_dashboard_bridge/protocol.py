@@ -13,8 +13,11 @@ SPORT_ACTIONS = {
     "sit": {"api_id": 1009, "label": "Sit"},
     "hello": {"api_id": 1016, "label": "Hello"},
     "stretch": {"api_id": 1017, "label": "Stretch"},
+    "wallow": {"api_id": 1021, "label": "Wallow"},
     "dance1": {"api_id": 1022, "label": "Dance 1"},
     "dance2": {"api_id": 1023, "label": "Dance 2"},
+    "pounce": {"api_id": 1032, "label": "Front pounce"},
+    "wiggle_hips": {"api_id": 1033, "label": "Wiggle hips"},
     "finger_heart": {"api_id": 1036, "label": "Show love"},
 }
 
@@ -32,11 +35,14 @@ def parse_voice_command(text):
     phrases = (
         (("stop", "halt", "freeze"), "stop"),
         (("recovery stand", "recover"), "recover"),
-        (("stand down",), "stand_down"),
+        (("stand down", "lay down", "lie down"), "stand_down"),
         (("stand", "stand up"), "stand"),
         (("sit", "sit down"), "sit"),
         (("hello", "wave"), "hello"),
         (("stretch",), "stretch"),
+        (("wallow",), "wallow"),
+        (("front pounce", "pounce"), "pounce"),
+        (("wiggle butt", "wiggle hips"), "wiggle_hips"),
         (("dance two", "dance 2"), "dance2"),
         (("dance", "dance one", "dance 1"), "dance1"),
         (("show love", "show me love", "finger heart"), "finger_heart"),

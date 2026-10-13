@@ -8,7 +8,10 @@
   <license>BSD-2-Clause</license>
 
   <depend>rclpy</depend>
+  <depend>rcl_interfaces</depend>
   <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
   <depend>go2_interfaces</depend>
 
   <exec_depend>python3-aiohttp</exec_depend>

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from go2_dashboard_bridge.protocol import normalize_objects, parse_voice_command
+from go2_dashboard_bridge.protocol import SPORT_ACTIONS, normalize_objects, parse_voice_command
 
 
 @pytest.mark.parametrize(
@@ -10,6 +10,10 @@ from go2_dashboard_bridge.protocol import normalize_objects, parse_voice_command
     [
         ("stop now", {"type": "action", "action": "stop"}),
         ("recovery stand", {"type": "action", "action": "recover"}),
+        ("lay down", {"type": "action", "action": "stand_down"}),
+        ("pounce", {"type": "action", "action": "pounce"}),
+        ("wiggle butt", {"type": "action", "action": "wiggle_hips"}),
+        ("wallow", {"type": "action", "action": "wallow"}),
         ("show me love", {"type": "action", "action": "finger_heart"}),
         ("dance two", {"type": "action", "action": "dance2"}),
         ("say I am here", {"type": "tts", "text": "i am here"}),
@@ -19,6 +23,13 @@ from go2_dashboard_bridge.protocol import normalize_objects, parse_voice_command
 )
 def test_parse_voice_command(phrase, expected):
     assert parse_voice_command(phrase) == expected
+
+
+def test_added_dashboard_actions_use_unitree_sport_api_ids():
+    assert SPORT_ACTIONS["stand_down"]["api_id"] == 1005
+    assert SPORT_ACTIONS["wallow"]["api_id"] == 1021
+    assert SPORT_ACTIONS["pounce"]["api_id"] == 1032
+    assert SPORT_ACTIONS["wiggle_hips"]["api_id"] == 1033
 
 
 def test_normalize_objects_orders_by_distance():

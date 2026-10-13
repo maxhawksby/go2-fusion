@@ -27,6 +27,11 @@ test("maps known robot actions", () => {
   assert.equal(parseCommand("sit down").apiId, 1009);
   assert.equal(parseCommand("stretch").apiId, 1017);
   assert.equal(parseCommand("recovery stand").apiId, 1006);
+  assert.equal(parseCommand("lay down").apiId, 1005);
+  assert.equal(parseCommand("stand down").value, "stand_down");
+  assert.equal(parseCommand("pounce").apiId, 1032);
+  assert.equal(parseCommand("wiggle butt").apiId, 1033);
+  assert.equal(parseCommand("wallow").apiId, 1021);
 });
 
 test("returns unknown for unsupported text", () => {

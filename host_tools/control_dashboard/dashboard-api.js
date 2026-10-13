@@ -18,7 +18,9 @@ async function request(path, options = {}) {
 export const dashboardApi = {
   status: () => request("/api/status"),
   objects: () => request("/api/objects"),
+  cameraUrl: () => `${API_BASE}/api/camera.jpg?t=${Date.now()}`,
   action: (action) => request("/api/action", { method: "POST", body: JSON.stringify({ action }) }),
+  obstacleAvoidance: (enabled) => request("/api/obstacle-avoidance", { method: "POST", body: JSON.stringify({ enabled }) }),
   command: (text) => request("/api/command", { method: "POST", body: JSON.stringify({ text }) }),
   tts: (text) => request("/api/tts", { method: "POST", body: JSON.stringify({ text }) }),
 };

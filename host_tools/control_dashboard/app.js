@@ -1,7 +1,11 @@
 import { dashboardApi } from "./dashboard-api.js";
 import { parseCommand } from "./command-parser.js";
 
-const state = { mode: "mock", connected: false, commandEnabled: false, moving: null, log: [] };
+const state = {
+  mode: "mock", connected: false, commandEnabled: false, moving: null, log: [],
+  cameraOnline: false, cameraFrameReady: false, cameraSource: null,
+  obstacleAvoidance: null, obstaclePending: false,
+};
 const motionSpeeds = { forward: 0.2, back: -0.15, left: 0, right: 0 };
 const motionLabels = { forward: "Moving forward", back: "Moving backward", left: "Turning left", right: "Turning right" };
 const $ = (selector) => document.querySelector(selector);
@@ -52,12 +56,42 @@ function renderObjects(objects) {
   `).join("");
 }
 
+function renderObstacleControl(status = {}) {
+  const toggle = $("#obstacle-toggle");
+  const enabled = typeof status.enabled === "boolean" ? status.enabled : null;
+  state.obstacleAvoidance = enabled;
+  state.obstaclePending = Boolean(status.pending);
+  toggle.classList.toggle("on", enabled === true);
+  toggle.setAttribute("aria-checked", enabled === true ? "true" : "false");
+  toggle.querySelector("b").textContent = enabled === null ? "--" : enabled ? "On" : "Off";
+  toggle.disabled = state.mode !== "robot" || !state.commandEnabled || enabled === null || state.obstaclePending;
+  $("#obstacle-status").textContent = status.error
+    ? `Driver error: ${status.error}`
+    : state.obstaclePending ? "Applying setting..."
+      : enabled === null ? "Waiting for the robot driver..."
+        : enabled ? "Robot collision avoidance is on" : "Robot collision avoidance is off";
+}
+
+function resetCamera(message = "Switch to Robot Mode to load the live feed.") {
+  const feed = $("#camera-feed");
+  feed.hidden = true;
+  feed.removeAttribute("src");
+  $("#camera-placeholder").hidden = false;
+  $("#camera-placeholder span").textContent = message;
+  $("#camera-source").textContent = "CAMERA OFFLINE";
+}
+
 async function refreshRobotState({ announce = false } = {}) {
   if (state.mode !== "robot") return;
   try {
     const [status, detection] = await Promise.all([dashboardApi.status(), dashboardApi.objects()]);
     state.connected = status.robot_connected;
     state.commandEnabled = status.command_enabled;
+    state.cameraOnline = status.topics.camera;
+    state.cameraFrameReady = Boolean(status.camera?.frame_ready);
+    state.cameraSource = status.camera?.source || null;
+    if (!state.cameraOnline) resetCamera("The camera topic is offline.");
+    else if (!state.cameraFrameReady) resetCamera("Waiting for the bridge to encode a camera frame...");
     $("#connection-label").textContent = status.robot_connected ? "Robot heartbeat active" : "Bridge online · robot offline";
     $("#simulate-connect").textContent = "Refresh ROS";
     $(".robot-card").classList.toggle("connected", status.robot_connected);
@@ -66,17 +100,22 @@ async function refreshRobotState({ announce = false } = {}) {
     setSensor("imu", status.topics.imu, "Publishing", "Offline");
     setSensor("objects", status.topics.objects, `${detection.objects.length} detected`, "Detector offline");
     renderObjects(detection.objects);
+    renderObstacleControl(status.obstacle_avoidance);
     const safety = status.command_enabled ? "Live actions enabled · movement disabled" : "Read-only Robot Mode · commands disabled";
     $("#safety-status").innerHTML = `<i class="safety-dot"></i> ${safety}`;
     if (announce) addLog("system", status.robot_connected ? "ROS bridge and robot heartbeat found" : "ROS bridge found; waiting for robot heartbeat");
   } catch (error) {
     state.connected = false;
     state.commandEnabled = false;
+    state.cameraOnline = false;
+    state.cameraFrameReady = false;
     $("#connection-label").textContent = "Dashboard bridge offline";
     $("#simulate-connect").textContent = "Retry bridge";
     $(".robot-card").classList.remove("connected");
     ["camera", "lidar", "imu", "objects"].forEach((name) => setSensor(name, false));
     $("#object-list").innerHTML = "<p>Start go2_dashboard_bridge inside the ROS container.</p>";
+    renderObstacleControl();
+    resetCamera("Start the dashboard bridge to load the camera.");
     $("#safety-status").innerHTML = '<i class="safety-dot"></i> Robot publishing unavailable';
     if (announce) addLog("unknown", error.message);
   }
@@ -105,6 +144,8 @@ function setMode(mode) {
     setSensor("imu", false, "Simulated", "Standby");
     setSensor("objects", false, "Demo loaded", "Detector offline");
     $("#object-list").innerHTML = "<p>Switch to Robot Mode to read detections.</p>";
+    renderObstacleControl();
+    resetCamera();
     $("#safety-status").innerHTML = '<i class="safety-dot"></i> Robot publishing disabled';
     addLog("system", "Mock Mode selected");
   }
@@ -112,6 +153,22 @@ function setMode(mode) {
 
 $("#mode-toggle").addEventListener("click", () => setMode(state.mode === "mock" ? "robot" : "mock"));
 setInterval(() => refreshRobotState(), 1500);
+
+const cameraFeed = $("#camera-feed");
+cameraFeed.addEventListener("load", () => {
+  cameraFeed.hidden = false;
+  $("#camera-placeholder").hidden = true;
+  $("#camera-source").textContent = state.cameraSource === "annotated" ? "LIVE · OBJECT OVERLAY" : "LIVE · RAW CAMERA";
+});
+cameraFeed.addEventListener("error", () => {
+  cameraFeed.hidden = true;
+  $("#camera-placeholder").hidden = false;
+  $("#camera-placeholder span").textContent = "Waiting for a camera frame...";
+});
+setInterval(() => {
+  if (state.mode !== "robot" || !state.cameraOnline || !state.cameraFrameReady) return;
+  cameraFeed.src = dashboardApi.cameraUrl();
+}, 300);
 
 $("#simulate-connect").addEventListener("click", () => {
   if (state.mode === "robot") {
@@ -236,6 +293,22 @@ $("#stop-button").addEventListener("click", () => {
   if (state.mode === "robot") performAction("stop", "Stop movement", "stop button");
 });
 $$('[data-action]').forEach((button) => button.addEventListener("click", () => performAction(button.dataset.action, button.dataset.label, "quick action")));
+$("#obstacle-toggle").addEventListener("click", async () => {
+  if (state.mode !== "robot" || !state.commandEnabled || state.obstacleAvoidance === null || state.obstaclePending) return;
+  const enabled = !state.obstacleAvoidance;
+  state.obstaclePending = true;
+  renderObstacleControl({ enabled: state.obstacleAvoidance, pending: true });
+  try {
+    await dashboardApi.obstacleAvoidance(enabled);
+    showInterpretation("Obstacle avoidance", `${enabled ? "Enabling" : "Disabling"} through the robot driver...`);
+    addLog("action", `Obstacle avoidance ${enabled ? "enable" : "disable"} requested`);
+  } catch (error) {
+    state.obstaclePending = false;
+    renderObstacleControl({ enabled: state.obstacleAvoidance, error: error.message });
+    showInterpretation("Setting blocked", error.message);
+    addLog("unknown", error.message);
+  }
+});
 $("#command-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const input = $("#command-input");

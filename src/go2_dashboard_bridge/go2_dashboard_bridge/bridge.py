@@ -7,9 +7,14 @@ import threading
 import time
 
 from aiohttp import web
+import cv2
+from cv_bridge import CvBridge
 import rclpy
+from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
 from go2_interfaces.msg import Go2State, WebRtcReq
@@ -25,16 +30,22 @@ class DashboardBridge(Node):
         self.declare_parameter("allow_commands", False)
         self.declare_parameter("state_topic", "/go2_states")
         self.declare_parameter("objects_topic", "/detected_objects_dict")
+        self.declare_parameter("camera_topic", "/camera/image_raw")
+        self.declare_parameter("annotated_camera_topic", "/detections/image_annotated")
         self.declare_parameter("sport_topic", "/webrtc_req")
         self.declare_parameter("tts_topic", "/tts")
+        self.declare_parameter("driver_node", "/go2_driver_node")
 
         self.host = self.get_parameter("host").value
         self.port = int(self.get_parameter("port").value)
         self.allow_commands = bool(self.get_parameter("allow_commands").value)
         self.state_topic = self.get_parameter("state_topic").value
         self.objects_topic = self.get_parameter("objects_topic").value
+        self.camera_topic = self.get_parameter("camera_topic").value
+        self.annotated_camera_topic = self.get_parameter("annotated_camera_topic").value
         self.sport_topic = self.get_parameter("sport_topic").value
         self.tts_topic = self.get_parameter("tts_topic").value
+        self.driver_node = self.get_parameter("driver_node").value
 
         sensor_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -43,15 +54,36 @@ class DashboardBridge(Node):
         )
         self.create_subscription(Go2State, self.state_topic, self._state_callback, sensor_qos)
         self.create_subscription(String, self.objects_topic, self._objects_callback, 10)
+        self.create_subscription(Image, self.camera_topic, self._raw_camera_callback, sensor_qos)
+        self.create_subscription(Image, self.annotated_camera_topic, self._annotated_camera_callback, sensor_qos)
         self.sport_publisher = self.create_publisher(WebRtcReq, self.sport_topic, 10)
         self.tts_publisher = self.create_publisher(String, self.tts_topic, 10)
+        parameter_prefix = self.driver_node.rstrip("/")
+        self.get_driver_parameters = self.create_client(
+            GetParameters, f"{parameter_prefix}/get_parameters"
+        )
+        self.set_driver_parameters = self.create_client(
+            SetParameters, f"{parameter_prefix}/set_parameters"
+        )
 
         self._last_state = 0.0
         self._last_objects = 0.0
         self._objects = []
         self._object_error = None
+        self._cv_bridge = CvBridge()
+        self._camera_lock = threading.Lock()
+        self._camera_jpeg = None
+        self._camera_source = None
+        self._last_camera_encode = 0.0
+        self._last_annotated_message = 0.0
+        self._camera_error = None
+        self._obstacle_avoidance = None
+        self._obstacle_pending = False
+        self._obstacle_query_in_flight = False
+        self._obstacle_error = None
         self._commands = queue.SimpleQueue()
         self.create_timer(0.05, self._drain_commands)
+        self.create_timer(1.0, self._refresh_obstacle_avoidance)
 
         self._loop = None
         self._runner = None
@@ -71,6 +103,79 @@ class DashboardBridge(Node):
         except (ValueError, json.JSONDecodeError) as exc:
             self._object_error = str(exc)
 
+    def _raw_camera_callback(self, message):
+        self._camera_callback(message, "raw")
+
+    def _annotated_camera_callback(self, message):
+        self._last_annotated_message = time.monotonic()
+        self._camera_callback(message, "annotated")
+
+    def _camera_callback(self, message, source):
+        now = time.monotonic()
+        if source == "raw" and now - self._last_annotated_message < 1.0:
+            return
+        if now - self._last_camera_encode < 0.2:
+            return
+        self._last_camera_encode = now
+        try:
+            frame = self._cv_bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
+            encoded, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            if not encoded:
+                raise ValueError("OpenCV could not encode the camera frame")
+            with self._camera_lock:
+                self._camera_jpeg = jpeg.tobytes()
+                self._camera_source = source
+                self._camera_error = None
+        except Exception as exc:
+            self._camera_error = str(exc)
+
+    def _refresh_obstacle_avoidance(self):
+        if self._obstacle_pending or self._obstacle_query_in_flight:
+            return
+        if not self.get_driver_parameters.service_is_ready():
+            return
+        self._obstacle_query_in_flight = True
+        request = GetParameters.Request()
+        request.names = ["obstacle_avoidance"]
+        future = self.get_driver_parameters.call_async(request)
+        future.add_done_callback(self._obstacle_query_done)
+
+    def _obstacle_query_done(self, future):
+        self._obstacle_query_in_flight = False
+        try:
+            response = future.result()
+            if not response.values:
+                raise RuntimeError("Driver did not return obstacle_avoidance")
+            self._obstacle_avoidance = bool(response.values[0].bool_value)
+            self._obstacle_error = None
+        except Exception as exc:
+            self._obstacle_error = str(exc)
+
+    def _set_obstacle_avoidance(self, enabled):
+        if not self.set_driver_parameters.service_is_ready():
+            self._obstacle_pending = False
+            self._obstacle_error = f"Parameter service for {self.driver_node} is unavailable"
+            return
+        self._obstacle_pending = True
+        self._obstacle_error = None
+        request = SetParameters.Request()
+        request.parameters = [Parameter("obstacle_avoidance", value=enabled).to_parameter_msg()]
+        future = self.set_driver_parameters.call_async(request)
+        future.add_done_callback(lambda result: self._obstacle_set_done(result, enabled))
+
+    def _obstacle_set_done(self, future, enabled):
+        self._obstacle_pending = False
+        try:
+            response = future.result()
+            if not response.results or not response.results[0].successful:
+                reason = response.results[0].reason if response.results else "No result returned"
+                raise RuntimeError(reason)
+            self._obstacle_avoidance = enabled
+            self._obstacle_error = None
+            self.get_logger().info(f"Dashboard set obstacle avoidance to {enabled}")
+        except Exception as exc:
+            self._obstacle_error = str(exc)
+
     def _topic_online(self, topic):
         return self.count_publishers(topic) > 0
 
@@ -84,6 +189,16 @@ class DashboardBridge(Node):
             "state_age_sec": state_age,
             "object_age_sec": object_age,
             "object_error": self._object_error,
+            "camera": {
+                "frame_ready": self._camera_jpeg is not None,
+                "source": self._camera_source,
+                "error": self._camera_error,
+            },
+            "obstacle_avoidance": {
+                "enabled": self._obstacle_avoidance,
+                "pending": self._obstacle_pending,
+                "error": self._obstacle_error,
+            },
             "topics": {
                 "camera": self._topic_online("/camera/image_raw"),
                 "lidar": self._topic_online("/point_cloud2"),
@@ -99,6 +214,9 @@ class DashboardBridge(Node):
 
     def _enqueue_tts(self, text):
         self._commands.put(("tts", text))
+
+    def _enqueue_obstacle_avoidance(self, enabled):
+        self._commands.put(("obstacle_avoidance", enabled))
 
     def _drain_commands(self):
         while True:
@@ -121,6 +239,8 @@ class DashboardBridge(Node):
                 message.data = value
                 self.tts_publisher.publish(message)
                 self.get_logger().info("Dashboard published a TTS request")
+            elif command_type == "obstacle_avoidance":
+                self._set_obstacle_avoidance(value)
 
     @web.middleware
     async def _cors_middleware(self, request, handler):
@@ -149,6 +269,20 @@ class DashboardBridge(Node):
 
     async def _objects_handler(self, _request):
         return web.json_response({"objects": self._objects, "error": self._object_error})
+
+    async def _camera_handler(self, _request):
+        with self._camera_lock:
+            jpeg = self._camera_jpeg
+        if jpeg is None:
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({"error": self._camera_error or "No camera frame received yet"}),
+                content_type="application/json",
+            )
+        return web.Response(
+            body=jpeg,
+            content_type="image/jpeg",
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
 
     async def _read_json(self, request):
         try:
@@ -194,6 +328,29 @@ class DashboardBridge(Node):
         self._enqueue_tts(text)
         return web.json_response({"queued": True, "text": text})
 
+    async def _obstacle_avoidance_handler(self, request):
+        self._require_commands()
+        body = await self._read_json(request)
+        enabled = body.get("enabled")
+        if not isinstance(enabled, bool):
+            raise web.HTTPBadRequest(
+                text=json.dumps({"error": "enabled must be true or false"}),
+                content_type="application/json",
+            )
+        if self._obstacle_pending:
+            raise web.HTTPConflict(
+                text=json.dumps({"error": "An obstacle avoidance update is already pending"}),
+                content_type="application/json",
+            )
+        if not self.set_driver_parameters.service_is_ready():
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({"error": f"Parameter service for {self.driver_node} is unavailable"}),
+                content_type="application/json",
+            )
+        self._obstacle_pending = True
+        self._enqueue_obstacle_avoidance(enabled)
+        return web.json_response({"queued": True, "enabled": enabled})
+
     async def _command_handler(self, request):
         self._require_commands()
         body = await self._read_json(request)
@@ -221,7 +378,9 @@ class DashboardBridge(Node):
             web.get("/health", self._health_handler),
             web.get("/api/status", self._status_handler),
             web.get("/api/objects", self._objects_handler),
+            web.get("/api/camera.jpg", self._camera_handler),
             web.post("/api/action", self._action_handler),
+            web.post("/api/obstacle-avoidance", self._obstacle_avoidance_handler),
             web.post("/api/tts", self._tts_handler),
             web.post("/api/command", self._command_handler),
             web.options("/{path:.*}", self._health_handler),
