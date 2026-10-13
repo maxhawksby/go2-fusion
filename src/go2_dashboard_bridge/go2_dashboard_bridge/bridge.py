@@ -124,10 +124,16 @@ class DashboardBridge(Node):
 
     @web.middleware
     async def _cors_middleware(self, request, handler):
-        if request.method == "OPTIONS":
-            response = web.Response(status=204)
-        else:
-            response = await handler(request)
+        try:
+            if request.method == "OPTIONS":
+                response = web.Response(status=204)
+            else:
+                response = await handler(request)
+        except web.HTTPException as error:
+            # aiohttp turns HTTP exceptions into responses after middleware
+            # unwinds. Catch them here so browser clients receive CORS headers
+            # and can show the API's useful error instead of "Failed to fetch".
+            response = error
         origin = request.headers.get("Origin")
         if origin in {"http://localhost:3000", "http://127.0.0.1:3000"}:
             response.headers["Access-Control-Allow-Origin"] = origin
