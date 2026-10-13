@@ -69,7 +69,7 @@ function renderObstacleControl(status = {}) {
     ? `Driver error: ${status.error}`
     : state.obstaclePending ? "Applying setting..."
       : enabled === null ? "Waiting for the robot driver..."
-        : enabled ? "Robot collision avoidance is on" : "Robot collision avoidance is off";
+        : enabled ? "Used by later ROS movement commands" : "ROS movement commands use direct velocity";
 }
 
 function resetCamera(message = "Switch to Robot Mode to load the live feed.") {

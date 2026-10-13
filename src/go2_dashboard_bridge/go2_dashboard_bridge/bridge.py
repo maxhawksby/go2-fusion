@@ -226,14 +226,20 @@ class DashboardBridge(Node):
                 return
             if command_type == "action":
                 action = SPORT_ACTIONS[value]
-                message = WebRtcReq()
-                message.id = 0
-                message.topic = "rt/api/sport/request"
-                message.api_id = action["api_id"]
-                message.parameter = "{}"
-                message.priority = 1 if value == "stop" else 0
-                self.sport_publisher.publish(message)
-                self.get_logger().info(f"Dashboard action: {value} ({action['api_id']})")
+                commands = [
+                    {"api_id": action["api_id"], "parameter": action.get("parameter", {})},
+                    *action.get("followups", []),
+                ]
+                for command in commands:
+                    message = WebRtcReq()
+                    message.id = 0
+                    message.topic = "rt/api/sport/request"
+                    message.api_id = command["api_id"]
+                    message.parameter = json.dumps(command.get("parameter", {}))
+                    message.priority = 1 if value == "stop" else 0
+                    self.sport_publisher.publish(message)
+                command_ids = ", ".join(str(command["api_id"]) for command in commands)
+                self.get_logger().info(f"Dashboard action: {value} ({command_ids})")
             elif command_type == "tts":
                 message = String()
                 message.data = value

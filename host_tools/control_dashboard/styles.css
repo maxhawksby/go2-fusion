@@ -85,7 +85,9 @@ h1 { max-width: 690px; margin: 0 0 18px; color: var(--navy); font-size: clamp(40
 .action-grid { margin-top: 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .action-grid button { min-height: 112px; padding: 12px 8px; border: 1px solid #ccd7e5; border-radius: 10px; color: var(--navy); background: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: .14s ease; }
 .action-grid button:hover { border-color: var(--blue); background: var(--pale-blue); transform: translateY(-2px); }
+.action-grid button.unavailable { cursor: not-allowed; opacity: .48; } .action-grid button.unavailable:hover { border-color: #ccd7e5; background: #f8fafc; transform: none; }
 .action-grid button > span { margin-bottom: 7px; color: var(--blue); font-size: 12px; font-weight: 800; } .action-grid strong { font-size: 15px; } .action-grid small { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.action-note { margin: 12px 2px 0; color: var(--muted); font-size: 12px; }
 .obstacle-control { margin-top: 14px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border: 1px solid #ccd7e5; border-radius: 10px; background: var(--pale-blue); }
 .obstacle-control strong, .obstacle-control small { display: block; } .obstacle-control small { margin-top: 3px; color: var(--muted); }
 .switch { min-width: 92px; padding: 7px 11px; display: flex; align-items: center; gap: 9px; border: 1px solid #aebdd0; border-radius: 999px; color: var(--ink); background: var(--white); }
