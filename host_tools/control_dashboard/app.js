@@ -335,7 +335,10 @@ if (SpeechRecognition) {
   recognition.continuous = true;
   let listeningRequested = false;
   let recognitionActive = false;
-  let startupTimer = null;
+  let readyTimer = null;
+  let bufferElapsed = false;
+  let readyForSpeech = false;
+  let resultOffset = 0;
   let transcript = "";
   const MICROPHONE_BUFFER_MS = 3000;
   const BrowserAudioContext = window.AudioContext || window.webkitAudioContext;
@@ -356,42 +359,61 @@ if (SpeechRecognition) {
 
   $("#voice-support").textContent = "Press once to begin";
 
+  const markReadyIfPossible = () => {
+    if (!listeningRequested || !recognitionActive || !bufferElapsed || readyForSpeech) return;
+    readyForSpeech = true;
+    transcript = "";
+    $("#command-input").value = "";
+    talkButton.classList.remove("starting");
+    talkButton.classList.add("listening");
+    talkButton.querySelector("strong").textContent = "Stop and process";
+    $("#voice-support").textContent = "Speak now; press again when finished";
+    $("#listening-status").textContent = "Listening now...";
+    $("#listening-status").classList.add("live");
+    playReadyTone();
+  };
+
   const startListening = () => {
     if (listeningRequested || recognitionActive) return;
     listeningRequested = true;
+    bufferElapsed = false;
+    readyForSpeech = false;
+    resultOffset = 0;
     transcript = "";
     talkButton.classList.add("starting");
-    talkButton.querySelector("strong").textContent = "Starting microphone...";
+    talkButton.querySelector("strong").textContent = "Turning microphone on...";
     $("#voice-support").textContent = "Wait for the ready tone";
-    $("#listening-status").textContent = "Opening Chrome speech recognition...";
-    startupTimer = window.setTimeout(() => {
-      startupTimer = null;
-      if (!listeningRequested) return;
-      try {
-        recognition.start();
-      } catch (error) {
-        listeningRequested = false;
-        talkButton.classList.remove("starting");
-        talkButton.querySelector("strong").textContent = "Start listening";
-        $("#voice-support").textContent = "Press once to begin";
-        $("#listening-status").textContent = "Microphone idle";
-        addLog("unknown", `Microphone error: ${error.message}`);
-      }
+    $("#listening-status").textContent = "Opening microphone and starting 3-second ready period...";
+    readyTimer = window.setTimeout(() => {
+      readyTimer = null;
+      bufferElapsed = true;
+      markReadyIfPossible();
     }, MICROPHONE_BUFFER_MS);
+    try {
+      // Start Chrome immediately. The three-second ready period runs at the
+      // same time, and early recognition results are discarded.
+      recognition.start();
+    } catch (error) {
+      listeningRequested = false;
+      window.clearTimeout(readyTimer);
+      readyTimer = null;
+      talkButton.classList.remove("starting");
+      talkButton.querySelector("strong").textContent = "Start listening";
+      $("#voice-support").textContent = "Press once to begin";
+      $("#listening-status").textContent = "Microphone idle";
+      addLog("unknown", `Microphone error: ${error.message}`);
+    }
   };
 
   const stopListening = () => {
     if (!listeningRequested && !recognitionActive) return;
     listeningRequested = false;
-    if (startupTimer !== null) {
-      window.clearTimeout(startupTimer);
-      startupTimer = null;
-      talkButton.classList.remove("starting");
-      talkButton.querySelector("strong").textContent = "Start listening";
-      $("#voice-support").textContent = "Press once to begin";
-      $("#listening-status").textContent = "Microphone idle";
-    }
+    readyForSpeech = false;
+    bufferElapsed = false;
+    window.clearTimeout(readyTimer);
+    readyTimer = null;
     if (recognitionActive) recognition.stop();
+    else recognition.abort();
   };
 
   talkButton.addEventListener("click", () => {
@@ -401,19 +423,21 @@ if (SpeechRecognition) {
 
   recognition.addEventListener("start", () => {
     recognitionActive = true;
-    talkButton.classList.remove("starting");
     talkButton.classList.add("listening");
-    talkButton.querySelector("strong").textContent = "Stop and process";
-    $("#voice-support").textContent = "Press again when you are finished";
-    $("#listening-status").textContent = "Listening now...";
+    talkButton.querySelector("strong").textContent = "Microphone on · getting ready...";
+    $("#voice-support").textContent = "Wait for the ready tone";
+    $("#listening-status").textContent = "Microphone is on; finishing the 3-second ready period...";
     $("#listening-status").classList.add("live");
-    playReadyTone();
+    markReadyIfPossible();
     if (!listeningRequested) recognition.stop();
   });
   recognition.addEventListener("end", () => {
     recognitionActive = false;
     listeningRequested = false;
-    startupTimer = null;
+    window.clearTimeout(readyTimer);
+    readyTimer = null;
+    bufferElapsed = false;
+    readyForSpeech = false;
     talkButton.classList.remove("starting");
     talkButton.classList.remove("listening");
     talkButton.querySelector("strong").textContent = "Start listening";
@@ -424,7 +448,11 @@ if (SpeechRecognition) {
     transcript = "";
   });
   recognition.addEventListener("result", (event) => {
-    transcript = [...event.results].map((result) => result[0].transcript).join(" ").trim();
+    if (!readyForSpeech) {
+      resultOffset = event.results.length;
+      return;
+    }
+    transcript = [...event.results].slice(resultOffset).map((result) => result[0].transcript).join(" ").trim();
     $("#command-input").value = transcript;
     $("#listening-status").textContent = transcript ? `Hearing: “${transcript}”` : "Listening now...";
   });
