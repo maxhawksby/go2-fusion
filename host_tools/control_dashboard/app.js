@@ -8,6 +8,7 @@ const state = {
 };
 const motionSpeeds = { forward: 0.2, back: -0.15, left: 0, right: 0 };
 const motionLabels = { forward: "Moving forward", back: "Moving backward", left: "Turning left", right: "Turning right" };
+const OBSTACLE_CONTROL_ENABLED = false;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const clock = $("#clock");
@@ -63,9 +64,11 @@ function renderObstacleControl(status = {}) {
   state.obstaclePending = Boolean(status.pending);
   toggle.classList.toggle("on", enabled === true);
   toggle.setAttribute("aria-checked", enabled === true ? "true" : "false");
-  toggle.querySelector("b").textContent = enabled === null ? "--" : enabled ? "On" : "Off";
-  toggle.disabled = state.mode !== "robot" || !state.commandEnabled || enabled === null || state.obstaclePending;
-  $("#obstacle-status").textContent = status.error
+  toggle.querySelector("b").textContent = !OBSTACLE_CONTROL_ENABLED ? "Later" : enabled === null ? "--" : enabled ? "On" : "Off";
+  toggle.disabled = !OBSTACLE_CONTROL_ENABLED || state.mode !== "robot" || !state.commandEnabled || enabled === null || state.obstaclePending;
+  $("#obstacle-status").textContent = !OBSTACLE_CONTROL_ENABLED
+    ? "Unavailable while the team validates movement control"
+    : status.error
     ? `Driver error: ${status.error}`
     : state.obstaclePending ? "Applying setting..."
       : enabled === null ? "Waiting for the robot driver..."
@@ -294,7 +297,7 @@ $("#stop-button").addEventListener("click", () => {
 });
 $$('[data-action]').forEach((button) => button.addEventListener("click", () => performAction(button.dataset.action, button.dataset.label, "quick action")));
 $("#obstacle-toggle").addEventListener("click", async () => {
-  if (state.mode !== "robot" || !state.commandEnabled || state.obstacleAvoidance === null || state.obstaclePending) return;
+  if (!OBSTACLE_CONTROL_ENABLED || state.mode !== "robot" || !state.commandEnabled || state.obstacleAvoidance === null || state.obstaclePending) return;
   const enabled = !state.obstacleAvoidance;
   state.obstaclePending = true;
   renderObstacleControl({ enabled: state.obstacleAvoidance, pending: true });
