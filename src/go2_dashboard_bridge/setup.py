@@ -16,6 +16,11 @@ setup(
     maintainer_email="team48@uconn.edu",
     description="Stable local API between the Oak Control dashboard and ROS 2.",
     license="BSD-2-Clause",
+    extras_require={
+        "test": [
+            "pytest",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "dashboard_bridge = go2_dashboard_bridge.bridge:main",
