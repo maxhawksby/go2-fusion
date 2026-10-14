@@ -18,7 +18,7 @@ All ROS packages live under `src/`.
 | `lidar_processor`, `lidar_processor_cpp` | Point cloud processing |
 | `go2_rviz_plugins` | RViz panels: map viewer, auto mapper, keyboard teleop |
 | `coco_detector` | Object detection on the camera feed (MobileNet, `/detected_objects`); to be retired in favor of `object_detection` |
-| `object_detection` | YOLOv8 detector with rough object positions and a 20 s memory (`/detected_objects/poses`, `/detected_objects_dict`) |
+| `object_detection` | YOLOv8 detector with rough object positions and a 20 s memory on the map (`/detected_objects_dict`, RViz markers on `/detected_objects/markers`) |
 | `object_navigation` | Walks toward a detected object (`/navigate_to_object`); no obstacle avoidance |
 | `go2_llm_agent` | Plain-English commands to robot actions via an LLM. Being rebuilt on Claude (plan in `docs/plans/pending/`): its pip deps are not in the image, so it builds but does not run |
 | `speech_processor` | Text to speech through the robot's speaker |

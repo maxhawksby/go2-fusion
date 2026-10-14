@@ -251,7 +251,7 @@ Until you have some experience, we suggest following your dog and picking it up 
 
 > [!NOTE]
 > This repo also has a YOLOv8 detector that estimates rough object positions:
-> [`object_detection`](src/object_detection/README.md). It publishes on `/detected_objects/poses` and
+> [`object_detection`](src/object_detection/README.md). It publishes on `/detected_objects/markers` and
 > `/detected_objects_dict`, so it can run alongside `coco_detector`.
 
 This capability is directly based on [J. Francis's work](https://github.com/jfrancis71/ros2_coco_detector). Launch the `go2_ro2_sdk`. After a few seconds, the color image data will be available at `go2_camera/color/image`. On another terminal enter:
