@@ -17,7 +17,7 @@ An *LLM* (large language model) is the kind of AI behind chatbots. The agent han
 
 **Two versions exist right now.**
 
-- **On `master` (Riley's original):** built by Riley Francis on OpenAI's paid GPT-4o-mini, using the LangChain and LangGraph libraries. We brought it in almost as-is. Its Python libraries are deliberately not installed in our Docker image, so it builds but `ros2 run` fails on missing imports.
+- **On upstream `master` before this branch merges (Riley's original):** built by Riley Francis on OpenAI's paid GPT-4o-mini, using the LangChain and LangGraph libraries. We brought it in almost as-is. Its Python libraries are deliberately not installed in our Docker image, so it builds but `ros2 run` fails on missing imports.
 - **On branch `adib/feat/llm-agent` (the team's direction):** Adib replaced the paid model with **Ollama**, a free program that runs AI models on your own computer, running a small **Qwen** model (`qwen3:4b-instruct-2507-q4_K_M`). No API key and no extra Python libraries are needed.
 
 In Adib's version, a local checker validates every plan before anything moves: at most 4 steps, each timed move at most 5 s, walking at 0.2 m/s and turning at 0.5 rad/s. If any part of a request is unsupported, nothing runs. Typing `stop` cancels right away, without waiting for the model. Angle turns ("turn left 90 degrees") watch Oak's heading on `/odom` and stop when the turn is done, instead of guessing from time.
@@ -77,7 +77,53 @@ From Adib's branch README:
 
 ## Who's on it and what's next
 
-**Adib** built the Ollama version and tested it in mock mode; the team update says it was also tried on Oak. Next, Adib moves to odometry reliability (why position data sometimes stops) and turn accuracy (requested vs measured rotation). TODO(Adib): when the branch merges into `master`. Its packages sit at the repo root (the layout before packages moved into `src/`), so it needs a rebase first.
+**Adib** built the Ollama version and tested it in mock mode; the team update says it was also tried on Oak. Next, Adib moves to odometry reliability (why position data sometimes stops) and turn accuracy (requested vs measured rotation). TODO(Adib): when the branch merges into `master`. The branch has been rebased onto the current workspace layout: its package and tests now live under `src/go2_llm_agent/`.
+
+## Set up the Ollama version
+
+Run Ollama on the host or a shared model server. On a Mac, running it natively
+lets it use the Apple GPU; the ROS agent remains in Docker. Install the model once:
+
+```shell
+ollama pull qwen3:4b-instruct-2507-q4_K_M
+```
+
+Follow [Mac setup](mac-setup.md) or [WSL and Windows](wsl.md) to start the workspace.
+From the repository root on a Mac, rebuild the agent once and enter Docker:
+
+```shell
+bash docker/mac/go2.sh rebuild go2_llm_agent
+bash docker/mac/go2.sh shell
+```
+
+The default Ollama server is `http://host.docker.internal:11434`. Change it with
+`--ollama-url` (or `OLLAMA_BASE_URL`) for a shared server; change the model with
+`--model` (or `OLLAMA_MODEL`). `--check` checks reachability and the installed model.
+No extra pip installs are needed. Speech recognition, speech output, posture and
+object navigation are outside this typed-command feature; the old speech bridge
+entry point exits with an explanation instead of starting an HTTP server.
+
+The default is mock mode, which prints simulated commands and sends no ROS messages.
+`--plan-only` also never publishes, even if `--mode ros` is supplied. For live use,
+start the driver and twist_mux separately before the agent:
+
+```shell
+ros2 run twist_mux twist_mux --ros-args --params-file /ros2_ws/src/go2_robot_sdk/config/twist_mux.yaml
+ros2 run go2_llm_agent agent --mode ros --timeout 60 --keep-alive 0
+```
+
+This does not start a connection to Oak. Keep only one direct driver connection;
+see [Robot link](robot-link.md). `stop`, `quit`, Ctrl+C and terminal EOF cancel this
+agent's pending actions. Cancellation during interpretation discards the eventual
+model reply; another request waits for it to finish. There are no automatic retries
+that could replay a movement.
+
+Inside Docker, run the isolated DDS test with simulated heading (domain 87 is
+separate from the normal robot session):
+
+```shell
+ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=87 python3 /ros2_ws/src/go2_llm_agent/test/ros_motion_smoke.py
+```
 
 ## The code
 

@@ -1,277 +1,194 @@
-import time
+"""Typed requests -> Ollama -> validated actions; simulation is always default."""
+
+import argparse
+import json
+import math
 import os
+import threading
+import time
 
-from typing import Annotated, List, TypedDict, Optional, Literal, Dict, Any
-from pydantic import BaseModel, Field
+from go2_llm_agent.commands import is_stop
+from go2_llm_agent.ollama_client import DEFAULT_MODEL, DEFAULT_URL, ModelError, OllamaClient
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
+HEADING_MAX_AGE_S = 1.0
+TURN_TOLERANCE_RAD = math.radians(2)
 
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
 
-from dotenv import load_dotenv
-load_dotenv()
+def fresh_heading(motion):
+    heading = motion.read_heading()
+    if heading is None or time.monotonic() - heading.received_at > HEADING_MAX_AGE_S:
+        raise RuntimeError("Fresh /odom heading is required for angle turns; no timed substitute will run.")
+    if not math.isfinite(heading.radians):
+        raise RuntimeError("Invalid /odom heading.")
+    return heading.radians
 
-TESTING = os.getenv("ROBOT_ENV", "testing") != "live"
 
-if TESTING:
-    print("Running in TESTING mode\n")
-    from go2_llm_agent.ros2_mock_motion import MockMotionController
-    motion = MockMotionController()
-else:
-    from go2_llm_agent.ros2_motion import RosMotionController
-    motion = RosMotionController(cmd_vel_topic="/cmd_vel_agent")
+class AgentSession:
+    """One request at a time; terminal input stays available for local stop."""
 
-motion.start()
-perception = motion
+    def __init__(self, client, motion, output=print, plan_only=False):
+        self.client, self.motion, self.output = client, motion, output
+        self.plan_only = plan_only
+        self._lock = threading.RLock()
+        self._cancel = threading.Event()
+        self._worker = None
+        self._closed = False
+        self.last_error = None
 
-# Tools
-@tool
-def walk(duration_s: float = 1.0, speed_mps: float = 0.3) -> str:
-    """Make the robot walk"""
-    motion.walk(duration_s=duration_s, speed_mps=speed_mps)
-    return f"Walked for {duration_s}s at {speed_mps} m/s."
+    def submit(self, text):
+        if is_stop(text):
+            self.stop()
+            return True
+        if not text.strip():
+            return False
+        if len(text) > 1000:
+            self.output("Command is too long (maximum 1000 characters).")
+            return False
+        with self._lock:
+            if self._closed:
+                return False
+            if self._worker is not None and self._worker.is_alive():
+                self.output("Busy with the current request. Type stop to cancel; wait for it to finish before another request.")
+                return False
+            self._cancel = threading.Event()
+            self.last_error = None
+            self._worker = threading.Thread(target=self._run, args=(text, self._cancel), daemon=True)
+            self._worker.start()
+        return True
 
-@tool
-def turn_in_place(duration_s: float = 1.0, angular_z: float = 0.8) -> str:
-    """Turn in place"""
-    motion.turn_in_place(duration_s=duration_s, angular_z=angular_z)
-    direction = "CCW" if angular_z >= 0 else "CW"
-    return f"Turned {direction} for {duration_s}s at {angular_z} rad/s."
-
-@tool
-def sit(duration_s: float = 3.0) -> str:
-    """Make the robot sit down for duration_s seconds, then stand back up."""
-    motion.sit(duration_s=duration_s)
-    return f"Sat for {duration_s}s."
-
-@tool
-def stretch(duration_s: float = 3.0) -> str:
-    """Make the robot stretch for duration_s seconds."""
-    motion.stretch(duration_s=duration_s)
-    return f"Stretched for {duration_s}s."
-
-@tool
-def stand_up() -> str:
-    """Make the robot stand up."""
-    motion.stand_up()
-    return "Stood up."
-
-@tool
-def stand_down() -> str:
-    """Make the lay down."""
-    motion.stand_down()
-    return "Stood down."
-
-@tool
-def recovery_stand() -> str:
-    """Make the robot recover to a standing position from any pose."""
-    motion.recovery_stand()
-    return "Recovery stand complete."
-
-@tool
-def look_for_object(label: str) -> str:
-    """Check if a specific object is currently visible in the camera."""
-    result = perception.find_object(label)
-
-    if result is None:
-        return f"'{label}' not detected."
-
-    return f"Found '{label}' at x={result['x']}, y={result['y']}."
-
-tools = [walk, turn_in_place, sit, stretch, stand_up, stand_down, recovery_stand, look_for_object]
-TOOLS_BY_NAME = {t.name: t for t in tools}
-
-# Planner schema
-class Step(BaseModel):
-    action: Literal["walk", "turn_in_place", "sit", "stretch", "stand_up", "stand_down", "recovery_stand", "look_for_object"]
-    duration_s: Optional[float] = Field(default=None, ge=0.0)
-    label: Optional[str] = Field(default=None)
-
-class Plan(BaseModel):
-    steps: List[Step]
-
-# State
-class AgentState(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]
-    plan: Optional[Plan]
-    step_idx: int
-
-# LLMs
-planner_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0).with_structured_output(Plan)
-executor_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0).bind_tools(tools)
-
-# Debug helpers
-def print_plan(plan: Plan):
-    print("\n PLAN:")
-    for i, st in enumerate(plan.steps, start=1):
-        print(f"  {i}. {st.model_dump()}")
-
-def print_step(step_idx: int, step: Step):
-    print(f"\n  STEP {step_idx+1}: {step.model_dump()}")
-
-def print_tool_call(name: str, args: Dict[str, Any]):
-    print(f" TOOL CALL: {name}({args})")
-
-def print_tool_result(name: str, result: str):
-    print(f" TOOL RESULT ({name}): {result}")
-
-# Nodes
-def plan_node(state: AgentState):
-    system = SystemMessage(content=(
-        "You are a motion planner for a ROS2 robot.\n"
-        "Return a plan using ONLY these actions:\n"
-        "- walk(duration_s, speed_mps)\n"
-        "- turn_in_place(duration_s, angular_z)\n"
-        "- sit(duration_s)\n"
-        "- stretch(duration_s)\n"
-        "- stand_up()\n"
-        "- stand_down()\n"
-        "- recovery_stand()\n"
-        "- look_for_object(label) — check if an object is visible before acting\n\n"
-        "Rules:\n"
-        "1. Only include actions needed to satisfy the request.\n"
-        "2. Do not invent actions.\n"
-        "3. If the user does not specify parameters, use sensible defaults.\n"
-        "4. Keep the plan short.\n"
-        "5. For conversation-only requests like 'hi', return an empty plan.\n"
-    ))
-    plan = planner_llm.invoke([system] + state["messages"])
-    print_plan(plan)
-    return {"plan": plan, "step_idx": 0}
-
-def execute_step_node(state: AgentState):
-    assert state["plan"] is not None
-    idx = state["step_idx"]
-
-    if idx >= len(state["plan"].steps):
-        return {}
-
-    step = state["plan"].steps[idx]
-    print_step(idx, step)
-
-    system = SystemMessage(content=(
-        "You are executing ONE step of a robot motion plan.\n"
-        "Call exactly one tool corresponding to the step. Do not add extra steps."
-    ))
-    user = HumanMessage(content=f"Execute step: {step.model_dump()}")
-    response = executor_llm.invoke([system, user])
-
-    tcalls = getattr(response, "tool_calls", None) or []
-    if tcalls:
-        for tc in tcalls:
-            print_tool_call(tc["name"], tc.get("args", {}))
-
-    return {"messages": [response]}
-
-def run_tools_node(state: AgentState):
-    if not state["messages"]:
-        return {}
-
-    last = state["messages"][-1]
-    tool_calls = getattr(last, "tool_calls", None) or []
-    if not tool_calls:
-        return {}
-
-    new_msgs: List[BaseMessage] = []
-
-    for tc in tool_calls:
-        name = tc["name"]
-        args = tc.get("args", {}) or {}
-        call_id = tc.get("id")
-
-        tool_obj = TOOLS_BY_NAME.get(name)
-        if tool_obj is None:
-            result = f"ERROR: Unknown tool '{name}'"
-            print_tool_result(name, result)
-            new_msgs.append(ToolMessage(content=result, tool_call_id=call_id))
-            continue
-
+    def _run(self, text, cancel):
+        started = time.monotonic()
         try:
-            result = tool_obj.invoke(args)
-        except Exception as e:
-            result = f"ERROR running {name}: {e}"
+            self.output("Interpreting: " + text)
+            plan = self.client.interpret(text)
+            with self._lock:
+                if cancel.is_set() or self._closed:
+                    self.output("Cancelled; discarded the model response.")
+                    return
+                self.output("Plan: " + json.dumps(plan.as_dict()))
+                self.output(f"Interpretation took {time.monotonic() - started:.2f}s.")
+            if self.plan_only or plan.status != "execute":
+                self.output(plan.reason)
+                return
+            # Check before the first action, including a timed walk preceding a turn.
+            if any(s.angle_deg is not None for s in plan.steps):
+                fresh_heading(self.motion)
+            for step in plan.steps:
+                with self._lock:
+                    if cancel.is_set() or self._closed:
+                        return
+                    measure = f"{step.angle_deg:g} degrees" if step.angle_deg is not None else f"{step.duration_s:g}s"
+                    self.output(f"Action: {step.action} {step.direction}, {measure}")
+                try:
+                    initial_heading = fresh_heading(self.motion) if step.angle_deg is not None else None
+                    deadline = time.monotonic() + step.time_limit()
+                    reached = False
+                    while time.monotonic() < deadline:
+                        with self._lock:
+                            if cancel.is_set() or self._closed:
+                                return
+                            if time.monotonic() >= deadline:
+                                break
+                            if initial_heading is not None:
+                                heading = fresh_heading(self.motion)
+                                progress = (heading - initial_heading) * (1 if step.direction == "left" else -1)
+                                if progress < -math.radians(10):
+                                    raise RuntimeError("Heading moved opposite to the requested turn; stopped.")
+                                target = math.radians(step.angle_deg)
+                                if progress >= target - min(TURN_TOLERANCE_RAD, target / 2):
+                                    reached = True
+                                    break
+                            # Check and publish under the same lock as stop: no late nonzero command.
+                            self.motion.publish_twist(*step.velocities())
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0 or cancel.wait(min(0.05, remaining)):
+                            break
+                    if initial_heading is not None and not reached and not cancel.is_set():
+                        raise RuntimeError("Turn did not reach its angle before the timeout; stopped remaining actions.")
+                finally:
+                    with self._lock:
+                        if not self._closed:
+                            self.motion.publish_stop()
+                if cancel.is_set():
+                    return
+            self.output("Completed; stopped.")
+        except Exception as exc:
+            # All model/validation/backend failures fail closed; never execute partial plans.
+            with self._lock:
+                self.last_error = exc
+            self.output("Request failed; no further actions: " + str(exc))
 
-        print_tool_result(name, str(result))
-        new_msgs.append(ToolMessage(content=str(result), tool_call_id=call_id))
+    def stop(self):
+        with self._lock:
+            self._cancel.set()
+            if not self.plan_only:
+                self.motion.publish_stop()
+        self.output("Stopped the agent's movement; cancelled its pending actions.")
 
-    return {"messages": new_msgs}
+    def wait(self):
+        with self._lock:
+            worker = self._worker
+        if worker is not None:
+            worker.join()
 
-def advance_node(state: AgentState):
-    return {"step_idx": state["step_idx"] + 1}
+    def close(self):
+        with self._lock:
+            self._closed = True
+            self._cancel.set()
+            if not self.plan_only:
+                self.motion.publish_stop()
+            self.motion.close()
 
-def done_router(state: AgentState):
-    if state["plan"] is None:
-        return "plan"
 
-    if state["step_idx"] >= len(state["plan"].steps):
-        return END
-
-    last = state["messages"][-1] if state["messages"] else None
-    if last is not None and getattr(last, "tool_calls", None):
-        return "tools"
-
-    return "exec_step"
-
-# Graph
-builder = StateGraph(AgentState)
-
-builder.add_node("plan", plan_node)
-builder.add_node("exec_step", execute_step_node)
-builder.add_node("tools", run_tools_node)
-builder.add_node("advance", advance_node)
-
-builder.set_entry_point("plan")
-
-builder.add_edge("plan", "exec_step")
-
-builder.add_conditional_edges(
-    "exec_step",
-    done_router,
-    {
-        "tools": "tools",
-        "exec_step": "exec_step",
-        "plan": "plan",
-        END: END,
-    }
-)
-
-builder.add_edge("tools", "advance")
-builder.add_edge("advance", "exec_step")
-
-graph = builder.compile()
-
-# Run loop
-def main():
-    if TESTING:
-        print("TESTING mode — no robot commands will be sent.")
-    print("Planner+Executor ready! Type 'exit' to quit.\n")
-    state: AgentState = {"messages": [], "plan": None, "step_idx": 0}
-
-    while True:
-        user_input = input("You: ")
-        if user_input.lower() in ["exit", "quit", "q"]:
-            print("Goodbye!")
-            break
-
-        before = len(state["messages"])
-
-        state["messages"].append(HumanMessage(content=user_input))
-        state["plan"] = None
-        state["step_idx"] = 0
-
-        state = graph.invoke(state)
-
-        new_messages = state["messages"][before:]
-        for m in new_messages:
-            if isinstance(m, ToolMessage):
-                continue
-            content = getattr(m, "content", None)
-            if content:
-                print("\nAgent:", content)
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ollama-url", default=os.getenv("OLLAMA_BASE_URL", DEFAULT_URL))
+    parser.add_argument("--model", default=os.getenv("OLLAMA_MODEL", DEFAULT_MODEL))
+    parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument("--keep-alive", choices=("0", "5m"), default=os.getenv("OLLAMA_KEEP_ALIVE", "5m"),
+                        help="0 releases model memory after each reply; 5m keeps it loaded (default)")
+    parser.add_argument("--mode", choices=("mock", "ros"), default="mock",
+                        help="mock prints only (default); ros publishes on /cmd_vel_agent")
+    parser.add_argument("--check", action="store_true", help="check server/model without starting ROS")
+    parser.add_argument("--plan-only", action="store_true", help="interpret and validate without executing")
+    parser.add_argument("--command", help="run one request and exit instead of prompting")
+    args = parser.parse_args(argv)
+    try:
+        client = OllamaClient(args.ollama_url, args.model, args.timeout, keep_alive=args.keep_alive)
+        if args.check:
+            print(json.dumps(client.check(), indent=2))
+            return 0
+        # Plan-only is side-effect free even if --mode ros was also supplied.
+        if args.mode == "mock" or args.plan_only:
+            from go2_llm_agent.ros2_mock_motion import MockMotionController
+            motion = MockMotionController()
+        else:
+            from go2_llm_agent.ros2_motion import RosMotionController
+            motion = RosMotionController()
+        motion.start()
+    except (ValueError, ModelError) as exc:
+        print("Setup failed: " + str(exc))
+        return 1
+    session = AgentSession(client, motion, plan_only=args.plan_only)
+    print(f"Mode: {'plan-only' if args.plan_only else args.mode}; model: {args.model}")
+    print("Walk defaults to 1s; turn to 90 degrees; spin to 360 degrees left. stop cancels locally; quit exits.")
+    try:
+        if args.command is not None:
+            if not session.submit(args.command):
+                return 1
+            session.wait()
+            return 1 if session.last_error else 0
+        while True:
+            text = input("go2> ")
+            if text.strip().lower() in {"quit", "exit", "/bye"}:
+                break
+            session.submit(text)
+    except (EOFError, KeyboardInterrupt):
+        print("\nClosing agent.")
+    finally:
+        session.close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
