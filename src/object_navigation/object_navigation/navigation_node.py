@@ -48,7 +48,7 @@ class ObjectNavigator(Node):
     def dict_callback(self, msg):
         try:
             self.objects = json.loads(msg.data)
-        except:
+        except ValueError:
             self.objects = {}
 
     def command_callback(self, msg):
