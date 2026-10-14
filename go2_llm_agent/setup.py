@@ -11,8 +11,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    # Python-only dependencies (langchain, langgraph, fastapi, ...) have no rosdep
-    # keys; they are installed from requirements.txt instead.
+    # The typed Ollama agent uses the standard library; ROS deps are in package.xml.
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Riley Francis',

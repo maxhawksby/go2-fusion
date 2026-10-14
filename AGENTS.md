@@ -18,11 +18,11 @@ This is a ROS 2 Humble workspace for a Unitree Go2 robot dog, worked on by a 5-p
 | `coco_detector` | Object detection on the camera feed (MobileNet, `/detected_objects`); to be retired in favor of `object_detection` |
 | `object_detection` | YOLOv8 detector with rough object positions and a 20 s memory (`/detected_objects/poses`, `/detected_objects_dict`) |
 | `object_navigation` | Walks toward a detected object (`/navigate_to_object`); no obstacle avoidance |
-| `go2_llm_agent` | Plain-English commands to robot actions via an LLM. Being rebuilt on Claude (plan in `docs/plans/pending/`): its pip deps are not in the image, so it builds but does not run |
+| `go2_llm_agent` | Typed commands through local Ollama; simulation by default, explicit ROS publishing mode. See `go2_llm_agent/README.md`; no API key or extra pip dependencies |
 | `speech_processor` | Text to speech through the robot's speaker |
 | `front_leg_controller` | Leg/posture commands |
 
-`host_tools/` holds tools that run on the host, outside Docker (not ROS packages): `speech_to_text/vad_listen.py` sends microphone transcripts to `go2_llm_agent`. [FUSION.md](FUSION.md) records what came from Riley Francis's ROS2-LLM-Nav and why.
+`host_tools/` holds non-ROS host tools. `speech_to_text/vad_listen.py` is a legacy microphone client; the typed Ollama milestone does not provide its HTTP bridge. Ollama may run natively on the host (to use the Apple GPU on Mac) or on a shared model server; the agent and all ROS packages still run in Docker. [FUSION.md](FUSION.md) records what came from Riley Francis's ROS2-LLM-Nav and why.
 
 ## Build and run: always in Docker
 

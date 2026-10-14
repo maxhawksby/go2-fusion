@@ -1,3 +1,5 @@
+> Historical proposal: superseded for the typed local Ollama milestone on 2026-10-12. See [the agent README](../../../go2_llm_agent/README.md). Voice, vision and object-navigation features below are not part of that milestone.
+
 ---
 created: 2026-10-08
 status: pending

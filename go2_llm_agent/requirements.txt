@@ -1,11 +1,3 @@
-# pip-only dependencies of go2_llm_agent (ROS dependencies come from package.xml via rosdep).
-# Versions for the langchain stack are taken from the previous environment freeze.
-langchain-core==1.2.17
-langchain-openai==1.1.10
-langgraph==1.0.10
-pydantic==2.12.5
-python-dotenv==1.2.2
-
-# speech_bridge
-fastapi
-uvicorn
+# The typed Ollama agent uses Python's standard library only.
+# ROS dependencies remain in package.xml and are provided by the shared image.
+# No OpenAI, Anthropic, LangChain, LangGraph, FastAPI or Ollama Python SDK needed.

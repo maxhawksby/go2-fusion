@@ -216,7 +216,7 @@ The `go2-fusion-mac` project is separate from the old `go2-mac` workspace.
 - **Slow view:** close duplicate RViz windows. The initial viewer uses 15 FPS,
   point rendering and queues of depth one to limit backlog. Add heavier nodes
   individually so you can see what consumes CPU.
-- **LLM agent import errors:** its Claude rebuild is still pending in this branch.
+- **Typed LLM agent:** follow [go2_llm_agent/README.md](go2_llm_agent/README.md). Ollama runs on your Mac; the agent runs in Docker and defaults to simulation. No OpenAI/ElevenLabs key is needed.
   Completing Mac Docker setup does not make that feature ready.
 
 Mac credential regression tests, which use disposable fake credentials:

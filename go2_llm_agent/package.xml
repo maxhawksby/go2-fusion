@@ -3,13 +3,14 @@
 <package format="3">
   <name>go2_llm_agent</name>
   <version>0.0.0</version>
-  <description>LangGraph/OpenAI agent that turns natural-language commands into Go2 motion, plus an HTTP bridge for speech commands.</description>
+  <description>Typed Ollama agent that validates timed movement plans and publishes to the existing Go2 motion input.</description>
   <maintainer email="rileyfrancis01@gmail.com">Riley Francis</maintainer>
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>go2_interfaces</depend>
 
   <export>

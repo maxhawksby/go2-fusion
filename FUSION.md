@@ -58,7 +58,7 @@ A new drive source should get its own row here rather than sharing a topic.
 
 ## Decided after the fusion
 
-- **LLM agent: rebuild on Claude** (decided 2026-10-08). Riley's agent needs close to a rewrite either way (fixed plans, lost turn direction, no stop, broken live object lookup). Claude's native tool use does it in less code with fewer dependencies. Until the rebuild lands, its deps stay out of the image, so `ros2 run go2_llm_agent ...` fails on missing imports. Build plan: [`docs/plans/pending/2026-10-08-claude-llm-agent.md`](docs/plans/pending/2026-10-08-claude-llm-agent.md). The API key will live in a gitignored `docker/.env`, never in git.
+- **LLM agent: typed local Ollama milestone** (updated 2026-10-12 on `adib/feat/llm-agent`). The earlier Claude proposal is superseded for this milestone: Adib chose a free local model, with voice/transcription and object navigation out of scope. The agent uses `qwen3:4b-instruct-2507-q4_K_M` through Ollama's HTTP API, validates direction and duration locally, and executes timed walk/turn/stop actions. Simulation is the default; ROS output reuses `/cmd_vel_agent`. No paid API key or extra pip dependencies are needed. See [`go2_llm_agent/README.md`](go2_llm_agent/README.md). The previous [Claude plan](docs/plans/pending/2026-10-08-claude-llm-agent.md) remains as historical context, not the current build instructions.
 
 ## Follow-ups for the team
 
