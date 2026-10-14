@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import os
+import time
 from typing import Dict, Any
 
 from aiortc import MediaStreamTrack
@@ -18,17 +19,24 @@ from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import Twist, PoseStamped
 from go2_interfaces.msg import Go2State, IMU
 from go2_interfaces.msg import LowState, VoxelMapCompressed, WebRtcReq
-from sensor_msgs.msg import PointCloud2, JointState, Joy, Image, CameraInfo
+from sensor_msgs.msg import PointCloud2, JointState, Joy, Image, CameraInfo, LaserScan
 from nav_msgs.msg import Odometry
 
 from ..domain.entities import RobotConfig, RobotData, CameraData
 from ..application.services import RobotDataService, RobotControlService
 from ..infrastructure.ros2 import ROS2Publisher
 from ..infrastructure.webrtc import WebRTCAdapter
+from ..domain.constants import RTC_TOPIC
 
 logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Robot data-channel topics the motion watchdog requires to be fresh.
+SENSOR_TOPICS = {
+    RTC_TOPIC['ROBOTODOM']: 'odom',
+    RTC_TOPIC['ULIDAR_ARRAY']: 'lidar',
+}
 
 
 class Go2DriverNode(Node):
@@ -74,6 +82,26 @@ class Go2DriverNode(Node):
         # State
         self.joy_state = Joy()
 
+        # Motion watchdog: the WebRTC data channel can stall (lidar and odom
+        # stop while the connection and camera stay up). Nav2 and the auto
+        # mapper then keep driving on a stale map and walk into walls, so
+        # motion is only forwarded while lidar and odom are fresh. /scan (what
+        # Nav2's costmap sees) is required too: Humble's controller only warns
+        # when the costmap goes stale and keeps driving.
+        self.sensor_timeout_sec = self.declare_parameter(
+            'sensor_timeout_sec', 1.0).value
+        self._last_sensor_time: Dict[str, Dict[str, float]] = {}
+        self._moving: Dict[str, bool] = {}
+        self._watch_scan = (self.config.conn_type == 'webrtc'
+                            and self.config.conn_mode == 'single')
+        if self._watch_scan:
+            self.create_subscription(
+                LaserScan, 'scan', self._on_scan,
+                QoSProfile(depth=1,
+                           reliability=QoSReliabilityPolicy.BEST_EFFORT))
+        if self.config.conn_type == 'webrtc':
+            self.create_timer(0.2, self._check_sensor_watchdog)
+
     def _setup_configuration(self) -> RobotConfig:
         """Configuration setup"""
         robot_ip = os.getenv('ROBOT_IP', os.getenv('GO2_IP', ''))
@@ -92,7 +120,7 @@ class Go2DriverNode(Node):
                 ('enable_video', True),
                 ('decode_lidar', True),
                 ('publish_raw_voxel', False),
-                ('obstacle_avoidance', False),
+                ('obstacle_avoidance', True),
             ]
         )
 
@@ -264,6 +292,8 @@ class Go2DriverNode(Node):
 
                     result.successful = True
                     result.reason = 'Updated obstacle_avoidance'
+                elif p.name == 'sensor_timeout_sec':
+                    self.sensor_timeout_sec = p.value
                 elif p.name in self._CONSTRUCTION_TIME_ONLY_PARAMS:
                     # Reporting success here without actually reconnecting/
                     # re-setting-up would let self.config and the live
@@ -287,9 +317,45 @@ class Go2DriverNode(Node):
 
     def _on_cmd_vel(self, msg: Twist, robot_id: str) -> None:
         """Callback for movement commands"""
-        self.robot_control_service.handle_cmd_vel(
-            msg.linear.x, msg.linear.y, msg.angular.z, robot_id
-        )
+        x, y, z = msg.linear.x, msg.linear.y, msg.angular.z
+        moving = abs(x) + abs(y) + abs(z) > 1e-3
+        if moving and self._stale_sensors(robot_id):
+            self.get_logger().error(
+                f"Not moving robot {robot_id}: no fresh "
+                f"{' or '.join(self._stale_sensors(robot_id))} for "
+                f"{self.sensor_timeout_sec:.1f} s. Sending stop instead.",
+                throttle_duration_sec=2.0)
+            x = y = z = 0.0
+            moving = False
+        self._moving[robot_id] = moving
+        self.robot_control_service.handle_cmd_vel(x, y, z, robot_id)
+
+    def _stale_sensors(self, robot_id: str) -> list:
+        """Names of the sensors Nav2 depends on that have gone quiet."""
+        if self.config.conn_type != 'webrtc' or self.sensor_timeout_sec <= 0:
+            return []
+        required = ['odom']
+        if self.config.decode_lidar:
+            required.append('lidar')
+            if self._watch_scan:
+                required.append('scan')
+        last = self._last_sensor_time.get(robot_id, {})
+        now = time.monotonic()
+        return [s for s in required
+                if now - last.get(s, 0.0) > self.sensor_timeout_sec]
+
+    def _on_scan(self, msg: LaserScan) -> None:
+        self._last_sensor_time.setdefault('0', {})['scan'] = time.monotonic()
+
+    def _check_sensor_watchdog(self) -> None:
+        """Stop a moving robot as soon as its sensors go quiet, even if no
+        new cmd_vel arrives (twist_mux keeps the last command alive)."""
+        for robot_id, moving in self._moving.items():
+            if moving and self._stale_sensors(robot_id):
+                self._on_cmd_vel(Twist(), robot_id)
+                self.get_logger().error(
+                    f"Sensors from robot {robot_id} went quiet while moving: "
+                    f"stopped it.")
 
     def _on_webrtc_req(self, msg: WebRtcReq, robot_id: str) -> None:
         """Callback for WebRTC requests"""
@@ -304,9 +370,16 @@ class Go2DriverNode(Node):
     def _on_robot_validated(self, robot_id: str) -> None:
         """Callback after robot validation"""
         self.get_logger().info(f"Robot {robot_id} validated and ready")
+        # Apply the starting value: the robot keeps its own setting from the
+        # Unitree app, and a parameter is otherwise only sent when changed.
+        self.robot_control_service.set_obstacle_avoidance(
+            self.config.obstacle_avoidance, robot_id)
 
     def _on_robot_data_received(self, msg: Dict[str, Any], robot_id: str) -> None:
         """Callback for receiving data from robot"""
+        sensor = SENSOR_TOPICS.get(msg.get('topic'))
+        if sensor:
+            self._last_sensor_time.setdefault(robot_id, {})[sensor] = time.monotonic()
         self.robot_data_service.process_webrtc_message(msg, robot_id)
 
     async def _on_video_frame(self, track: MediaStreamTrack, robot_id: str) -> None:
