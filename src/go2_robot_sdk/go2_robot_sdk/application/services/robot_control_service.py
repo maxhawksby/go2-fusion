@@ -62,9 +62,18 @@ class RobotControlService:
     def set_obstacle_avoidance(self, enabled: bool, robot_id: str) -> None:
         """Set obstacle avoidance mode"""
         try:
+            if enabled:
+                # SwitchSet: turn the robot's avoidance on. Without it, Move
+                # commands on the avoidance topic are not avoided. Disabling
+                # leaves it on so the Unitree remote keeps its avoidance.
+                self.controller.send_webrtc_request(
+                    robot_id, 1001, {"enable": True},
+                    RTC_TOPIC['OBSTACLES_AVOID']
+                )
+            # UseRemoteCommandFromApi: take Move commands from this API.
             self.controller.send_webrtc_request(
-                robot_id, 
-                1004, 
+                robot_id,
+                1004,
                 {"is_remote_commands_from_api": enabled},
                 RTC_TOPIC['OBSTACLES_AVOID']
             )
