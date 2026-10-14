@@ -171,6 +171,10 @@ class Go2NodeFactory:
                 ],
                 parameters=[{
                     'target_frame': 'base_link',
+                    # base_link is ~0.3 m above the floor. The default
+                    # min_height (~0) dropped everything below the body, so
+                    # low obstacles never reached the costmap.
+                    'min_height': -0.2,
                     'max_height': 0.5
                 }],
                 output='screen',
