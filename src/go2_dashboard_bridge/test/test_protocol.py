@@ -13,6 +13,9 @@ from go2_dashboard_bridge.protocol import SPORT_ACTIONS, normalize_objects, pars
         ("lay down", {"type": "action", "action": "stand_down"}),
         ("pounce", {"type": "action", "action": "pounce"}),
         ("show me love", {"type": "action", "action": "finger_heart"}),
+        ("Hey Ben Ben, show me love.", {"type": "action", "action": "finger_heart"}),
+        ("Show me how much you love me", {"type": "action", "action": "finger_heart"}),
+        ("Can you stand up for me?", {"type": "action", "action": "stand"}),
         ("dance two", {"type": "action", "action": "dance2"}),
         ("say I am here", {"type": "tts", "text": "i am here"}),
         ("walk forward", {"type": "movement_disabled"}),
@@ -30,6 +33,11 @@ def test_added_dashboard_actions_use_unitree_sport_api_ids():
         {"api_id": 1002, "parameter": {}, "delay_sec": 2.0},
         {"api_id": 1027, "parameter": {"data": True}, "delay_sec": 2.4},
     ]
+
+
+@pytest.mark.parametrize("phrase", ["understand", "visit", "position"])
+def test_words_containing_action_fragments_are_not_commands(phrase):
+    assert parse_voice_command(phrase) == {"type": "unknown"}
 
 
 def test_normalize_objects_orders_by_distance():

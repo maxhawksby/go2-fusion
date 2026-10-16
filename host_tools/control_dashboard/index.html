@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#000e2f">
-  <title>Oak Control | UConn Team 45</title>
+  <title>Oak Control | UConn Team 48</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="#overview" aria-label="Oak Control home">
       <span class="brand-mark">UCONN</span>
-      <span><strong>Oak Control</strong><small>Senior Design Team 45</small></span>
+      <span><strong>Oak Control</strong><small>Senior Design Team 48</small></span>
     </a>
     <nav aria-label="Dashboard sections">
       <a href="#control">Control</a><a href="#voice">Voice</a><a href="#actions">Actions</a><a href="#perception">Perception</a>
@@ -25,7 +25,7 @@
   <main>
     <section class="hero" id="overview">
       <div class="hero-copy-block">
-        <p class="eyebrow">UCONN SENIOR DESIGN · TEAM 45</p>
+        <p class="eyebrow">UCONN SENIOR DESIGN · TEAM 48</p>
         <h1>One place to operate <span>Oak.</span></h1>
         <p class="hero-copy">Connect to the Unitree Go2, check its sensors, issue supported actions, and test voice commands from a clear desktop workspace.</p>
         <div class="hero-status">
@@ -58,7 +58,7 @@
           <div class="drive-pad" aria-label="Movement controls">
             <button class="drive-key forward" data-motion="forward" type="button"><kbd>W</kbd><span>Forward</span></button>
             <button class="drive-key left" data-motion="left" type="button"><kbd>A</kbd><span>Left</span></button>
-            <button class="drive-key stop-key" id="stop-button" type="button"><span class="stop-square"></span><strong>STOP</strong></button>
+            <button class="drive-key stop-key" id="stop-button" type="button" title="Requests Unitree StopMove; it does not lock other ROS motion sources"><span class="stop-square"></span><strong>STOP REQUEST</strong></button>
             <button class="drive-key right" data-motion="right" type="button"><kbd>D</kbd><span>Right</span></button>
             <button class="drive-key back" data-motion="back" type="button"><kbd>S</kbd><span>Back</span></button>
           </div>
@@ -128,13 +128,13 @@
     </section>
 
     <section class="team-panel panel" aria-labelledby="team-heading">
-      <div><p class="eyebrow">THE PEOPLE BEHIND OAK</p><h2 id="team-heading">UConn Senior Design Team 45</h2></div>
+      <div><p class="eyebrow">THE PEOPLE BEHIND OAK</p><h2 id="team-heading">UConn Senior Design Team 48</h2></div>
       <div class="team-list"><span>Jeth Gomez</span><span>Luis Mendez</span><span>Adib Rouf</span><span>Noah Steinberg</span><span>Max Hawksby</span></div>
       <div class="advisor"><small>Faculty advisor</small><strong>Dr. Jonathan Ji</strong></div>
     </section>
   </main>
 
-  <footer><span id="safety-status"><i class="safety-dot"></i> Robot publishing disabled</span><span>University of Connecticut · Team 45 · Go2 Fusion</span></footer>
+  <footer><span id="safety-status"><i class="safety-dot"></i> Robot publishing disabled</span><span>University of Connecticut · Team 48 · Go2 Fusion</span></footer>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

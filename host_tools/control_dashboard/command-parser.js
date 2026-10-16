@@ -10,13 +10,13 @@ const COMMANDS = [
   { type: "action", value: "sit", label: "Sit down", apiId: 1009, patterns: [/\bsit(?: down)?\b/i] },
   { type: "action", value: "stretch", label: "Stretch", apiId: 1017, patterns: [/\bstretch\b/i] },
   { type: "action", value: "pounce", label: "Front pounce", apiId: 1032, patterns: [/\b(?:front )?pounce\b/i] },
-  { type: "action", value: "finger_heart", label: "Show love", patterns: [/\bshow (?:me )?love\b/i, /\bfinger heart\b/i] },
+  { type: "action", value: "finger_heart", label: "Show love", patterns: [/\bshow me (?:how much you )?love(?: me)?\b/i, /\bshow love\b/i, /\bfinger heart\b/i] },
   { type: "action", value: "dance2", label: "Dance 2", patterns: [/\bdance (?:two|2)\b/i] },
   { type: "action", value: "dance1", label: "Dance 1", patterns: [/\bdance\b/i] },
 ];
 
 export function parseCommand(input) {
-  const text = input.trim();
+  const text = input.trim().replace(/^hey\s+ben\s+ben\b[\s,.:;-]*/i, "");
   if (!text) return { type: "unknown", label: "No command entered", raw: text };
   const tts = text.match(/^(?:say|speak)\s+(.+)$/i);
   if (tts) return { type: "tts", label: `Say “${tts[1]}”`, value: tts[1], raw: text };

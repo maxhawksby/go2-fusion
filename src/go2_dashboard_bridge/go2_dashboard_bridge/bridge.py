@@ -25,7 +25,7 @@ from .protocol import SPORT_ACTIONS, normalize_objects, parse_voice_command
 class DashboardBridge(Node):
     def __init__(self):
         super().__init__("go2_dashboard_bridge")
-        self.declare_parameter("host", "0.0.0.0")
+        self.declare_parameter("host", "127.0.0.1")
         self.declare_parameter("port", 8080)
         self.declare_parameter("allow_commands", False)
         self.declare_parameter("state_topic", "/go2_states")

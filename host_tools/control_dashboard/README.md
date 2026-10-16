@@ -36,16 +36,20 @@ Inside the running ROS container, build and start the bridge read-only:
 
 ```shell
 cbs go2_dashboard_bridge
-ros2 run go2_dashboard_bridge dashboard_bridge
+ros2 run go2_dashboard_bridge dashboard_bridge --ros-args -p host:=0.0.0.0
 ```
 
 When physically present with the robot, opt into posture, gesture, Stop, and TTS commands:
 
 ```shell
-ros2 run go2_dashboard_bridge dashboard_bridge --ros-args -p allow_commands:=true
+ros2 run go2_dashboard_bridge dashboard_bridge --ros-args -p host:=0.0.0.0 -p allow_commands:=true
 ```
 
-The next control milestone is a dedicated twist-mux input for the dashboard. It needs speed limits, press-and-hold
+The `host:=0.0.0.0` override is required inside Docker; Compose publishes port 8080 only on the Windows host's
+`127.0.0.1`, so the API is not exposed to the lab network.
+
+The Stop Request button publishes Unitree StopMove once. It does not lock Nav2, object navigation, or another ROS
+motion source. The next control milestone is a dedicated twist-mux input and motion lock for the dashboard. It needs speed limits, press-and-hold
 publishing, one stop on release, focus/connection-loss stops, and a robot test before live WASD is enabled.
 
 The Go2 product image in `assets/unitree-go2.jpg` comes from the

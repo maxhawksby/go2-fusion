@@ -230,6 +230,20 @@ async function performAction(action, label, source) {
 }
 
 async function interpret(raw, source = "typed") {
+  if (state.mode === "robot") {
+    showInterpretation("Interpreting command", "Sending to the ROS bridge…");
+    try {
+      const result = await dashboardApi.command(raw);
+      const label = result.label || (result.type === "tts" ? `Say “${result.text}”` : "Command accepted");
+      showInterpretation(label, "Queued through ROS");
+      addLog(result.type === "tts" ? "speech" : "action", `${label} (${source})`);
+    } catch (error) {
+      showInterpretation("Command blocked", error.message);
+      addLog("unknown", error.message);
+    }
+    return;
+  }
+
   const command = parseCommand(raw);
   if (command.type === "unknown") {
     showInterpretation("Not recognized", `“${raw}”`);
@@ -293,7 +307,7 @@ $$('[data-motion]').forEach((button) => {
 
 $("#stop-button").addEventListener("click", () => {
   stopMotion("stop");
-  if (state.mode === "robot") performAction("stop", "Stop movement", "stop button");
+  if (state.mode === "robot") performAction("stop", "Request StopMove", "stop button");
 });
 $$('[data-action]').forEach((button) => button.addEventListener("click", () => performAction(button.dataset.action, button.dataset.label, "quick action")));
 $("#obstacle-toggle").addEventListener("click", async () => {

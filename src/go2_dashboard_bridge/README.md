@@ -15,17 +15,20 @@ The package runs inside the project's ROS Docker container. On Windows, port 808
 `docker-compose.windows.yml`.
 
 ```shell
-ros2 run go2_dashboard_bridge dashboard_bridge
+ros2 run go2_dashboard_bridge dashboard_bridge --ros-args -p host:=0.0.0.0
 ```
 
 To enable the curated Sport actions and `/tts` publishing while physically present with the robot:
 
 ```shell
-ros2 run go2_dashboard_bridge dashboard_bridge --ros-args -p allow_commands:=true
+ros2 run go2_dashboard_bridge dashboard_bridge --ros-args -p host:=0.0.0.0 -p allow_commands:=true
 ```
 
 The browser UI remains a separate host process at <http://localhost:3000>. Its API base is
 `http://localhost:8080`.
+
+The bridge defaults to `127.0.0.1`. The explicit `host:=0.0.0.0` override lets Docker publish it, while the Windows
+Compose file binds the host port to `127.0.0.1` so other devices on the lab network cannot reach it.
 
 ## Stable API
 

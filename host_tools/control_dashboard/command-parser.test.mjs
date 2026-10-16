@@ -30,10 +30,16 @@ test("maps known robot actions", () => {
   assert.equal(parseCommand("lay down").apiId, 1005);
   assert.equal(parseCommand("stand down").value, "stand_down");
   assert.equal(parseCommand("pounce").apiId, 1032);
+  assert.equal(parseCommand("Hey Ben Ben, show me love.").value, "finger_heart");
+  assert.equal(parseCommand("Show me how much you love me").value, "finger_heart");
+  assert.equal(parseCommand("Can you stand up for me?").value, "stand");
   assert.equal(parseCommand("wiggle butt").type, "unknown");
   assert.equal(parseCommand("wallow").type, "unknown");
 });
 
 test("returns unknown for unsupported text", () => {
   assert.equal(parseCommand("bring me a sandwich").type, "unknown");
+  assert.equal(parseCommand("understand").type, "unknown");
+  assert.equal(parseCommand("visit").type, "unknown");
+  assert.equal(parseCommand("position").type, "unknown");
 });

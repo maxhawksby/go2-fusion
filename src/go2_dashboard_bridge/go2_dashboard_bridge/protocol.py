@@ -6,7 +6,7 @@ import re
 
 
 SPORT_ACTIONS = {
-    "stop": {"api_id": 1003, "label": "Stop movement"},
+    "stop": {"api_id": 1003, "label": "Request StopMove"},
     "stand": {
         "api_id": 1004,
         "label": "Stand up and enable handheld control",
@@ -33,29 +33,32 @@ def parse_voice_command(text):
     if not cleaned:
         return {"type": "unknown"}
 
+    # The wake phrase is optional. Removing it here keeps the command patterns
+    # focused on intent and accepts common punctuation after "Ben Ben".
+    cleaned = re.sub(r"^hey\s+ben\s+ben\b[\s,.:;-]*", "", cleaned).strip()
+
     say_match = re.match(r"^(?:say|speak)\s+(.+)$", cleaned)
     if say_match:
         return {"type": "tts", "text": say_match.group(1)}
 
-    phrases = (
-        (("stop", "halt", "freeze"), "stop"),
-        (("recovery stand", "recover"), "recover"),
-        (("stand down", "lay down", "lie down"), "stand_down"),
-        (("stand", "stand up"), "stand"),
-        (("sit", "sit down"), "sit"),
-        (("hello", "wave"), "hello"),
-        (("stretch",), "stretch"),
-        (("front pounce", "pounce"), "pounce"),
-        (("dance two", "dance 2"), "dance2"),
-        (("dance", "dance one", "dance 1"), "dance1"),
-        (("show love", "show me love", "finger heart"), "finger_heart"),
+    patterns = (
+        (r"\b(?:stop|halt|freeze)\b", "stop"),
+        (r"\b(?:recovery stand|recover)\b", "recover"),
+        (r"\b(?:stand down|lay down|lie down)\b", "stand_down"),
+        (r"\bstand(?: up)?\b", "stand"),
+        (r"\bsit(?: down)?\b", "sit"),
+        (r"\b(?:hello|wave)\b", "hello"),
+        (r"\bstretch\b", "stretch"),
+        (r"\b(?:front )?pounce\b", "pounce"),
+        (r"\bdance (?:two|2)\b", "dance2"),
+        (r"\bdance(?: one| 1)?\b", "dance1"),
+        (r"\b(?:show me (?:how much you )?love(?: me)?|show love|finger heart)\b", "finger_heart"),
     )
-    for candidates, action in phrases:
-        if any(candidate in cleaned for candidate in candidates):
+    for pattern, action in patterns:
+        if re.search(pattern, cleaned):
             return {"type": "action", "action": action}
 
-    movement_words = ("forward", "backward", "turn left", "turn right", "walk", "move")
-    if any(word in cleaned for word in movement_words):
+    if re.search(r"\b(?:forward|backwards?|turn left|turn right|walk|move)\b", cleaned):
         return {"type": "movement_disabled"}
     return {"type": "unknown"}
 
