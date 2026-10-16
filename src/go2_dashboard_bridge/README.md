@@ -37,6 +37,7 @@ Compose file binds the host port to `127.0.0.1` so other devices on the lab netw
 | `GET /health` | Bridge process health |
 | `GET /api/status` | Robot heartbeat, command gate, and ROS topic availability |
 | `GET /api/objects` | Normalized object list from the configured detector topic |
+| `GET /api/camera.jpg?source=raw\|annotated` | Latest JPEG from the selected camera topic |
 | `POST /api/action` | Curated Unitree Sport action |
 | `POST /api/tts` | Publish text on `/tts` |
 | `POST /api/command` | Deterministic voice phrase mapping for actions and speech |

@@ -110,14 +110,22 @@
       </article>
 
       <article class="panel perception-panel" id="perception">
-        <div class="panel-heading"><div><span>Sensor visualization</span><small>Live camera, LiDAR, and maps open in Foxglove</small></div></div>
+        <div class="panel-heading camera-heading">
+          <div><span>Sensor visualization</span><small>Choose the raw camera or detector overlay</small></div>
+          <label class="camera-select">Camera feed
+            <select id="camera-select">
+              <option value="raw">Raw camera</option>
+              <option value="annotated">Object detections</option>
+            </select>
+          </label>
+        </div>
         <div class="visual-preview camera-preview">
           <img id="camera-feed" alt="Live camera feed from Oak" hidden>
           <div class="camera-placeholder" id="camera-placeholder"><strong>Camera preview</strong><span>Switch to Robot Mode to load the live feed.</span></div>
           <span id="camera-source">CAMERA OFFLINE</span>
         </div>
         <div class="object-list" id="object-list"><p>Switch to Robot Mode to read detections.</p></div>
-        <div class="perception-note">The dashboard shows the live camera and uses the annotated detector feed when available. Point clouds, laser scans, and the SLAM map remain in Foxglove.</div>
+        <div class="perception-note">The annotated option requires the object detector to publish `/detections/image_annotated`. Point clouds, laser scans, and the SLAM map remain in Foxglove.</div>
         <div class="perception-actions"><button data-tool="foxglove" type="button">Open sensor feeds <span>↗</span></button><button data-tool="mapping" type="button">View map in Foxglove <span>↗</span></button></div>
       </article>
 

@@ -27,6 +27,13 @@ SPORT_ACTIONS = {
 }
 
 
+def validate_camera_source(source):
+    """Validate the camera selector value used by the HTTP endpoint."""
+    if source not in {"raw", "annotated"}:
+        raise ValueError("source must be raw or annotated")
+    return source
+
+
 def parse_voice_command(text):
     """Map deterministic voice phrases to the stable dashboard API."""
     cleaned = " ".join(str(text).strip().lower().split())

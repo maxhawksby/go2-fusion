@@ -2,7 +2,12 @@ import json
 
 import pytest
 
-from go2_dashboard_bridge.protocol import SPORT_ACTIONS, normalize_objects, parse_voice_command
+from go2_dashboard_bridge.protocol import (
+    SPORT_ACTIONS,
+    normalize_objects,
+    parse_voice_command,
+    validate_camera_source,
+)
 
 
 @pytest.mark.parametrize(
@@ -38,6 +43,13 @@ def test_added_dashboard_actions_use_unitree_sport_api_ids():
 @pytest.mark.parametrize("phrase", ["understand", "visit", "position"])
 def test_words_containing_action_fragments_are_not_commands(phrase):
     assert parse_voice_command(phrase) == {"type": "unknown"}
+
+
+def test_camera_source_selector_accepts_only_known_feeds():
+    assert validate_camera_source("raw") == "raw"
+    assert validate_camera_source("annotated") == "annotated"
+    with pytest.raises(ValueError, match="raw or annotated"):
+        validate_camera_source("automatic")
 
 
 def test_normalize_objects_orders_by_distance():

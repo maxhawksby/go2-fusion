@@ -19,7 +19,7 @@ from std_msgs.msg import String
 
 from go2_interfaces.msg import Go2State, WebRtcReq
 
-from .protocol import SPORT_ACTIONS, normalize_objects, parse_voice_command
+from .protocol import SPORT_ACTIONS, normalize_objects, parse_voice_command, validate_camera_source
 
 
 class DashboardBridge(Node):
@@ -72,11 +72,9 @@ class DashboardBridge(Node):
         self._object_error = None
         self._cv_bridge = CvBridge()
         self._camera_lock = threading.Lock()
-        self._camera_jpeg = None
-        self._camera_source = None
-        self._last_camera_encode = 0.0
-        self._last_annotated_message = 0.0
-        self._camera_error = None
+        self._camera_jpegs = {"raw": None, "annotated": None}
+        self._last_camera_encode = {"raw": 0.0, "annotated": 0.0}
+        self._camera_errors = {"raw": None, "annotated": None}
         self._obstacle_avoidance = None
         self._obstacle_pending = False
         self._obstacle_query_in_flight = False
@@ -108,27 +106,23 @@ class DashboardBridge(Node):
         self._camera_callback(message, "raw")
 
     def _annotated_camera_callback(self, message):
-        self._last_annotated_message = time.monotonic()
         self._camera_callback(message, "annotated")
 
     def _camera_callback(self, message, source):
         now = time.monotonic()
-        if source == "raw" and now - self._last_annotated_message < 1.0:
+        if now - self._last_camera_encode[source] < 0.2:
             return
-        if now - self._last_camera_encode < 0.2:
-            return
-        self._last_camera_encode = now
+        self._last_camera_encode[source] = now
         try:
             frame = self._cv_bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
             encoded, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
             if not encoded:
                 raise ValueError("OpenCV could not encode the camera frame")
             with self._camera_lock:
-                self._camera_jpeg = jpeg.tobytes()
-                self._camera_source = source
-                self._camera_error = None
+                self._camera_jpegs[source] = jpeg.tobytes()
+                self._camera_errors[source] = None
         except Exception as exc:
-            self._camera_error = str(exc)
+            self._camera_errors[source] = str(exc)
 
     def _refresh_obstacle_avoidance(self):
         if self._obstacle_pending or self._obstacle_query_in_flight:
@@ -191,9 +185,18 @@ class DashboardBridge(Node):
             "object_age_sec": object_age,
             "object_error": self._object_error,
             "camera": {
-                "frame_ready": self._camera_jpeg is not None,
-                "source": self._camera_source,
-                "error": self._camera_error,
+                "sources": {
+                    "raw": {
+                        "online": self._topic_online(self.camera_topic),
+                        "frame_ready": self._camera_jpegs["raw"] is not None,
+                        "error": self._camera_errors["raw"],
+                    },
+                    "annotated": {
+                        "online": self._topic_online(self.annotated_camera_topic),
+                        "frame_ready": self._camera_jpegs["annotated"] is not None,
+                        "error": self._camera_errors["annotated"],
+                    },
+                },
             },
             "obstacle_avoidance": {
                 "enabled": self._obstacle_avoidance,
@@ -201,7 +204,8 @@ class DashboardBridge(Node):
                 "error": self._obstacle_error,
             },
             "topics": {
-                "camera": self._topic_online("/camera/image_raw"),
+                "camera": self._topic_online(self.camera_topic),
+                "annotated_camera": self._topic_online(self.annotated_camera_topic),
                 "lidar": self._topic_online("/point_cloud2"),
                 "imu": self._topic_online("/imu"),
                 "odom": self._topic_online("/odom"),
@@ -283,12 +287,19 @@ class DashboardBridge(Node):
     async def _objects_handler(self, _request):
         return web.json_response({"objects": self._objects, "error": self._object_error})
 
-    async def _camera_handler(self, _request):
+    async def _camera_handler(self, request):
+        try:
+            source = validate_camera_source(request.query.get("source", "raw"))
+        except ValueError as exc:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"error": str(exc)}),
+                content_type="application/json",
+            )
         with self._camera_lock:
-            jpeg = self._camera_jpeg
+            jpeg = self._camera_jpegs[source]
         if jpeg is None:
             raise web.HTTPServiceUnavailable(
-                text=json.dumps({"error": self._camera_error or "No camera frame received yet"}),
+                text=json.dumps({"error": self._camera_errors[source] or f"No {source} camera frame received yet"}),
                 content_type="application/json",
             )
         return web.Response(

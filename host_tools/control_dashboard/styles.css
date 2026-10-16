@@ -103,6 +103,9 @@ h1 { max-width: 690px; margin: 0 0 18px; color: var(--navy); font-size: clamp(40
 .camera-placeholder { position: absolute; inset: 0; padding: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #dce9f8; text-align: center; }
 .camera-placeholder[hidden] { display: none; } .camera-placeholder strong { font-size: 18px; } .camera-placeholder span { margin-top: 6px; color: #9eb3ce; font-size: 13px; }
 .camera-preview > #camera-source { padding: 4px 7px; border-radius: 4px; color: white; background: rgba(0,14,47,.72); }
+.camera-heading { align-items: flex-end; }
+.camera-select { display: grid; gap: 4px; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.camera-select select { min-width: 170px; padding: 8px 30px 8px 10px; border: 1px solid #b8c8da; border-radius: 7px; color: var(--navy); background: var(--white); font: inherit; font-size: 12px; letter-spacing: 0; text-transform: none; }
 .scan-line { position: absolute; width: 48%; height: 2px; left: 50%; top: 50%; transform-origin: left; background: linear-gradient(90deg, transparent, var(--blue)); animation: scan 4s linear infinite; }
 @keyframes scan { to { transform: rotate(360deg); } }
 .point { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 4px rgba(11,79,156,.12); } .p1 { top: 31%; left: 29%; } .p2 { top: 64%; left: 68%; } .p3 { top: 25%; left: 72%; } .p4 { top: 72%; left: 38%; }

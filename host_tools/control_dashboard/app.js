@@ -3,7 +3,7 @@ import { parseCommand } from "./command-parser.js";
 
 const state = {
   mode: "mock", connected: false, commandEnabled: false, moving: null, log: [],
-  cameraOnline: false, cameraFrameReady: false, cameraSource: null,
+  cameraOnline: false, cameraFrameReady: false, cameraSource: "raw",
   obstacleAvoidance: null, obstaclePending: false,
 };
 const motionSpeeds = { forward: 0.2, back: -0.15, left: 0, right: 0 };
@@ -84,17 +84,29 @@ function resetCamera(message = "Switch to Robot Mode to load the live feed.") {
   $("#camera-source").textContent = "CAMERA OFFLINE";
 }
 
+function selectedCameraStatus(status) {
+  return status.camera?.sources?.[state.cameraSource] || {
+    online: false,
+    frame_ready: false,
+    error: null,
+  };
+}
+
 async function refreshRobotState({ announce = false } = {}) {
   if (state.mode !== "robot") return;
   try {
     const [status, detection] = await Promise.all([dashboardApi.status(), dashboardApi.objects()]);
     state.connected = status.robot_connected;
     state.commandEnabled = status.command_enabled;
-    state.cameraOnline = status.topics.camera;
-    state.cameraFrameReady = Boolean(status.camera?.frame_ready);
-    state.cameraSource = status.camera?.source || null;
-    if (!state.cameraOnline) resetCamera("The camera topic is offline.");
-    else if (!state.cameraFrameReady) resetCamera("Waiting for the bridge to encode a camera frame...");
+    const cameraStatus = selectedCameraStatus(status);
+    state.cameraOnline = Boolean(cameraStatus.online);
+    state.cameraFrameReady = Boolean(cameraStatus.frame_ready);
+    if (!state.cameraOnline) resetCamera(
+      state.cameraSource === "annotated" ? "The annotated detector feed is offline." : "The raw camera topic is offline."
+    );
+    else if (!state.cameraFrameReady) resetCamera(
+      cameraStatus.error || `Waiting for a ${state.cameraSource} camera frame...`
+    );
     $("#connection-label").textContent = status.robot_connected ? "Robot heartbeat active" : "Bridge online · robot offline";
     $("#simulate-connect").textContent = "Refresh ROS";
     $(".robot-card").classList.toggle("connected", status.robot_connected);
@@ -170,8 +182,16 @@ cameraFeed.addEventListener("error", () => {
 });
 setInterval(() => {
   if (state.mode !== "robot" || !state.cameraOnline || !state.cameraFrameReady) return;
-  cameraFeed.src = dashboardApi.cameraUrl();
+  cameraFeed.src = dashboardApi.cameraUrl(state.cameraSource);
 }, 300);
+
+$("#camera-select").addEventListener("change", (event) => {
+  state.cameraSource = event.target.value;
+  state.cameraOnline = false;
+  state.cameraFrameReady = false;
+  resetCamera(`Checking the ${state.cameraSource} camera feed...`);
+  if (state.mode === "robot") refreshRobotState();
+});
 
 $("#simulate-connect").addEventListener("click", () => {
   if (state.mode === "robot") {
