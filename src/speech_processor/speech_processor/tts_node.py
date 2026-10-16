@@ -10,7 +10,6 @@ Improved Text-to-Speech functionality with better architecture,
 caching, and multiple provider support.
 """
 
-import base64
 import io
 import json
 import os
@@ -28,6 +27,7 @@ from rclpy.node import Node
 import requests
 from std_msgs.msg import String
 from go2_interfaces.msg import WebRtcReq
+from .audio_protocol import build_megaphone_blocks, inspect_wav
 
 import wave
 from piper import PiperVoice, SynthesisConfig
@@ -68,11 +68,11 @@ class TTSConfig:
     model_id: str = "eleven_turbo_v2_5"
 
     # Piper specific settings
-    volume=1.0,
-    length_scale=1.0,  # speed
-    noise_scale=1.0,  # more audio variation
-    noise_w_scale=1.0,  # more speaking variation
-    normalize_audio=True, # use raw audio from voice
+    volume: float = 1.0
+    length_scale: float = 1.0  # speed
+    noise_scale: float = 1.0  # more audio variation
+    noise_w_scale: float = 1.0  # more speaking variation
+    normalize_audio: bool = True  # use raw audio from voice
 
 
 class AudioCache:
@@ -95,7 +95,8 @@ class AudioCache:
         """Generate cache file path"""
         cache_key = f"{text}_{voice_name}_{provider}"
         text_hash = hashlib.md5(cache_key.encode()).hexdigest()
-        return os.path.join(self.cache_dir, f"{text_hash}.mp3")
+        extension = "wav" if provider == TTSProvider.PIPER.value else "mp3"
+        return os.path.join(self.cache_dir, f"{text_hash}.{extension}")
     
     def get(self, text: str, voice_name: str, provider: str) -> Optional[bytes]:
         """Get cached audio data"""
@@ -228,37 +229,28 @@ class TTSProvider_Piper:
     
     def __init__(self, config: TTSConfig):
         self.config = config
-        WORKSPACE_ROOT = Path.cwd()
-        self.voice = PiperVoice.load(f"{WORKSPACE_ROOT}/en_US-lessac-medium.onnx")
+        model_path = Path(config.voice_name)
+        if not model_path.is_absolute():
+            model_path = Path(os.getenv("PIPER_VOICE_DIR", "/ros2_ws")) / model_path
+        if not model_path.is_file():
+            raise FileNotFoundError(f"Piper voice model not found: {model_path}")
+        self.voice = PiperVoice.load(model_path)
     
     def synthesize(self, text: str) -> Optional[bytes]:
         """Generate speech using Piper"""
 
-        # syn_config = SynthesisConfig(
-        #     volume = self.config.volume,
-        #     length_scale = self.config.length_scale,
-        #     noise_scale = self.config.noise_scale,
-        #     noise_w_scale = self.config.noise_w_scale,
-        #     normalize_audio=self.config.normalize_audio,
-        # )
-        #
-        # if hasattr(syn_config, "scales"):
-        #     # If the library packed it as [[0.667, 1.0, 0.8]], 
-        #     # this extracts it out to a flat 1D list: [0.667, 1.0, 0.8]
-        #     import numpy as np
-        #     syn_config.scales = np.array(syn_config.scales).flatten().tolist()
-        # self.voice.config.volume = self.config.volume
-        # self.voice.config.length_scale = self.config.length_scale
-        # self.voice.config.noise_scale = self.config.noise_scale
-        # self.voice.config.noise_w_scale = self.config.noise_w_scale
+        syn_config = SynthesisConfig(
+            volume=self.config.volume,
+            length_scale=self.config.length_scale,
+            noise_scale=self.config.noise_scale,
+            noise_w_scale=self.config.noise_w_scale,
+            normalize_audio=self.config.normalize_audio,
+        )
 
         bytes_buffer = io.BytesIO()
 
         with wave.open(bytes_buffer, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(22050)
-            self.voice.synthesize_wav(text, wav_file)
+            self.voice.synthesize_wav(text, wav_file, syn_config=syn_config)
 
         return bytes_buffer.getvalue()
 
@@ -318,6 +310,7 @@ class EnhancedTTSNode(Node):
         # Initialize components
         self.cache = AudioCache(self.config.cache_dir, self.config.use_cache)
         self.audio_processor = AudioProcessor()
+        self.playback_lock = threading.Lock()
         
         # Initialize TTS provider
         self.tts_provider = self._create_tts_provider()
@@ -367,7 +360,7 @@ class EnhancedTTSNode(Node):
         
         return TTSConfig(
             api_key=self.get_parameter("api_key").get_parameter_value().string_value,
-            provider=TTSProvider.PIPER,
+            provider=provider,
             voice_name=self.get_parameter("voice_name").get_parameter_value().string_value,
             local_playback=self.get_parameter("local_playback").get_parameter_value().bool_value,
             use_cache=self.get_parameter("use_cache").get_parameter_value().bool_value,
@@ -463,7 +456,10 @@ class EnhancedTTSNode(Node):
             if self.config.local_playback:
                 self._play_locally(audio_data)
             else:
-                self._play_on_robot(audio_data)
+                # AudioHub has one megaphone upload session. Serializing here
+                # prevents concurrent /tts callbacks from interleaving chunks.
+                with self.playback_lock:
+                    self._play_on_robot(audio_data)
             
             # Log success
             status = "cached" if cache_hit else "generated"
@@ -509,20 +505,14 @@ class EnhancedTTSNode(Node):
                 self.get_logger().error("❌ Failed to convert audio to WAV")
                 return
 
-            # Get audio duration for timing
-            duration = self.audio_processor.get_duration(
-                wav_data, AudioFormat.WAV
-            )
-
-            # Encode and split into chunks
-            b64_encoded = base64.b64encode(wav_data).decode("utf-8")
-            chunks = self.audio_processor.split_into_chunks(
-                b64_encoded.encode(), self.config.chunk_size
-            )
-            total_chunks = len(chunks)
+            wav_info = inspect_wav(wav_data)
+            duration = wav_info.duration
+            blocks = build_megaphone_blocks(wav_data, self.config.chunk_size)
+            total_chunks = len(blocks)
 
             self.get_logger().info(
-                f"📤 Sending audio to robot: {total_chunks} chunks, "
+                f"📤 Sending WAV to robot: {len(wav_data)} bytes, "
+                f"{wav_info.sample_rate} Hz, {total_chunks} chunks, "
                 f"{duration:.1f}s duration"
             )
 
@@ -531,12 +521,8 @@ class EnhancedTTSNode(Node):
             time.sleep(0.1)
 
             # Send audio chunks
-            for chunk_idx, chunk in enumerate(chunks, 1):
-                audio_block = {
-                    "current_block_index": chunk_idx,
-                    "total_block_number": total_chunks,
-                    "block_content": chunk.decode(),
-                }
+            for audio_block in blocks:
+                chunk_idx = audio_block["current_block_index"]
                 self._send_audio_command(4003, json.dumps(audio_block))
 
                 if chunk_idx % 10 == 0:
