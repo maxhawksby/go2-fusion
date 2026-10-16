@@ -1,0 +1,26 @@
+# NVIDIA GPU on a Windows host (Docker Desktop + WSL2). Use on top of the
+# Windows file, after building the main image once:
+#
+#   docker compose -f docker-compose.windows.yml -f docker-compose.gpu.yml up -d --build
+#
+# - YOLO (object_detection) runs on CUDA, via the CUDA torch in Dockerfile.gpu.
+# - RViz gets a window through WSLg and draws on the GPU (Mesa's d3d12 driver)
+#   instead of on the CPU, which took several cores and starved the other nodes.
+services:
+  unitree_ros:
+    image: go2-fusion-gpu:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gpu
+    gpus: all
+    environment:
+      - DISPLAY=:0
+      - WAYLAND_DISPLAY=wayland-0
+      - XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir
+      - GALLIUM_DRIVER=d3d12
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib
+    volumes:
+      # Paths inside Docker Desktop's VM, so they work as written from PowerShell.
+      - /run/desktop/mnt/host/wslg/.X11-unix:/tmp/.X11-unix
+      - /run/desktop/mnt/host/wslg:/mnt/wslg
+      - /usr/lib/wsl:/usr/lib/wsl:ro

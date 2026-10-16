@@ -11,6 +11,10 @@ from launch_ros.actions import Node
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import FrontendLaunchDescriptionSource, PythonLaunchDescriptionSource
 
+# Pause before slam_toolbox is restarted after it exits (e.g. "Reset maps"),
+# so the old node's /map and map->odom are gone before the new one starts.
+SLAM_RESPAWN_DELAY_SEC = 1.0
+
 
 class Go2LaunchConfig:
     """Configuration container for Go2 robot launch parameters"""
@@ -171,7 +175,19 @@ class Go2NodeFactory:
                 ],
                 parameters=[{
                     'target_frame': 'base_link',
-                    'max_height': 0.5
+                    # Heights are relative to base_link (~0.3-0.4 m up). The
+                    # default min_height (~0) dropped everything lower than
+                    # the body, so low obstacles were invisible. Floor points
+                    # reach up to ~0.28 m below base_link (odometry z drift
+                    # smears them), so -0.1 keeps the floor out.
+                    'min_height': -0.1,
+                    'max_height': 0.5,
+                    # Small, not 0.5: the robot's own cloud has no points on
+                    # its body (measured), and a 0.5 m cutoff hid walls right
+                    # beside the robot. After Nav2's recoveries cleared the
+                    # costmaps, those walls vanished and the robot turned or
+                    # backed into them. Costmaps clear the footprint anyway.
+                    'range_min': 0.1,
                 }],
                 output='screen',
             )
@@ -297,8 +313,8 @@ class Go2NodeFactory:
             ),
         ]
     
-    def create_include_launches(self) -> List[IncludeLaunchDescription]:
-        """Create included launch descriptions"""
+    def create_include_launches(self) -> List[object]:
+        """Create included launch descriptions (and the SLAM node)"""
         use_sim_time = LaunchConfiguration('use_sim_time', default='false')
         with_foxglove = LaunchConfiguration('foxglove', default='true')
         with_slam = LaunchConfiguration('slam', default='true')
@@ -315,17 +331,23 @@ class Go2NodeFactory:
                 FrontendLaunchDescriptionSource(foxglove_launch),
                 condition=IfCondition(with_foxglove),
             ),
-            # SLAM Toolbox
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource([
-                    os.path.join(get_package_share_directory('slam_toolbox'),
-                                'launch', 'online_async_launch.py')
-                ]),
+            # SLAM Toolbox: the same node slam_toolbox's online_async_launch.py
+            # starts, declared here so it can respawn. Humble's slam_toolbox
+            # has no reset service, so the RViz AutoMapper panel's "Reset
+            # maps" stops this node to start a fresh map, and launch brings
+            # it straight back.
+            Node(
+                package='slam_toolbox',
+                executable='async_slam_toolbox_node',
+                name='slam_toolbox',
+                parameters=[
+                    self.config.config_paths['slam'],
+                    {'use_sim_time': use_sim_time},
+                ],
                 condition=IfCondition(with_slam),
-                launch_arguments={
-                    'slam_params_file': self.config.config_paths['slam'],
-                    'use_sim_time': use_sim_time,
-                }.items(),
+                respawn=True,
+                respawn_delay=SLAM_RESPAWN_DELAY_SEC,
+                output='screen',
             ),
             # Nav2
             IncludeLaunchDescription(

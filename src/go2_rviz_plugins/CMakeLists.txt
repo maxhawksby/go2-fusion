@@ -21,6 +21,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets)
 
 set(dependencies
@@ -33,6 +34,7 @@ set(dependencies
   nav2_msgs
   tf2
   tf2_ros
+  std_srvs
 )
 
 # The headers are listed so AUTOMOC finds their Q_OBJECT macros: it only scans

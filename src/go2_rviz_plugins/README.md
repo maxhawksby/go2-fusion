@@ -14,9 +14,8 @@ Three RViz panels, loaded as plugins rather than run as separate apps:
 - **AutoMapper** — start/stop button and live log output for
   `ros2 run go2_auto_mapper explorer` (see
   [go2_auto_mapper/README.md](../go2_auto_mapper/README.md) for what that
-  node actually does). This panel only manages the child process; it
-  doesn't talk to the explorer node over ROS, so there's no frontier count
-  or current-goal readout here.
+  node actually does), plus **Scan** and **Reset maps** buttons (below).
+  There's no frontier count or current-goal readout here.
 - **KeyboardTeleop** — click the panel to focus it, then hold keys to drive.
   Publishes `/cmd_vel_keyboard` (the same twist_mux input as
   keyboard_teleop) straight from Qt key events; functionally the same
@@ -58,6 +57,23 @@ the panel force-kills it.
 **This still moves the robot on its own** — same caution as running the
 explorer from a terminal: only use it when you're physically present and
 watching the robot.
+
+Two buttons call `std_srvs/Trigger` services through the panel's own
+`rclcpp::Node` (`go2_rviz_auto_mapper_panel`, spun like MapViewer's); the
+reply shows in the log:
+
+- **Scan** → `/frontier_explorer/scan`: the robot turns 360 degrees (it
+  moves). Needs the explorer running.
+- **Reset maps** (asks to confirm) starts both maps over from where the
+  robot stands:
+  - 2D: stops `slam_toolbox` (`pkill -INT -f async_slam_toolbox_node`);
+    `robot.launch.py` starts it with `respawn=True`, so it comes straight
+    back with an empty `/map`. Humble's slam_toolbox has no reset service.
+    Navigation pauses a few seconds while `map -> odom` is missing.
+  - 3D: `/lidar_to_pointcloud/reset` clears the cloud `lidar_processor`
+    accumulates (`/pointcloud/aggregated`, saved to `3d_map.ply`). It
+    refills right away from `/point_cloud2`, which already carries the
+    robot's own local 3D map; that part lives on the robot and isn't reset.
 
 ## KeyboardTeleop
 

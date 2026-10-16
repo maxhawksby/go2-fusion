@@ -8,3 +8,12 @@ __pycache__
 /3d_map.ply
 src/go2_robot_sdk/.coverage
 src/go2_robot_sdk/coverage.xml
+
+# Leftovers from before the ROS packages moved into src/. The old root
+# go2_robot_sdk/ still holds a clone of the aioice submodule, and `git add .`
+# kept committing it as a submodule link with no .gitmodules entry, which
+# breaks CI's checkout ("No url found for submodule path").
+/go2_robot_sdk/
+/go2_auto_mapper/
+/object_detection/
+.pytest_cache/

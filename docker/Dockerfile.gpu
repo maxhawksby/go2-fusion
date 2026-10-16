@@ -1,0 +1,16 @@
+# GPU variant of the main image, for hosts with an NVIDIA card: swaps the
+# CPU-only torch/torchvision for CUDA builds so YOLO (object_detection) runs on
+# the GPU. Layered on the main image rather than built into it, because the CUDA
+# wheels add several GB that teammates without an NVIDIA card don't need.
+#
+# Built by docker-compose.gpu.yml; build the main image first.
+ARG BASE_IMAGE=docker-unitree_ros:latest
+FROM ${BASE_IMAGE}
+
+# cu128 wheels need an NVIDIA driver supporting CUDA 12.8 or newer (570+).
+# Uninstall first: pip counts the installed CPU torch as already satisfying
+# "torch" and would skip the install.
+RUN pip uninstall -y torch torchvision && \
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 \
+    torch torchvision && \
+    python3 -c "import torch; assert torch.version.cuda, 'CPU torch installed'"
