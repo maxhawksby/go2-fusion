@@ -3,6 +3,9 @@
 This is Noah's laptop-side interface for the Go2 fusion. It starts in Mock Mode. Robot Mode talks only to the local
 `go2_dashboard_bridge` API and shows live ROS topic status plus normalized object detections.
 
+For the complete copy-paste lab startup and shutdown sequence, see
+[Oak Control lab quick start](../../docs/DASHBOARD_LAB_GUIDE.md).
+
 ## Run
 
 From the repository root:

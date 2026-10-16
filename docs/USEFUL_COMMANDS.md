@@ -4,6 +4,9 @@ Quick cheat-sheet of one-off commands used while developing against the
 running Docker stack. See [RUNNING_TOOLS.md](RUNNING_TOOLS.md) and
 [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for full setup context.
 
+For the Oak Control website, ROS bridge, object detector, and camera selector,
+follow [DASHBOARD_LAB_GUIDE.md](DASHBOARD_LAB_GUIDE.md).
+
 All of these assume the stack is already up (`docker compose up -d` from
 `docker/`, run inside a WSL2 shell if you need a GUI window), and that you run
 them from the repo's `docker/` folder. On Windows hosts, add
