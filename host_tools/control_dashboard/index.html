@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000e2f">
+  <title>Oak Control | UConn Team 48</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#overview" aria-label="Oak Control home">
+      <span class="brand-mark">UCONN</span>
+      <span><strong>Oak Control</strong><small>Senior Design Team 48</small></span>
+    </a>
+    <nav aria-label="Dashboard sections">
+      <a href="#control">Control</a><a href="#voice">Voice</a><a href="#actions">Actions</a><a href="#perception">Perception</a>
+    </nav>
+    <div class="topbar-status">
+      <button class="mode-pill" id="mode-toggle" type="button"><i></i><span>Mock mode</span></button>
+      <span class="clock" id="clock">--:--:--</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="overview">
+      <div class="hero-copy-block">
+        <p class="eyebrow">UCONN SENIOR DESIGN · TEAM 48</p>
+        <h1>One place to operate <span>Oak.</span></h1>
+        <p class="hero-copy">Connect to the Unitree Go2, check its sensors, issue supported actions, and test voice commands from a clear desktop workspace.</p>
+        <div class="hero-status">
+          <span><i class="safety-dot"></i><strong id="connection-label">Offline simulator</strong></span>
+          <button class="primary" id="simulate-connect" type="button">Start simulation</button>
+        </div>
+      </div>
+      <div class="robot-card panel">
+        <div class="panel-heading">
+          <div><span>Unitree Go2</span><small>Project platform · Oak</small></div><span class="tag">SIMULATED</span>
+        </div>
+        <div class="robot-image-wrap"><img src="./assets/unitree-go2.jpg" alt="Unitree Go2 quadruped robot"></div>
+        <div class="robot-card-foot"><span>ROS 2 Humble</span><span>WebRTC</span><span>Go2 Fusion</span></div>
+      </div>
+    </section>
+
+    <section class="status-grid" aria-label="Robot sensor status">
+      <article class="metric panel"><span class="metric-icon">CAM</span><div><small>Camera</small><strong data-sensor="camera">Standby</strong></div><i></i></article>
+      <article class="metric panel"><span class="metric-icon">360</span><div><small>LiDAR</small><strong data-sensor="lidar">Standby</strong></div><i></i></article>
+      <article class="metric panel"><span class="metric-icon">IMU</span><div><small>Motion</small><strong data-sensor="imu">Standby</strong></div><i></i></article>
+      <article class="metric panel"><span class="metric-icon">AI</span><div><small>Objects</small><strong data-sensor="objects">Detector offline</strong></div><i></i></article>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="panel movement-panel" id="control">
+        <div class="panel-heading">
+          <div><span>Manual control</span><small>Hold a key or button to move in Mock Mode</small></div><span class="keyboard-hint">W A S D</span>
+        </div>
+        <div class="drive-body">
+          <div class="drive-pad" aria-label="Movement controls">
+            <button class="drive-key forward" data-motion="forward" type="button"><kbd>W</kbd><span>Forward</span></button>
+            <button class="drive-key left" data-motion="left" type="button"><kbd>A</kbd><span>Left</span></button>
+            <button class="drive-key stop-key" id="stop-button" type="button" title="Requests Unitree StopMove; it does not lock other ROS motion sources"><span class="stop-square"></span><strong>STOP REQUEST</strong></button>
+            <button class="drive-key right" data-motion="right" type="button"><kbd>D</kbd><span>Right</span></button>
+            <button class="drive-key back" data-motion="back" type="button"><kbd>S</kbd><span>Back</span></button>
+          </div>
+          <div class="velocity-readout">
+            <span class="readout-label">Commanded speed</span><div><strong id="velocity-value">0.00</strong><small>m/s</small></div>
+            <p id="motion-label">Standing by</p><small>Physical movement is disabled until robot testing.</small>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel voice-panel" id="voice">
+        <div class="panel-heading">
+          <div><span>Voice command</span><small>Start listening, speak, then stop to process</small></div><span class="tag safe">DRY RUN</span>
+        </div>
+        <div class="voice-instructions">
+          <span class="step">1</span><p>Press Start listening</p><span class="step">2</span><p>Wait for the ready tone</p><span class="step">3</span><p>Speak, then press Stop and process</p>
+        </div>
+        <button class="talk-button" id="talk-button" type="button">
+          <span class="mic-icon" aria-hidden="true"></span><strong>Start listening</strong><small id="voice-support">Checking microphone support...</small>
+        </button>
+        <div class="listening-status" id="listening-status" aria-live="polite">Microphone idle</div>
+        <form class="command-form" id="command-form">
+          <input id="command-input" autocomplete="off" placeholder='Or type "stand up" or "show me love"' aria-label="Voice command text"><button type="submit">Run</button>
+        </form>
+        <div class="interpretation" id="interpretation">Waiting for a command.</div>
+      </article>
+
+      <article class="panel actions-panel" id="actions">
+        <div class="panel-heading"><div><span>Robot actions</span><small>Supported Go2 posture and gesture commands</small></div></div>
+        <div class="action-grid">
+          <button data-action="stand" data-label="Stand up and enable handheld control" type="button"><span>01</span><strong>Stand</strong><small>Drive ready</small></button>
+          <button data-action="stand_down" data-label="Lay down" type="button"><span>02</span><strong>Lay Down</strong><small>API 1005</small></button>
+          <button data-action="sit" data-label="Sit down" type="button"><span>03</span><strong>Sit</strong><small>API 1009</small></button>
+          <button data-action="stretch" data-label="Stretch" type="button"><span>04</span><strong>Stretch</strong><small>API 1017</small></button>
+          <button data-action="recover" data-label="Recovery stand" type="button"><span>05</span><strong>Recover</strong><small>API 1006</small></button>
+          <button data-action="hello" data-label="Hello" type="button"><span>06</span><strong>Hello</strong><small>API 1016</small></button>
+          <button data-action="finger_heart" data-label="Show love" type="button"><span>07</span><strong>Love</strong><small>API 1036</small></button>
+          <button data-action="dance1" data-label="Dance 1" type="button"><span>08</span><strong>Dance 1</strong><small>API 1022</small></button>
+          <button data-action="dance2" data-label="Dance 2" type="button"><span>09</span><strong>Dance 2</strong><small>API 1023</small></button>
+          <button data-action="pounce" data-label="Front pounce" type="button"><span>10</span><strong>Pounce</strong><small>API 1032</small></button>
+          <button class="unavailable" type="button" disabled title="Not supported by Oak's current Unitree Sport API"><span>11</span><strong>Wiggle Hips</strong><small>Unavailable</small></button>
+          <button class="unavailable" type="button" disabled title="Not supported by Oak's current Unitree Sport API"><span>12</span><strong>Wallow</strong><small>Unavailable</small></button>
+        </div>
+        <p class="action-note">After Lay Down, press Stand before using the handheld controller. Stand returns Oak to balance mode and enables its native joystick.</p>
+        <div class="obstacle-control">
+          <div><strong>ROS movement obstacle avoidance</strong><small id="obstacle-status">Unavailable while the team validates movement control</small></div>
+          <button class="switch" id="obstacle-toggle" type="button" role="switch" aria-checked="false" disabled title="This control will return after movement testing"><span></span><b>Later</b></button>
+        </div>
+      </article>
+
+      <article class="panel perception-panel" id="perception">
+        <div class="panel-heading camera-heading">
+          <div><span>Sensor visualization</span><small>Choose the raw camera or detector overlay</small></div>
+          <label class="camera-select">Camera feed
+            <select id="camera-select">
+              <option value="raw">Raw camera</option>
+              <option value="annotated">Object detections</option>
+            </select>
+          </label>
+        </div>
+        <div class="visual-preview camera-preview">
+          <img id="camera-feed" alt="Live camera feed from Oak" hidden>
+          <div class="camera-placeholder" id="camera-placeholder"><strong>Camera preview</strong><span>Switch to Robot Mode to load the live feed.</span></div>
+          <span id="camera-source">CAMERA OFFLINE</span>
+        </div>
+        <div class="object-list" id="object-list"><p>Switch to Robot Mode to read detections.</p></div>
+        <div class="perception-note">The annotated option requires the object detector to publish `/detections/image_annotated`. Point clouds, laser scans, and the SLAM map remain in Foxglove.</div>
+        <div class="perception-actions"><button data-tool="foxglove" type="button">Open sensor feeds <span>↗</span></button><button data-tool="mapping" type="button">View map in Foxglove <span>↗</span></button></div>
+      </article>
+
+      <article class="panel log-panel">
+        <div class="panel-heading"><div><span>Recent activity</span><small>Commands remain local while Mock Mode is selected</small></div><button class="text-button" id="clear-log" type="button">Clear history</button></div>
+        <ol class="command-log" id="command-log"><li class="empty-log">Commands will appear here.</li></ol>
+      </article>
+    </section>
+
+    <section class="team-panel panel" aria-labelledby="team-heading">
+      <div><p class="eyebrow">THE PEOPLE BEHIND OAK</p><h2 id="team-heading">UConn Senior Design Team 48</h2></div>
+      <div class="team-list"><span>Jeth Gomez</span><span>Luis Mendez</span><span>Adib Rouf</span><span>Noah Steinberg</span><span>Max Hawksby</span></div>
+      <div class="advisor"><small>Faculty advisor</small><strong>Dr. Jonathan Ji</strong></div>
+    </section>
+  </main>
+
+  <footer><span id="safety-status"><i class="safety-dot"></i> Robot publishing disabled</span><span>University of Connecticut · Team 48 · Go2 Fusion</span></footer>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -24,8 +24,10 @@ If you are using WebRTC (Wi-Fi) protocol, close the connection with a mobile app
 > On top of the upstream packages it adds `keyboard_teleop`, `go2_auto_mapper`, `go2_map_viewer_cpp`,
 > `go2_map_viewer_julia`, `go2_rviz_plugins` (RViz panels), `front_leg_controller`, and from Riley:
 > `object_detection` (YOLOv8), `object_navigation`, `go2_llm_agent` and the host-side
-> `host_tools/speech_to_text`. See [FUSION.md](docs/FUSION.md) for what came from where and why,
-> [AGENTS.md](AGENTS.md) for the package and topic list, and [USEFUL_COMMANDS.md](docs/USEFUL_COMMANDS.md) for a cheat sheet.
+> `host_tools/speech_to_text`, plus the optional `go2_dashboard_bridge` and Oak Control interface.
+> See [FUSION.md](docs/FUSION.md) for what came from where and why,
+> [AGENTS.md](AGENTS.md) for the package and topic list, and
+> [USEFUL_COMMANDS.md](docs/USEFUL_COMMANDS.md) for a cheat sheet.
 
 
 ## Project RoadMap:

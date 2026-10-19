@@ -23,6 +23,7 @@ All ROS packages live under `src/`.
 | `go2_llm_agent` | Plain-English commands to robot actions via an LLM. Being rebuilt on Claude (plan in `docs/plans/pending/`): its pip deps are not in the image, so it builds but does not run |
 | `speech_processor` | Text to speech through the robot's speaker |
 | `front_leg_controller` | Leg/posture commands |
+| `go2_dashboard_bridge` | Optional local HTTP adapter for the Oak Control UI; read-only unless commands are explicitly enabled |
 
 `host_tools/` holds tools that run on the host, outside Docker (not ROS packages): `speech_to_text/vad_listen.py` sends microphone transcripts to `go2_llm_agent`. [FUSION.md](docs/FUSION.md) records what came from Riley Francis's ROS2-LLM-Nav and why.
 

@@ -22,6 +22,9 @@ services:
       # instructions for everyone else. Overridable per-machine via
       # FOXGLOVE_PORT instead of hardcoding a local workaround here.
       - "${FOXGLOVE_PORT:-8765}:8765"
+      # Oak Control's ROS adapter. It is inert until the dashboard_bridge node
+      # is started, and commands are separately gated by allow_commands.
+      - "127.0.0.1:${DASHBOARD_PORT:-8080}:8080"
     # ROS 2 DDS and camera image topics use shared memory; Docker's 64 MB
     # default can run out.
     shm_size: 1g
