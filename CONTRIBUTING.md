@@ -63,10 +63,10 @@ If the build ever gets into a strange state, `docker compose down -v` deletes th
 
 ## Branches and pull requests
 
-1. Start every piece of work on its own branch. Never commit to `master`.
+1. Start every piece of work on its own branch. Never commit to `master`. Start the name with your `id` from [docs/team.yml](docs/team.yml), so everyone can see who owns it: `max/fix/nav-obstacle-safety`, `noah/tts-piper-review`.
    ```shell
    git fetch
-   git switch -c feat/<short-name> origin/master
+   git switch -c <your-id>/feat/<short-name> origin/master
    ```
 2. Keep it small: one feature or fix per branch, merged within days. If two people need to change the same lines, do one first.
    Write each commit message as one short sentence saying exactly what changed, starting with the part of Oak it touches: `Auto mapper: skip frontiers it can't reach`, not `fix` or `wip`. Anyone reading the branch should know what you're working on without opening the code.
@@ -74,7 +74,7 @@ If the build ever gets into a strange state, `docker compose down -v` deletes th
    ```shell
    git fetch
    git rebase origin/master
-   git push -u origin feat/<short-name>    # add --force-with-lease if you pushed before the rebase
+   git push -u origin <your-id>/feat/<short-name>    # add --force-with-lease if you pushed before the rebase
    ```
 4. Open a pull request. Your own branches are personal sandboxes and need no review; only merging into `master` does: one teammate's approval plus green automatic checks. Then it's merged and the branch deleted.
    - Fill in the template GitHub shows you, a line or two each: **Who** (you, and who should review), **What** it changes, **Why** it's needed, **Before** and **After**, **How to test**, and **Wiki** (the page you updated).

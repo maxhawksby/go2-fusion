@@ -51,12 +51,13 @@ Part of: [Team](team.md)
 - **GitHub:** [maxhawksby](https://github.com/maxhawksby). Max Hawksby.
 - **Focus:** computer vision, and the wiki.
 - **Pages to ask about:** [Object detection](object-detection.md), [Team](team.md), and the wiki itself.
-- **Current work:** YOLO object detection that remembers objects on the map, to make mapping rooms easier (pull request #11). Also open: a navigation safety fix that stops on stale sensors (pull request #10).
+- **Current work:** YOLO object detection that remembers objects on the map, to make mapping rooms easier (pull request #21). Also open: a navigation safety fix that stops on stale sensors (pull request #20).
 - **Next:** TODO(Max).
 
 ## How we work together
 
 - **Claim your work.** Tell your agent what you're starting; it opens or finds the issue, tags the page, and assigns you, so your name shows on the map.
+- **Put your name on your branch.** Start it with your id from [team.yml](../team.yml): `max/fix/nav-obstacle-safety`. Anyone can see who owns it.
 - **Say what each commit does.** One short sentence, starting with the part of Oak it touches: `Auto mapper: skip frontiers it can't reach`. Your branch's messages show on your People tab, so they tell the team what you're on.
 - **Ask for review.** A pull request with Who, What, Why, Before and After posts to #feature-revisions; one teammate approves before it reaches `master`. Full steps: [CONTRIBUTING.md](../../CONTRIBUTING.md).
 

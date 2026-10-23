@@ -73,7 +73,8 @@ The team docs are a wiki graph: `README.md` is the center page "Oak", hub pages 
 
 ## Git
 
-- Never commit to `master`. Branch from the latest master: `git fetch && git switch -c feat/<short-name> origin/master`.
+- Never commit to `master`. Branch from the latest master: `git fetch && git switch -c <id>/feat/<short-name> origin/master`.
+- Every branch name starts with its owner's `id` from `docs/team.yml` (`max/`, `noah/`, `adib/`, `jeth/`, `luis/`), so the team can see who owns it. Ask the human for their id if you don't know it; never guess from the git email.
 - Your own branches are personal sandboxes: commit and push to them freely, no review needed.
 - Commit messages: one short sentence that says exactly what changed, starting with the part of Oak it touches, e.g. `Auto mapper: skip frontiers it can't reach`. Never `fix`, `wip` or `updates`. Many commits before a push are fine; each still says what it did. The pull request then explains Who, What, Why, Before and After.
 - Keep branches small (one feature or fix). Before opening a PR: `git fetch && git rebase origin/master`.
