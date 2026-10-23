@@ -27,6 +27,39 @@ Part of: [Maps and navigation](maps-nav.md)
 
 **Buttons.** The RViz AutoMapper panel has **Start/Stop**, **Scan** (pause the goal, forget recent failures, turn 360 degrees; the same as calling `/frontier_explorer/scan`) and **Reset maps** (restart SLAM with an empty 2D map and clear the 3D point cloud).
 
+### The finer details
+
+- **Before SLAM is ready.** Until SLAM publishes the `map` frame, the explorer logs "Waiting for robot position" and does nothing else.
+- **Goal spots.** Each region offers its middle plus one spot about every meter along long regions. The "clear straight line" check uses Nav2's local costmap (`/local_costmap/costmap`). The reveal score subtracts `info_gain_cells_per_meter` (100) unknown squares per meter of travel; the logic lives in `frontier_scoring.py`.
+- **Unstuck moves, exactly.** It checks the full padded footprint (body 0.36 m forward, 0.45 m back, 0.40 m wide, plus a 5 cm margin). Unknown cells, missing rays, infinite returns and a scan older than 0.75 s all count as unsafe. It picks the safe corridor with the most extra clearance, moves for at most 8 seconds, and rechecks 4 times a second. `/scan` must be in the `base_link` frame. If no direction is safe, the robot drifts, or clearance disappears, it stays stopped (a "latch"). A later fresh scan clears the latch when the way ahead is open, or starts another short move when a rear or side corridor has opened; **Scan** clears it at once.
+- **After a move** it stays stopped until a newer `/scan`, live `/point_cloud2`, local costmap and map/odom transforms arrive. A new SLAM `/map` is needed only when the move was at least 0.2 m (slam_toolbox's minimum travel). Obstacles that moved away are cleared by Nav2's costmap voxel layer tracing `/scan` (`clearing: true` in `nav2_params.yaml`); unknown local costmap cells stay unknown, so recovery never treats them as free. The scan's height filter also limits which obstacles recovery can see.
+- **Stuck** means 3 failed goals in a row (`stuck_failure_count`), an obstacle-ahead abort, or "No usable goal" twice running. The open-space search goes through free space up to 4 m away (so never through walls). A failed escape does not trigger another one, escapes are at least 30 s apart, and escape goals always trigger a scan, even with `scan_after_goal` off. A failed scan also leaves exploration stopped.
+- **Stopping.** Ctrl+C cancels the in-flight Nav2 goal and waits briefly for the cancel to reach Nav2, so Oak does not keep walking toward a goal nobody tracks. Publishing an empty Twist on `/cmd_vel_joy` works as an emergency stop because twist_mux gives it the highest priority (10), overriding Nav2.
+
+### Settings
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `map_topic` | `/map` | Occupancy grid topic to read |
+| `robot_frame` | `base_link` | TF frame for the robot's position |
+| `map_frame` | `map` | TF frame the map is published in |
+| `min_frontier_size` | `5` | Minimum cluster size (in cells) to count as a real frontier |
+| `goal_distance` | `0.8` | How far inside known space, toward the robot, to place the goal |
+| `min_goal_distance` | `1.5` | Skip goals closer than this (meters) while any farther frontier is left |
+| `wall_clearance` | `0.5` | Skip goal spots closer than this (meters) to a wall in the SLAM map |
+| `info_gain_range` | `4.0` | How far (meters) the lidar is assumed to see when estimating what a goal would reveal |
+| `info_gain_rays` | `48` | Rays cast per candidate for that estimate |
+| `info_gain_cells_per_meter` | `100.0` | Unknown cells a meter of travel must be worth (400 cells = 1 square meter at 5 cm) |
+| `obstacle_stop_distance` | `0.3` | Gap (meters) in front of the nose that counts as blocked |
+| `blocked_timeout` | `0.0` | Seconds an obstacle must stay ahead before a goal is given up (0 = at once) |
+| `backup_distance` | `0.3` | How far (meters) the unstuck move goes, clamped to 0.05-0.5 m |
+| `open_space_clearance` | `0.8` | Room (meters) on every side that counts as open space when stuck |
+| `stuck_failure_count` | `3` | Failed goals in a row that count as stuck |
+| `scan_on_start` | `true` | Turn a full circle before exploring |
+| `scan_after_goal` | `true` | Turn a full circle after each goal it reaches |
+| `scan_yaw` | `6.283` (2 pi) | How far to turn per scan, in radians |
+| `scan_time_allowance` | `30.0` | Seconds Nav2 has to finish the turn before giving up |
+
 ## Connects to
 
 - [SLAM](slam.md) - reads `/map` and the `map` frame.
@@ -46,7 +79,6 @@ From the package README and Luis's commits (Oct 14-19):
 - **Waits for fresh data.** After every scan or move it waits up to 20 s for newer `/scan`, `/point_cloud2`, `/map`, costmap and TF. If they don't come, exploration stays stopped until Scan is pressed.
 - **The 3D cloud never forgets** moved objects; neither SLAM nor the 3D map is cleared during recovery.
 - **Big maps** make each step slower, because the whole map is rescanned every cycle.
-- The README's Docker command uses a fixed container name (`docker-unitree_ros-1`) and also shows a non-Docker WSL run; the team rule is to run everything through `docker compose` (AGENTS.md).
 
 ## Who's on it and what's next
 
@@ -63,7 +95,9 @@ cd docker
 docker compose exec unitree_ros bash -ic 'ros2 run go2_auto_mapper explorer'
 ```
 
-Ctrl+C stops it and cancels the Nav2 goal. Emergency stop from another terminal:
+Change a setting at start, for example `ros2 run go2_auto_mapper explorer --ros-args -p min_frontier_size:=10`. Scan on demand: `ros2 service call /frontier_explorer/scan std_srvs/srv/Trigger`.
+
+Ctrl+C stops it and cancels the Nav2 goal. If it runs in the background, stop it with `pkill -f 'go2_auto_mapper/lib/go2_auto_mapper/explorer'`. Emergency stop from another terminal:
 
 ```shell
 docker compose exec unitree_ros bash -ic 'ros2 service call /navigate_to_pose/_action/cancel_goal action_msgs/srv/CancelGoal "{}"'

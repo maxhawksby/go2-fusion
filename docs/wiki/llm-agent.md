@@ -29,7 +29,24 @@ go2> walk backward for one second
 Completed; stopped.
 ```
 
-An older plan to rebuild the agent on Anthropic's Claude ([plan file](../plans/pending/2026-10-08-claude-llm-agent.md)) is **superseded** by the Ollama direction. Adib's branch marks it as historical context only.
+**The Claude plan was dropped.** On 2026-10-08 the team planned to rebuild the agent on Anthropic's Claude. That plan is superseded by Adib's Ollama agent, because Ollama runs free and local with no paid API key, and its plan file was deleted (git history keeps it). See [Decisions](decisions.md).
+
+### Riley's version (on master) in detail
+
+| Module | What it does |
+| --- | --- |
+| `agent.py` | Plans and runs several motion commands from one plain-English request |
+| `ros2_motion.py` | Live backend: publishes `/cmd_vel_agent`, `/tts` and `/webrtc_req` |
+| `ros2_mock_motion.py` | Mock backend that prints commands instead of moving the robot |
+| `speech_bridge.py` | FastAPI server (`POST /command`) that feeds transcripts to the agent |
+
+The planner returns a `Plan`: a list of `Step`s, each an action plus an optional `duration_s` and `label`. The executor then calls exactly one tool per step. The tools are `walk` (forward for a time at a speed), `turn_in_place`, `sit` and `stretch` (each followed by a wait and a recovery stand), `stand_up`, `stand_down`, `recovery_stand`, and `look_for_object` (mock mode only).
+
+In live mode it publishes `/cmd_vel_agent` (walk and turn), `/webrtc_req` (Sport API: stand up 1004, stand down 1005, recovery stand 1006, sit 1009, stretch 1017) and `/tts` (text for `speech_processor`'s `tts_node` to speak). It subscribes to nothing. In mock mode it publishes nothing at all.
+
+Setup: set `OPENAI_API_KEY` and `ROBOT_ENV` in the environment, or in a gitignored `.env` file in the folder you run from; never commit the key. `ROBOT_ENV` defaults to `testing`, which uses the mock backend and never moves the robot; `ROBOT_ENV=live` drives the real robot. In live mode, start with tiny moves ("walk forward for half a second") in an open area, with the keyboard or gamepad ready; both override the agent. For speech out, start `ros2 run speech_processor tts_node` with an ElevenLabs key.
+
+Adding an action to Riley's version: add a method to both backends (`MockMotionController` in `ros2_mock_motion.py` and `RosMotionController` in `ros2_motion.py`), add an `@tool` wrapper in `agent.py` and put it in the `tools` list, add its name to `Step.action`'s `Literal` and to the planner's system prompt, then test with `ROBOT_ENV=testing` first and live at low speed.
 
 ## Connects to
 
@@ -41,11 +58,14 @@ An older plan to rebuild the agent on Anthropic's Claude ([plan file](../plans/p
 
 ## How it breaks
 
-From Riley's version, as recorded in the package README and the old plan:
+From Riley's version, as recorded in the package README and the dropped Claude plan (bugs found by reading the code, not by running it):
 
 - It crashes without `OPENAI_API_KEY`, even in mock mode, because the AI client is created on import.
 - `look_for_object` always errors in live mode.
-- The plan is fixed before anything runs, turn direction can get lost ("turn right" turns left), and there is no stop and no speed cap.
+- `look_for_object` calls `find_object()`, which only the mock backend has; it is not wired to `object_detection`. A fix would subscribe to `/detected_objects_dict` and look the label up there.
+- Importing `agent.py` (which `speech_bridge` does) starts the motion backend as a side effect.
+- The plan is fixed before anything runs and never sees tool results, turn direction can get lost ("turn right" turns left), it loops forever when no tool is called, there is no stop and no speed cap, and the web handler blocks while the robot moves.
+- `ros2_motion.py` has an unused `dance()` stub.
 
 From Adib's branch README:
 
@@ -71,6 +91,15 @@ ros2 run go2_llm_agent agent --plan-only --command "walk forward for 3 seconds t
 python3 -m unittest discover -s /ros2_ws/src/go2_llm_agent/test -p test_agent.py -v
 ```
 
-It only publishes to ROS with `--mode ros`. Do that only in the lab, next to Oak, with the keyboard ready.
+Riley's version (on master; its pip deps are not in the image, so these fail on missing imports there):
 
-<!-- sources: src/go2_llm_agent/README.md; docs/FUSION.md rows 2, 3, 11 and "Decided after the fusion"; docs/plans/pending/2026-10-08-claude-llm-agent.md; origin/adib/feat/llm-agent (38a6980: go2_llm_agent/README.md, commands.py, agent.py, FUSION.md and plan-file diffs); AGENTS.md; team update (Adib) week of 2026-10-18 -->
+```shell
+ros2 run go2_llm_agent agent            # interactive text prompt
+ros2 run go2_llm_agent speech_bridge    # HTTP bridge on port 8000
+curl -X POST http://localhost:8000/command -H "Content-Type: application/json" \
+  -d '{"text":"walk forward for one second"}'    # test the bridge without a microphone
+```
+
+Adib's version only publishes to ROS with `--mode ros`. Do that only in the lab, next to Oak, with the keyboard ready.
+
+<!-- sources: src/go2_llm_agent/README.md (folded in 2026-10-22); docs/FUSION.md rows 2, 3, 11 and "Decided after the fusion"; docs/plans/pending/2026-10-08-claude-llm-agent.md; origin/adib/feat/llm-agent (38a6980: go2_llm_agent/README.md, commands.py, agent.py, FUSION.md and plan-file diffs); AGENTS.md; team update (Adib) week of 2026-10-18 -->

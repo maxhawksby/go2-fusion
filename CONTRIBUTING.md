@@ -15,7 +15,7 @@ docker compose build
 The first build takes a while (it downloads ROS packages, PyTorch and Open3D). After that the image only rebuilds when a dependency changes.
 
 - Cloned without `--recursive`? Run `git submodule update --init --recursive`.
-- On Windows, add `-f docker-compose.windows.yml` to every `docker compose` command. See [WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md).
+- On Windows, add `-f docker-compose.windows.yml` to every `docker compose` command. See [WSL and Windows](docs/wiki/wsl.md).
 
 ## Start the robot stack
 

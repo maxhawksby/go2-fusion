@@ -50,13 +50,13 @@ On Windows from PowerShell, add `-f docker-compose.windows.yml` after `docker co
 - `docker-compose.yml` - for Linux and WSL: shares your display (for RViz), gamepads (`/dev/input`) and the host network.
 - `docker-compose.windows.yml` - for Windows PowerShell: no display or gamepad, and publishes Foxglove on port 8765 (change with `FOXGLOVE_PORT`).
 - `docker-compose.gpu.yml` + `Dockerfile.gpu` - optional, on top of the Windows file, for an NVIDIA GPU: YOLO runs on CUDA and RViz draws on the GPU.
-- `mac/` - the Mac setup (see `macos_setup.md`).
+- `mac/` - the Mac setup (see [Mac setup](mac-setup.md)).
 - `entrypoint.sh`, `dev_aliases.sh` - start-up build and the shortcuts above.
-- `LAB_CHECKLIST.md` - see [Lab checklist](lab-checklist.md).
 - `../requirements.txt` - Python libraries. ROS libraries go in each package's `package.xml` instead.
 
 ## Connects to
 
+- [Command cheat sheet](commands.md): copy-paste commands for RViz, the map viewers, keyboard driving, auto mapping and full rebuilds.
 - [WSL and Windows](wsl.md): which compose file to use on Windows.
 - [Lab checklist](lab-checklist.md): starting the container against the real Oak.
 - [Go2 driver](go2-driver.md): what the container launches by default.

@@ -34,17 +34,17 @@ Nav2's `/cmd_vel` goes into [twist_mux](twist-mux.md) at priority 5: the gamepad
 
 From the repo's records and Luis's comments in `nav2_params.yaml`:
 
-- **"Starting point in lethal space"** on 2026-10-11: the lidar marked Oak's own body as an obstacle. The 0.1 m minimum range should fix it; retest pending ([TEST_LOG.md](../TEST_LOG.md)).
+- **"Starting point in lethal space"** on 2026-10-11: the lidar marked Oak's own body as an obstacle. The 0.1 m minimum range should fix it; retest pending ([Test log](test-log.md)).
 - **Floor seen as a wall.** With the 3D cloud as a source, drifting floor points filled the costmap with "lethal" cells, so the robot stopped. Now both costmaps use `/scan` only.
 - **Walking into walls.** At a 3 Hz controller the robot covered about 0.2 m between corrections and drifted into walls (now 10 Hz). With `max_vel_x` 3.0 but the smoother capping at 0.5, the robot did not follow its own plan (now both 0.5). A collision check that looked only at the robot's center let the 0.36 m nose touch walls (now checks the full footprint).
 - **Paths hugging walls** at a 0.25 m cushion (now 0.55 m).
 - **Global costmap blind to live obstacles**: a relative topic name pointed at a topic nobody published (now absolute `/scan`).
-- **Not driving at all** under `webrtc_web.launch.py`, which skips twist_mux ([FUSION.md](../FUSION.md), follow-up 6).
+- **Not driving at all** under `webrtc_web.launch.py`, which skips twist_mux ([Decisions](decisions.md), follow-up 6).
 - **Blind outside the scan's height band.** `/scan` keeps only points from 0.1 m below to 0.5 m above the body center (`robot.launch.py`), so Nav2 cannot see anything lower or higher than that.
 
 ## Who's on it and what's next
 
-Luis tuned Nav2 in October so auto-mapping explores reliably. Next: full exploration tests on Oak, and a retest of Nav2 goals and MapViewer click-to-walk on the new code ([TEST_LOG.md](../TEST_LOG.md) open issue 1). TODO(owner): owner for Nav2 beyond the auto mapper.
+Luis tuned Nav2 in October so auto-mapping explores reliably. Next: full exploration tests on Oak, and a retest of Nav2 goals and MapViewer click-to-walk on the new code ([Test log](test-log.md) open issue 1). TODO(owner): owner for Nav2 beyond the auto mapper.
 
 ## The code
 

@@ -1,7 +1,6 @@
 ---
 title: Lab checklist
 parent: lab-setup
-code: [docker/LAB_CHECKLIST.md]
 ---
 
 # Lab checklist
@@ -34,7 +33,10 @@ Part of: [Lab setup](lab-setup.md)
 4. **Wait for success:** `Robot 0 validated and ready` in the logs, then RViz opens with lidar dots and the camera image.
 5. **Before moving the robot,** make sure someone is watching Oak and the space around it is clear.
 
-`--build` is safe to always include: it is a no-op unless a dependency changed. Code changes never need it.
+## Build habits
+
+- **Always launch with `docker compose up --build`.** The image holds only the dependencies, so the build is a no-op unless one changed. Code changes never need it: `src/` is mounted live (see [Docker](docker.md)).
+- **If a build looks stuck, read the step name in the output** to see what it is downloading. A multi-GB `nvidia-*` download means PyTorch is pulling the GPU build again; the Dockerfile should install it from the CPU-only index.
 
 ## Reading the result
 
@@ -65,8 +67,4 @@ The three most common lab problems, from the records:
 
 Noah documented a repeatable lab-testing workflow for his dashboard (`docs/DASHBOARD_LAB_GUIDE.md` on branch `feat/desktop-app-prototype`). TODO(owner): merge the useful parts into this checklist once that branch lands.
 
-## The code
-
-https://github.com/maxhawksby/go2-fusion/tree/master/docker (`LAB_CHECKLIST.md`)
-
-<!-- sources: docker/LAB_CHECKLIST.md; docs/WINDOWS_SETUP.md (lab details: ask the lab, never commit); docs/FUSION.md row 14; README.md step 3; src/go2_robot_sdk/go2_robot_sdk/main.py (retry with backoff); infrastructure/webrtc/connection_health.py (5 s stall); docs/TEST_LOG.md data stall note; origin/feat/desktop-app-prototype docs/DASHBOARD_LAB_GUIDE.md. Lab network name and robot IP deliberately omitted. -->
+<!-- sources: docker/LAB_CHECKLIST.md (folded in here and deleted 2026-10-22); docs/WINDOWS_SETUP.md (lab details: ask the lab, never commit); docs/FUSION.md row 14; README.md step 3; src/go2_robot_sdk/go2_robot_sdk/main.py (retry with backoff); infrastructure/webrtc/connection_health.py (5 s stall); docs/TEST_LOG.md data stall note; origin/feat/desktop-app-prototype docs/DASHBOARD_LAB_GUIDE.md. Lab network name and robot IP deliberately omitted. -->

@@ -119,22 +119,22 @@ BSD 2-clause License. See [LICENSE](LICENSE).
 <!--
 Sources:
 - Team 48, vision, $3,000 figure, current-work list, issue labels, merge rules, wiki rule: Max's answers via coordinator, 2026-10-22 (not in repo yet)
-- Humble, Docker, 5-person team: AGENTS.md intro. Robot name "Oak": docs/FUSION.md, macos_setup.md
+- Humble, Docker, 5-person team: AGENTS.md intro. Robot name "Oak": docs/wiki/decisions.md, docs/wiki/mac-setup.md
 - Images: original README.md "Real time Go2 Air/PRO/EDU joints sync" and "lidar point cloud" (URLs unchanged)
-- Features verified working on the robot 2026-10-11 (connect, camera, RViz, lidar ~6.8 Hz, YOLO ~4.5 fps, twist_mux priority): docs/TEST_LOG.md. Gamepad (Xbox) LB test no longer required: the team uses the Oak ROS2 pad (FUSION follow-up 5). SLAM/Nav2 left out: Nav2 goal failed on old code, retest pending.
-- twist_mux referee and priorities: docs/FUSION.md "twist_mux priorities"
-- 16 GB RAM: inferred from TEST_LOG build note (7.4 GB WSL ran out of memory at 16 parallel compiles). TODO(Max): confirm minimum.
+- Features verified working on the robot 2026-10-11 (connect, camera, RViz, lidar ~6.8 Hz, YOLO ~4.5 fps, twist_mux priority): docs/wiki/test-log.md. Gamepad (Xbox) LB test no longer required: the team uses the Oak ROS2 pad (docs/wiki/decisions.md follow-up 5). SLAM/Nav2 left out: Nav2 goal failed on old code, retest pending.
+- twist_mux referee and priorities: docs/wiki/decisions.md "twist_mux priorities"
+- 16 GB RAM: inferred from the docs/wiki/test-log.md build note (7.4 GB WSL ran out of memory at 16 parallel compiles). TODO(Max): confirm minimum.
 - Clone, build, aliases: CONTRIBUTING.md; docker/entrypoint.sh; docker/dev_aliases.sh; docker/Dockerfile:87-89
-- ~15 min first build: docker/LAB_CHECKLIST.md
-- Keyboard publishes only while held, then one stop: src/keyboard_teleop/README.md; FUSION.md row 16
-- Access details kept out: FUSION.md row 14
-- Auto mapper work: git log Oct 14-19 (LuisMend12, PRs #2-#8); src/go2_auto_mapper/README.md
+- ~15 min first build: docs/wiki/lab-checklist.md
+- Keyboard publishes only while held, then one stop: docs/wiki/keyboard-teleop.md; docs/wiki/decisions.md row 16
+- Access details kept out: docs/wiki/decisions.md row 14
+- Auto mapper work: git log Oct 14-19 (LuisMend12, PRs #2-#8); docs/wiki/auto-mapper.md
 - TTS: origin/jeth/feat/tts (jevgome), origin/noah/tts-piper-review
 - AI agent: origin/adib/feat/llm-agent ("ollama agent instead of riley gpt")
 - Dashboard: origin/feat/desktop-app-prototype (Noah Steinberg; host_tools/control_dashboard, go2_dashboard_bridge, docs/DASHBOARD_LAB_GUIDE.md)
 - Computer vision memory: origin/feat/yolo-map-memory (Max Hawksby)
 - Current-work wording: team updates week of 2026-10-18; roles now on docs/wiki/people.md
-- Open issues: docs/TEST_LOG.md "Open issues" 1-4
+- Open issues: docs/wiki/test-log.md "Open issues" 1-4
 - Automatic checks: .github/workflows/ros_build.yaml
 - Credits/license: original README.md "Thanks" and "License"; LICENSE
 -->

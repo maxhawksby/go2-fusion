@@ -14,7 +14,7 @@ Part of: [Brains](brains.md)
 
 Voice has two halves.
 
-**Speech in (your voice to text).** `vad_listen.py` runs on your own computer, outside Docker, because the container cannot reach your microphone reliably. It notices when you start and stop talking (*VAD*, voice activity detection), turns your speech into text with **Whisper** (a free speech-to-text model), and sends the text to the [LLM agent](llm-agent.md)'s small web server at `http://localhost:8000/command`.
+**Speech in (your voice to text).** `vad_listen.py` runs on your own computer, outside Docker, because the container cannot reach your microphone reliably. It notices when you start and stop talking (*VAD*, voice activity detection), turns your speech into text with **Whisper** (a free speech-to-text model), and sends the text to the [LLM agent](llm-agent.md)'s small web server at `http://localhost:8000/command`. It is plain Python, not a ROS package, written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav). It uses the Whisper `base` model by default; set `WHISPER_MODEL = "tiny"` for lower latency. The model size, silence timeout and bridge address are constants at the top of `vad_listen.py`. The agent's server (`speech_bridge`) runs inside the container on port 8000; the Linux compose file uses host networking, so `localhost:8000` reaches it on Linux and WSL.
 
 **Speech out (text to Oak's speaker).** The `tts_node` program in `speech_processor` listens on the `/tts` topic. When text arrives, it turns it into audio (*TTS*, text to speech), cuts the audio into small pieces, and sends them to Oak's speaker as commands on `/webrtc_req`. On `master` the voice comes from **ElevenLabs**, a paid online service, so it needs an `ELEVENLABS_API_KEY`.
 
@@ -61,8 +61,10 @@ cd host_tools/speech_to_text
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python vad_listen.py
+python vad_listen.py             # speak a command; Ctrl+C stops it
 ```
+
+Start the receiver first, inside the container: `ros2 run go2_llm_agent speech_bridge` (Riley's agent; see [LLM agent](llm-agent.md)).
 
 Speech out, inside the container (with the robot connected and an ElevenLabs key set):
 

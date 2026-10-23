@@ -41,7 +41,7 @@ Part of: [Senses](senses.md)
 
 - **Drift in height** smears the 3D lidar cloud, so the floor looks like obstacles; Nav2 switched to the 2D scan because of it (`nav2_params.yaml` comments).
 - **Stale `map` -> `odom`.** `/scan` arrives about 4 times a second; with a short time-out Nav2 logged "Transform data too old" and stopped. SLAM's `transform_timeout` is now 0.5 s (`mapper_params_online_async.yaml`).
-- **Position data stops.** After Ctrl+C in a lab session, `/odom` went silent while the camera kept going ([TEST_LOG.md](../TEST_LOG.md)).
+- **Position data stops.** After Ctrl+C in a lab session, `/odom` went silent while the camera kept going ([Test log](test-log.md)).
 - **Odd model entries.** `go2.urdf` also declares fixed `map` -> `odom` and `odom` -> `base_link` joints, which the driver and SLAM publish too. TODO(owner): confirm whether these clash with SLAM's live `map` -> `odom` and should be removed.
 
 ## Who's on it and what's next

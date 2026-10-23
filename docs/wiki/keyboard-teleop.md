@@ -13,6 +13,7 @@ Part of: [Driving](driving.md)
 ## How it works
 
 `keyboard_teleop` is a small Python ROS node.
+It only sends movement commands and never connects to the robot itself, so the robot stack must already be running for Oak to move.
 It reads key presses straight from your terminal and turns them into velocity commands (`geometry_msgs/Twist`) on `/cmd_vel_keyboard`.
 That topic is the keyboard's lane in [twist_mux](twist-mux.md), with priority 9: only the gamepad beats it, and it beats Nav2 and all the autonomous programs.
 

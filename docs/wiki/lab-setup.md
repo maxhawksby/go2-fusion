@@ -21,7 +21,7 @@ So you build the Docker **image** (the box's recipe) once, and after that you on
 
 1. **Install Docker Desktop** and open it. Wait until it says the engine is running.
    - Windows: also install WSL2 (Linux inside Windows). See [WSL and Windows](wsl.md) for which way to run.
-   - Mac: also install XQuartz; follow `macos_setup.md` in the repo, which wraps every command in `bash docker/mac/go2.sh`.
+   - Mac: also install XQuartz; follow [Mac setup](mac-setup.md), which wraps every command in `bash docker/mac/go2.sh`.
 2. **Check Docker works.** In a terminal:
    ```shell
    docker info
@@ -59,8 +59,10 @@ You are set up. From here, the [Docker](docker.md) page explains the daily edit 
 
 1. [Docker](docker.md) - how the image and container work, the edit loop, and handy shortcuts. Read this after the steps above.
 2. [WSL and Windows](wsl.md) - the two ways to run on Windows, and how to get RViz windows to appear.
-3. [Lab checklist](lab-checklist.md) - what to do before and at the lab to connect to the real Oak.
-4. [Test log](test-log.md) - what we tested on Oak, what passed, and what is still open.
+3. [Mac setup](mac-setup.md) - running the container on a Mac, with RViz through XQuartz.
+4. [Command cheat sheet](commands.md) - copy-paste commands for RViz, the map viewers, keyboard driving, auto mapping and rebuilds.
+5. [Lab checklist](lab-checklist.md) - what to do before and at the lab to connect to the real Oak.
+6. [Test log](test-log.md) - what we tested on Oak, what passed, and what is still open.
 
 ## Going to the lab
 
@@ -76,7 +78,7 @@ Ask a teammate for them, then follow the [Lab checklist](lab-checklist.md).
 ## Who's on it
 
 - Noah wrote a repeatable lab-testing workflow for his Oak Control dashboard (`docs/DASHBOARD_LAB_GUIDE.md` on branch `feat/desktop-app-prototype`, not on master yet). He also moved all ROS packages into `src/` and organized the root docs.
-- Adib wrote the Mac setup (`macos_setup.md`, `docker/mac/`).
+- Adib wrote the [Mac setup](mac-setup.md) (`docker/mac/`).
 - Max keeps the [test log](test-log.md).
 - TODO(owner): confirm the minimum laptop RAM (the README says about 16 GB).
 

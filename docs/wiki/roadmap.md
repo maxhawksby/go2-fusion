@@ -1,7 +1,6 @@
 ---
 title: Roadmap
 parent: team
-code: [docs/plans/**]
 ---
 
 # Roadmap
@@ -46,7 +45,7 @@ TODO(Max): the order of these steps, and dates for the milestone.
 
 ## Plans on file
 
-`docs/plans/pending/` holds one plan: [rebuild the LLM agent on Claude](../plans/pending/2026-10-08-claude-llm-agent.md) (2026-10-08). It is **superseded**: the team chose a free local Ollama/Qwen agent instead (see [Decisions](decisions.md)). Keep it only as background; ideas from it, like describing what the camera sees, may come back later.
+No team plans are on file. The one old plan, rebuilding the LLM agent on Claude (2026-10-08), was dropped and deleted on 2026-10-22: the team chose Adib's free local Ollama/Qwen agent instead (see [Decisions](decisions.md) and [LLM agent](llm-agent.md)). Two ideas from it may come back later: Oak answering out loud through `/tts`, and describing what its camera sees.
 
 ## Further out
 

@@ -21,6 +21,61 @@ The `front_leg_controller` package holds two programs:
 - **`sit_controller`** works for real. It waits until the driver is listening on `/webrtc_req` (so the command is not lost), sends Sit once, and exits. It is the best example of how to send any move.
 - **`front_leg_controller`** is a placeholder. It reads `/joint_states` and logs pretend leg motion, but never sends a real command.
 
+### All moves and their API IDs
+
+The source of truth is `ROBOT_CMD` in the driver's `go2_robot_sdk/domain/constants/robot_commands.py`.
+
+| Movement and posture | API ID |
+| --- | --- |
+| Damp | 1001 |
+| BalanceStand | 1002 |
+| StopMove | 1003 |
+| StandUp | 1004 |
+| StandDown | 1005 |
+| RecoveryStand | 1006 |
+| Euler | 1007 |
+| Move | 1008 |
+| Sit | 1009 |
+| RiseSit | 1010 |
+| SwitchGait | 1011 |
+| Trigger | 1012 |
+| BodyHeight | 1013 |
+| FootRaiseHeight | 1014 |
+| SpeedLevel | 1015 |
+| TrajectoryFollow | 1018 |
+| ContinuousGait | 1019 |
+| GetBodyHeight | 1024 |
+| GetFootRaiseHeight | 1025 |
+| GetSpeedLevel | 1026 |
+| SwitchJoystick | 1027 |
+| Pose | 1028 |
+| GetState | 1034 |
+| EconomicGait | 1035 |
+| StandOut | 1039 |
+| FreeWalk | 1045 |
+| Standup | 1050 |
+| CrossWalk | 1051 |
+
+| Fun and show moves | API ID |
+| --- | --- |
+| Hello | 1016 |
+| Stretch | 1017 |
+| Content | 1020 |
+| Wallow | 1021 |
+| Dance1 | 1022 |
+| Dance2 | 1023 |
+| Scrape | 1029 |
+| FrontFlip | 1030 |
+| FrontJump | 1031 |
+| FrontPounce | 1032 |
+| WiggleHips | 1033 |
+| FingerHeart ("show love") | 1036 |
+| Handstand | 1301 |
+| CrossStep | 1302 |
+| OnesidedStep | 1303 |
+| Bound | 1304 |
+| MoonWalk | 1305 |
+
 ## Connects to
 
 - [Go2 driver](go2-driver.md): delivers `/webrtc_req` to the robot.
@@ -43,7 +98,7 @@ Nobody is working on posture this week. TODO(Max): whether the placeholder `fron
 
 Folder: https://github.com/maxhawksby/go2-fusion/tree/master/src/front_leg_controller
 
-The full list of moves and their API IDs is in the package README and in `ROBOT_CMD` in the driver's `robot_commands.py`.
+The full list of moves is in the tables above.
 
 With the robot stack running:
 

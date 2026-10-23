@@ -17,11 +17,11 @@ Part of: [Brains](brains.md)
 When you publish an ID on `/navigate_to_object`, this node locks onto that object. Ten times a second it:
 
 1. Checks the object is still in the detector's memory. If not, it stops and gives up.
-2. Turns toward it (faster when the angle is bigger, capped at 1.0 rad/s).
-3. Walks forward only when roughly facing it (capped at 0.4 m/s).
+2. Turns toward it, faster when the angle is bigger: turn speed = 1.5 x angle, capped at 1.0 rad/s.
+3. Walks forward only when roughly facing it (angle under 0.3 rad): forward speed = 0.5 x distance, capped at 0.4 m/s.
 4. Stops when closer than 0.5 m.
 
-**It has no obstacle avoidance.** It drives in a straight line toward a rough guess of where the object is. It uses no map and no Nav2 path planning. That is why it has the lowest priority on the drive referee: everything else overrides it.
+**It has no obstacle avoidance.** It drives in a straight line toward a rough guess of where the object is. It uses no map, no Nav2 path planning and no TF lookup. That is why it has the lowest priority on the drive referee: everything else overrides it.
 
 ## Connects to
 
@@ -45,7 +45,7 @@ When you publish an ID on `/navigate_to_object`, this node locks onto that objec
 
 ## Who's on it and what's next
 
-Written by Riley Francis. Nobody is working on it this week. Max's open YOLO memory work (pull request #11, objects remembered on the map) touches this node for small style fixes. TODO(Max): who owns object navigation next, and whether it should go through Nav2 for obstacle avoidance.
+Written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav). Nobody is working on it this week. Max's open YOLO memory work (pull request #11, objects remembered on the map) touches this node for small style fixes. TODO(Max): who owns object navigation next, and whether it should go through Nav2 for obstacle avoidance.
 
 ## The code
 

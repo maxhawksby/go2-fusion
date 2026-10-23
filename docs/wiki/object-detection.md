@@ -23,7 +23,19 @@ Part of: [Senses](senses.md)
 
 **Important today (master):** those positions are relative to the robot's body (`base_link`), not to the room. When Oak turns or walks, the same chair's x and y change, so it can get a second ID. Nothing is placed on the [SLAM](slam.md) map yet. That is exactly what Max's in-progress work fixes (see "What's next" below).
 
-**The older detector.** `coco_detector` is a second, older detector that uses a different network (MobileNet, from the torchvision library). It publishes the standard ROS message `vision_msgs/Detection2DArray` on `/detected_objects`, with a default confidence cut-off of 0.9 and no positions or memory. It is kept for now and is planned to be retired (see [FUSION.md](../FUSION.md), follow-up 3).
+**The older detector.** `coco_detector` is a second, older detector that uses a different network (MobileNet, from the torchvision library). It publishes the standard ROS message `vision_msgs/Detection2DArray` on `/detected_objects`, with a default confidence cut-off of 0.9 and no positions or memory. It is kept for now and is planned to be retired (see [Decisions](decisions.md), follow-up 3).
+
+**Settings.** `object_detection` was written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav); its pose topic was renamed from `/detected_objects` to `/detected_objects/poses` when it came into this repo. Its parameters:
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `model_path` | `share/object_detection/models/yolov8n.pt` | YOLO weights file |
+| `num_threads` | `4` | CPU threads for PyTorch. Unlimited, it takes every core and starves the driver, SLAM, Nav2 and RViz |
+| `max_rate_hz` | `5.0` | Most pictures per second to run YOLO on; pictures in between are dropped. `0` runs on every picture |
+
+To change the default weights, add the file to `models/`, list it in `setup.py` `data_files`, and update the default in `detector_node.py`. It needs `ultralytics` from pip, which is in the repo's `requirements.txt`, so the Docker image has it.
+
+`coco_detector` comes from [jfrancis71/ros2_coco_detector](https://github.com/jfrancis71/ros2_coco_detector) (demo: https://www.youtube.com/watch?v=emUs0nwwde8), chosen for its simple code and standard ROS messages. Its parameters: `publish_annotated_image` (default `True`), `device` (default `cpu`; `cuda` uses a GPU if there is one), and `detection_threshold` (default 0.9, between 0.0 and 1.0; higher rejects more detections, so raise it if you get too many false ones). It puts the class name straight into the message's `class_id` (for example `dog`) instead of an ID to look up. The first run downloads the MobileNet network (`fasterrcnn_mobilenet_v3_large_320_fpn`), then it is cached.
 
 ## Connects to
 
@@ -47,11 +59,11 @@ Topics (a topic is a named channel that ROS programs publish messages to and lis
 ## How it breaks
 
 - **Positions are rough.** No depth camera, no use of the camera calibration, no TF lookup (object_detection README, "Limits"). A chair half out of view looks shorter, so it looks farther away.
-- **No confidence filter on master.** It trusts every YOLO box, even weak ones. In the 2026-10-11 lab test it reported a chair at confidence 0.34 ([TEST_LOG.md](../TEST_LOG.md)).
+- **No confidence filter on master.** It trusts every YOLO box, even weak ones. In the 2026-10-11 lab test it reported a chair at confidence 0.34 ([Test log](test-log.md)).
 - **Left and right are flipped on master.** Objects right of the picture's center get a positive y (left, in ROS's convention), so object navigation turns the wrong way. Found and fixed on the in-progress branch (commit `b078372`).
 - **ID mix-ups on master.** Matching checks whether an ID starts with the class name, so `car` can match `carrot_1`, and after an object expires a new one can reuse a live number (commit `b078372`).
-- **Speed.** About 4.5 pictures a second on CPU, 55 to 130 ms each, measured on Oak on 2026-10-11 ([TEST_LOG.md](../TEST_LOG.md)). Results lag the camera by about one picture.
-- **First run needs internet.** `ultralytics` downloads a font the first time it draws boxes.
+- **Speed.** About 4.5 pictures a second on CPU, 55 to 130 ms each, measured on Oak on 2026-10-11 ([Test log](test-log.md)). Results lag the camera by about one picture.
+- **First run needs internet.** `ultralytics` downloads a font the first time it draws boxes, and `coco_detector` downloads its network.
 
 ## Who's on it and what's next
 
@@ -82,4 +94,4 @@ docker compose exec unitree_ros bash -ic 'ros2 topic echo /detected_objects_dict
 
 Try other weights without rebuilding: add `--ros-args -p model_path:=/path/to/weights.pt`. Python edits need only a node restart, no rebuild. On a Windows host add `-f docker-compose.windows.yml` after `docker compose`.
 
-<!-- sources: src/object_detection/README.md, src/object_detection/object_detection/detector_node.py, src/coco_detector/coco_detector/coco_detector_node.py, src/coco_detector/README.md, docs/FUSION.md (rows 1, follow-up 3), docs/TEST_LOG.md (2026-10-11), AGENTS.md, src/go2_llm_agent/README.md, src/object_navigation/README.md, origin/feat/yolo-map-memory commits b078372 2e66325 3ac8bce and its object_detection README, contract team updates week of 2026-10-18 -->
+<!-- sources: src/object_detection/README.md, src/object_detection/object_detection/detector_node.py, src/coco_detector/coco_detector/coco_detector_node.py, src/coco_detector/README.md, docs/FUSION.md (rows 1, follow-up 3), docs/TEST_LOG.md (2026-10-11), coco_detector README parameters and origin (2026-10-22 README trim), AGENTS.md, src/go2_llm_agent/README.md, src/object_navigation/README.md, origin/feat/yolo-map-memory commits b078372 2e66325 3ac8bce and its object_detection README, contract team updates week of 2026-10-18 -->

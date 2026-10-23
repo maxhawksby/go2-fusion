@@ -35,8 +35,8 @@ With more than one robot, each gets a prefix, for example `/robot0/camera/image_
 ## How it breaks
 
 - If the calibration file for the incoming picture height is missing, there is no `CameraInfo` for it (the loader logs an error).
-- In the 2026-10-11 lab session, after Ctrl+C the camera kept streaming while lidar and odometry went silent; recreating the container fixed it ([TEST_LOG.md](../TEST_LOG.md)).
-- The driver keeps video going past bad frames since Luis's October driver fixes ([FUSION.md](../FUSION.md), row 15).
+- In the 2026-10-11 lab session, after Ctrl+C the camera kept streaming while lidar and odometry went silent; recreating the container fixed it ([Test log](test-log.md)).
+- The driver keeps video going past bad frames since Luis's October driver fixes ([Decisions](decisions.md), row 15).
 - Today no detector uses the calibration; `object_detection` assumes a 90 degree view instead.
 
 ## Who's on it and what's next

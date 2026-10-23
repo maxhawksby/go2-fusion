@@ -16,7 +16,7 @@ services:
       - ros2_install:/ros2_ws/install  # so startup builds are incremental
       - ros2_log:/ros2_ws/log
     ports:
-      # docs/WINDOWS_SETUP.md documents connecting at ws://localhost:8765; this
+      # docs/wiki/wsl.md documents connecting at ws://localhost:8765; this
       # was hardcoded to 8766:8765 as a one-off workaround for a port
       # conflict on a specific machine, which silently broke the documented
       # instructions for everyone else. Overridable per-machine via

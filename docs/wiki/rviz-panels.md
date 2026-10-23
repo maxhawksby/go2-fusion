@@ -23,6 +23,12 @@ Unlike the terminal version, the panel sees real key releases, so letting go sto
 Key changes are sent immediately, and while keys are held it repeats the command 20 times a second to keep its [twist_mux](twist-mux.md) lane alive.
 Clicking elsewhere (losing focus) releases every key and sends a stop.
 
+More details:
+
+- **MapViewer** handles rapid re-clicks, and a cancel pressed before Nav2 accepts the goal, the same way as the standalone C++ viewer, so they do not race. It runs its own ROS node, `go2_rviz_map_viewer_panel`, on a background thread, separate from RViz's own ROS connection.
+- **AutoMapper Start** runs the explorer as a child process with RViz's already-sourced ROS environment. **Stop** sends it Ctrl+C (`SIGINT`, not the default `SIGTERM`), so the explorer cancels its Nav2 goal before exiting; if it has not exited within 5 s, the panel force-kills it. Scan and Reset maps go through the panel's own node, `go2_rviz_auto_mapper_panel`, and their replies show in the log. There is no frontier count or current-goal readout.
+- **Reset maps, exactly.** 2D: it stops `slam_toolbox` (`pkill -INT -f async_slam_toolbox_node`), and `robot.launch.py` restarts it (`respawn=True`) with an empty `/map`; Humble's slam_toolbox has no reset service. 3D: `/lidar_to_pointcloud/reset` clears the cloud `lidar_processor` builds up (`/pointcloud/aggregated`, saved to `3d_map.ply`). It refills right away from `/point_cloud2`, which already carries the robot's own local 3D map; that part lives on the robot and is not reset.
+
 ## Connects to
 
 - [twist_mux](twist-mux.md): KeyboardTeleop publishes `/cmd_vel_keyboard` (priority 9).
@@ -36,7 +42,7 @@ Clicking elsewhere (losing focus) releases every key and sends a stop.
 - **AutoMapper moves the robot on its own.** Only press Start or Scan when you are in the room watching Oak.
 - **Idle zeros (fixed):** the KeyboardTeleop panel used to send zeros about 4 times a second, which blocked Nav2, the agent and object navigation. Found on the robot 2026-10-11 and fixed.
 - **Laggy keys (fixed):** a key press used to wait up to 100 ms for the next timer tick. Fixed 2026-10-19 by sending changes immediately.
-- **Reset maps pauses navigation** for a few seconds while SLAM restarts.
+- **Reset maps pauses navigation** for a few seconds while SLAM restarts and `map -> odom` is missing.
 - **MapViewer click-to-walk is not retested** on the current code; it is an open item in the [test log](test-log.md).
 - **No window at all:** RViz needs a display. On Windows, see [WSL and Windows](wsl.md).
 
