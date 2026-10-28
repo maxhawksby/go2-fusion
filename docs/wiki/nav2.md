@@ -40,6 +40,7 @@ From the repo's records and Luis's comments in `nav2_params.yaml`:
 - **Paths hugging walls** at a 0.25 m cushion (now 0.55 m).
 - **Global costmap blind to live obstacles**: a relative topic name pointed at a topic nobody published (now absolute `/scan`).
 - **Not driving at all** under `webrtc_web.launch.py`, which skips twist_mux ([Decisions](decisions.md), follow-up 6).
+- **Auto mapper waiting forever for a costmap.** Nav2 used to re-send the full local costmap only when its rolling window moved, so after Oak stopped or spun in place the [auto mapper](auto-mapper.md) never got a fresh one and stalled ("timed out waiting for fresh costmap"). Found in the [Simulator](simulator.md); `always_send_full_costmap: True` on the local costmap fixes it. Not yet confirmed on Oak.
 - **Blind outside the scan's height band.** `/scan` keeps only points from 0.1 m below to 0.5 m above the body center (`robot.launch.py`), so Nav2 cannot see anything lower or higher than that.
 
 ## Who's on it and what's next

@@ -47,6 +47,38 @@ def test_side_translation_checks_long_body():
     assert swept_clear(grid, 0, 0, 0, 0, -0.3)
 
 
+def test_obstacle_at_the_nose_does_not_block_backing_away():
+    # A wall 0.05 m past the 0.36 m nose, with its inscribed band reaching
+    # back into the padded body: exactly when recovery runs. Backing away
+    # must stay possible, on the costmap and on the scan.
+    grid = make_grid(obstacles=[(0.30, 0.6, -1, 1)])
+    assert swept_clear(grid, 0, 0, 0, -0.3, 0)
+    assert not swept_clear(grid, 0, 0, 0, 0.3, 0)
+    scan = clear_scan()
+    for index, _ in enumerate(scan.ranges):
+        angle = scan.angle_min + index * scan.angle_increment
+        if abs(angle) < math.radians(60):
+            scan.ranges[index] = 0.41
+    assert scan_covers_move(scan, -0.3, 0)
+    assert choose_recovery(grid, 0, 0, 0, 0.3, scan) == (-0.3, 0.0)
+
+
+def test_wall_alongside_does_not_block_backing_out():
+    # A wall 0.2 m beside the body (lethal from y = 0.40), with its inscribed
+    # band (99) reaching into the padded footprint. Backing out along it is
+    # fine; moving into it is not.
+    grid = make_grid(obstacles=[(-2, 2, 0.40, 0.6)])
+    for gy in range(grid.info.height):
+        for gx in range(grid.info.width):
+            y = grid.info.origin.position.y + (gy + 0.5) * grid.info.resolution
+            i = gy * grid.info.width + gx
+            if 0.20 <= y < 0.40 and grid.data[i] == 0:
+                grid.data[i] = 99
+    assert swept_clear(grid, 0, 0, 0, -0.3, 0)
+    assert not swept_clear(grid, 0, 0, 0, 0, 0.3)
+    assert choose_recovery(grid, 0, 0, 0, 0.3, clear_scan()) in ((-0.3, 0.0), (0.0, -0.3))
+
+
 def test_unknown_and_off_grid_are_unsafe():
     grid = make_grid()
     grid.data[:] = [-1] * len(grid.data)
@@ -101,6 +133,15 @@ def test_scan_coverage_requires_measured_free_space():
     assert not scan_covers_move(scan, -0.3, 0)
     scan.ranges = [float('inf')] * 361
     assert not scan_covers_move(scan, 0, 0.3)
+
+
+def test_scan_coverage_wraps_a_full_circle_scan():
+    # robot.launch.py's scan: 360 rays from -pi. Straight behind is +pi,
+    # which is ray 0, so backing up is measurable.
+    scan = clear_scan()
+    scan.ranges = [5.0] * 360
+    assert scan_covers_move(scan, -0.3, 0)
+    assert scan_covers_move(scan, 0, 0.3)
 
 
 def _stamps(when):

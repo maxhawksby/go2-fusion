@@ -8,7 +8,7 @@ accumulated 3D point map.
 
 import math
 
-from go2_auto_mapper.obstacle_sensing import cost_at
+from go2_auto_mapper.obstacle_sensing import LETHAL_COST, cost_at
 
 # nav2_params.yaml footprint: nose 0.36 m ahead of base_link, tail 0.45 m
 # behind, body 0.40 m wide. The margin is added on every side of the swept
@@ -48,25 +48,47 @@ def swept_bounds(dx, dy):
     )
 
 
+def _ahead_of_move(x, y, dx, dy):
+    """True for robot-frame points level with or ahead of base_link along
+    the move (dx, dy).
+
+    The checks below look only at these. The obstacle that triggered the
+    recovery sits on the other side, often within the inscribed radius of
+    the nose; counting it made every move away from it look blocked, so the
+    robot latched stopped next to the first close wall (found in go2_sim).
+    Translating away from a point can never bring the body closer to it.
+    """
+
+    return x * dx + y * dy >= 0.0
+
+
 def scan_covers_move(scan, dx, dy):
-    """True when every sample of the swept body has a finite scan range past it.
+    """True when every sample of the swept body on the side it moves toward
+    has a finite scan range past it.
 
     Missing rays, NaNs and infinite returns do not prove the space is clear.
     """
 
     if scan.angle_increment <= 0:
         return False
+    count = len(scan.ranges)
+    # pointcloud_to_laserscan's default scan (robot.launch.py) is 360 rays
+    # from -pi: straight behind (+pi) is ray 0 again, not ray 360. Without
+    # the wrap every backward move looked unmeasured (found in go2_sim).
+    full_circle = count * scan.angle_increment >= 2 * math.pi - 1e-6
     x0, x1, y0, y1 = swept_bounds(dx, dy)
     step = 0.025
     for ix in range(math.floor(x0 / step), math.ceil(x1 / step) + 1):
         for iy in range(math.floor(y0 / step), math.ceil(y1 / step) + 1):
             x, y = ix * step, iy * step
             radius = math.hypot(x, y)
-            if radius < scan.range_min:
+            if radius < scan.range_min or not _ahead_of_move(x, y, dx, dy):
                 continue
             angle = math.atan2(y, x)
             index = round((angle - scan.angle_min) / scan.angle_increment)
-            if not 0 <= index < len(scan.ranges):
+            if full_circle:
+                index %= count
+            if not 0 <= index < count:
                 return False
             value = scan.ranges[index]
             if not math.isfinite(value) or not scan.range_min <= value <= scan.range_max:
@@ -77,10 +99,15 @@ def scan_covers_move(scan, dx, dy):
 
 
 def swept_clear(grid, x, y, yaw, dx, dy):
-    """True when the swept, padded footprint contains no obstacle.
+    """True when the swept, padded footprint contains no obstacle on the
+    side it moves toward (see _ahead_of_move).
 
-    Unknown cells and cells off the grid are unsafe. Inflation is allowed;
-    inscribed (99) and lethal (100) are not.
+    Unknown cells, cells off the grid and lethal (100) cells are unsafe.
+    Inflation, including inscribed (99), is allowed: inscribed means "the
+    robot's centre here would touch", which the full padded footprint already
+    accounts for. Counting it too doubled the body width, so with a wall
+    0.2 m beside the body (where Nav2 often leaves Oak) no move was ever
+    clear (found in go2_sim). Nav2's own footprint checks use lethal only.
     """
 
     c, s = math.cos(yaw), math.sin(yaw)
@@ -105,10 +132,10 @@ def swept_clear(grid, x, y, yaw, dx, dy):
                 bounds[0] - pad <= along <= bounds[1] + pad
                 and bounds[2] - pad <= across <= bounds[3] + pad
             )
-            if not inside:
+            if not inside or not _ahead_of_move(along, across, dx, dy):
                 continue
             cost = cost_at(grid, wx, wy)
-            if cost is None or cost < 0 or cost >= 99:
+            if cost is None or cost < 0 or cost >= LETHAL_COST:
                 return False
     return True
 
