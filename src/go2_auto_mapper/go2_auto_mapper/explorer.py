@@ -16,6 +16,8 @@ from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Twist
 from sensor_msgs.msg import LaserScan, PointCloud2
 from go2_auto_mapper.recovery import (
+    DRIFT_ACROSS_M,
+    DRIFT_YAW_RAD,
     RECOVERY_SPEED_MPS,
     RECOVERY_TIME_LIMIT_SEC,
     REFRESH_TIMEOUT_SEC,
@@ -1284,14 +1286,14 @@ class FrontierExplorer(Node):
         return along, across
 
     def _recovery_block_reason(self, pose, view, started, progress, distance,
-                               across, move):
+                               across, move, start_pose):
         """Why the translation must stop, or None while it may continue."""
 
         if pose is None or view is None:
             return 'odometry transform or costmap went stale during the move'
         if time.monotonic() - started > RECOVERY_TIME_LIMIT_SEC:
             return f'time limit of {RECOVERY_TIME_LIMIT_SEC:.0f} s reached'
-        if across > 0.1:
+        if across > DRIFT_ACROSS_M:
             return 'pose drifted off the commanded translation'
         if progress >= distance:
             return None
@@ -1301,10 +1303,16 @@ class FrontierExplorer(Node):
             return 'laser scan went stale during the move'
         if scan.header.frame_id != self.robot_frame:
             return f'scan frame is {scan.header.frame_id}, not {self.robot_frame}'
+        # The costmap check stays anchored at the start pose, so its drift
+        # envelope is the one the abort limits above enforce. The scan is in
+        # the robot's current frame, so it checks the rest of the move from
+        # here, with the full drift allowance again (stricter).
         scale = max(0.10, distance - progress) / distance
         step = (move[0] * scale, move[1] * scale)
-        if not scan_covers_move(scan, *step) or not swept_clear(*view[:4], *step):
-            return 'clearance lost: obstacle or unknown coverage ahead of the move'
+        if not scan_covers_move(scan, *step) or not swept_clear(
+            view[0], *start_pose, *move, start=max(0.0, progress)
+        ):
+            return 'clearance lost: obstacle or unknown coverage in the move'
         return None
 
     def _finish_recovery(self, moved):
@@ -1331,14 +1339,16 @@ class FrontierExplorer(Node):
         view = self.local_view()
         distance = math.hypot(*move)
         progress, across = self._recovery_progress(pose, x, y, yaw, move, distance)
-        yaw_drift = pose is not None and angle_difference(pose[2], yaw) > 0.15
+        yaw_drift = (
+            pose is not None and angle_difference(pose[2], yaw) > DRIFT_YAW_RAD
+        )
         if yaw_drift:
-            across = max(across, 0.11)
-        if pose is not None and progress >= distance and across <= 0.1:
+            across = max(across, DRIFT_ACROSS_M + 0.01)
+        if pose is not None and progress >= distance and across <= DRIFT_ACROSS_M:
             self._finish_recovery(progress)
             return
         reason = self._recovery_block_reason(
-            pose, view, started, progress, distance, across, move
+            pose, view, started, progress, distance, across, move, (x, y, yaw)
         )
         if reason is not None:
             self.recovery_move = None
