@@ -181,7 +181,6 @@ class FrontierExplorer(Node):
             PointCloud2, '/point_cloud2', lambda msg: self.observe('cloud', msg),
             sensor_qos)
 
-
         # /map is latched. A volatile subscription misses the grid that was
         # published before this node started.
         map_qos = QoSProfile(
