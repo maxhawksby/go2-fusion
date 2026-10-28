@@ -115,14 +115,14 @@ Put the `.sdf` file anywhere and pass `world:=/ros2_ws/src/<path>.sdf`. Two rule
 
 The first 10-run batch in the placeholder world, default dials, real-time factor 1.0: **1 of 10 finished, mean map completeness 78.3 % (47.7 to 99.5 %), 0 collisions, 135 m walked**, about 4.5 minutes per run. Eight of the nine unfinished runs ended stuck at or beside a 1.2 m doorway (real doors are narrower).
 
-Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with their fixes applied; the fixes are a separate change request for Luis to review, on branch `max/fix/explorer-recovery`. TODO(Max): add its pull request number.
+Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the fixes on this branch, `max/fix/explorer-recovery`, which Luis should review. TODO(Max): add its pull request number.
 
 ## What it found so far
 
 With this branch alone (master's Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
 
-- **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap").
-- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. TODO(Luis): check on Oak.
+- **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
+- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. Three bugs caused it, all fixed (see [Auto mapper](auto-mapper.md)); still to confirm on Oak.
 - **Nav2 drives Oak to within 0.05-0.25 m of door jambs, the pillar and furniture**, then reports "No valid trajectories" or "Failed to make progress". TODO(Luis): does Oak get that close on the real floor?
 - **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. The real driver might hit the same thing at startup (see [TF and robot model](tf.md)).
 
