@@ -84,7 +84,7 @@ def test_wall_alongside_does_not_block_backing_out():
 def test_wall_beside_the_front_half_blocks_backing_up():
     # Reviewer's case: a wall 0.01 m from the side of the front half. The
     # old check looked only at the half facing the move, so backing up
-    # passed although a 0.15 rad turn swings the nose into the wall. Even
+    # passed although a small turn swings the nose into the wall. Even
     # sliding straight away from it is refused: a turn at the start swings
     # the nose or tail into it. Oak stays stopped for a person instead.
     grid = make_grid(obstacles=[(0.0, 0.36, 0.21, 0.4)])
@@ -105,8 +105,9 @@ def test_wall_beside_the_front_half_blocks_backing_up():
 
 def test_drift_envelope_covers_turning_and_sliding():
     # A post the straight body never touches, but that the body reaches if
-    # it drifts within the limits tick_recovery allows (0.10 m off the line,
-    # 0.15 rad of heading). Backing up past it must be refused.
+    # it drifts within the limits tick_recovery allows (DRIFT_ACROSS_M off
+    # the line, DRIFT_YAW_RAD of heading). Backing up past it must be
+    # refused.
     post = (-0.65, -0.60, 0.33, 0.38)  # beside the tail
     grid = make_grid(obstacles=[post])
     assert not swept_clear(grid, 0, 0, 0, -0.3, 0)
@@ -193,6 +194,18 @@ def test_scan_coverage_wraps_a_full_circle_scan():
     scan.ranges = [5.0] * 360
     assert scan_covers_move(scan, -0.3, 0)
     assert scan_covers_move(scan, 0, 0.3)
+
+
+def test_empty_rays_refuse_only_new_space():
+    # A few rays with no return. Toward the space the move enters they
+    # refuse it; through space the body already stands in (in front of
+    # base_link while backing up) the costmap check covers it.
+    scan = clear_scan()
+    for degrees in (-28, -27, 40):
+        scan.ranges[degrees + 180] = float('inf')
+    assert scan_covers_move(scan, -0.3, 0)
+    scan.ranges[180 + 180] = float('inf')  # straight behind
+    assert not scan_covers_move(scan, -0.3, 0)
 
 
 def _stamps(when):

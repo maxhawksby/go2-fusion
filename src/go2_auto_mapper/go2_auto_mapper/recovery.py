@@ -39,9 +39,12 @@ SLAM_MIN_TRAVEL_M = 0.2
 # How far a recovery move may wander before tick_recovery aborts it:
 # heading drift from the start yaw, and sideways drift off the commanded
 # line. The clearance checks cover the body anywhere inside that envelope,
-# so an abort always comes before the body leaves checked space.
-DRIFT_YAW_RAD = 0.15
-DRIFT_ACROSS_M = 0.10
+# so an abort always comes before the body leaves checked space. Kept tight
+# because the envelope grows with them: at 0.10 m and 0.15 rad a wall
+# 0.17 m beside the body refused every move, and in go2_sim Oak never made
+# a single recovery move in 4 runs. Aborting is safe: Oak just stops.
+DRIFT_YAW_RAD = 0.10
+DRIFT_ACROSS_M = 0.05
 _YAW_SAMPLES = 7
 
 
@@ -143,11 +146,16 @@ def _trigger_exempt(x, y, dx, pad=0.0):
 
 
 def scan_covers_move(scan, dx, dy):
-    """True when every sample of the body's move envelope (move_envelope)
-    has a finite scan range past it, except rays that end on the obstacle
-    that stopped Oak (_trigger_exempt).
+    """True when no scan return falls inside the body's move envelope
+    (move_envelope), except returns on the obstacle that stopped Oak
+    (_trigger_exempt), and the new space the move enters is measured.
 
-    Missing rays, NaNs and infinite returns do not prove the space is clear.
+    Missing rays, NaNs and infinite returns do not prove the space is clear,
+    so they refuse the move where they cross space ahead of base_link along
+    the move. Behind it the body is already standing there, and the
+    costmap check still covers it; the scan has a few empty rays (no
+    return in its height band), and refusing on those blocked every
+    backward move (found in go2_sim).
     """
 
     if scan.angle_increment <= 0:
@@ -175,7 +183,9 @@ def scan_covers_move(scan, dx, dy):
                 return False
             value = scan.ranges[index]
             if not math.isfinite(value) or not scan.range_min <= value <= scan.range_max:
-                return False
+                if x * dx + y * dy >= 0.0:
+                    return False
+                continue
             if value < radius + SAFETY_MARGIN_M:
                 hit_x = value * math.cos(angle)
                 hit_y = value * math.sin(angle)
