@@ -12,7 +12,7 @@ Part of: [Lab setup](lab-setup.md)
 
 > **Get it running.** Run every line from a fresh terminal at the repo root. First `git switch master && git pull`.
 >
-> **On this branch alone the auto mapper stalls at about 5% of the map**, because of recovery bugs. The fixes are in branch `max/fix/explorer-recovery` (pending review). Driving by hand and the other tests work now.
+> With the auto mapper recovery fixes, the auto mapper explores instead of stalling at about 5 % of the map, but it can still latch stopped at a doorway (see [First trial batch](#first-trial-batch-2026-10-28)).
 >
 > 0. **Stop the robot stack first** (WSL: `cd docker && docker compose down`; PowerShell: `cd docker; docker compose -f docker-compose.windows.yml down`; Mac: Ctrl-C any running `robot.launch.py`). The sim and the robot stack share build folders.
 > 1. **Rebuild the image once:** it adds Gazebo, about 1 GB to download. On a 16-core desktop the rebuild took about 11 minutes; a laptop is slower. The image ends up around 14 GB.
@@ -115,11 +115,11 @@ Put the `.sdf` file anywhere and pass `world:=/ros2_ws/src/<path>.sdf`. Two rule
 
 The first 10-run batch in the placeholder world, default dials, real-time factor 1.0: **1 of 10 finished, mean map completeness 78.3 % (47.7 to 99.5 %), 0 collisions, 135 m walked**, about 4.5 minutes per run. Eight of the nine unfinished runs ended stuck at or beside a 1.2 m doorway (real doors are narrower).
 
-Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the fixes on this branch, `max/fix/explorer-recovery`, which Luis should review. TODO(Max): add its pull request number.
+Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the first version of those fixes, before the unstuck move learned to check Oak's whole body through its allowed drift. With the final version, one 8-minute run (seed 1, 2026-10-31) mapped 48.3 %, with 0 costmap timeouts and 0 collisions, but latched stopped next to the 1.2 m doorway after 44 s ("no safe direction: rear and both sides lack clearance") and never moved again. Master without the fixes maps 5.0 % in the same run. TODO(Max): re-run the 10-run batch with the final fixes.
 
 ## What it found so far
 
-With this branch alone (master's Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
+Before the recovery fixes (master's old Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
 
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
 - **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. Three bugs caused it, all fixed (see [Auto mapper](auto-mapper.md)); still to confirm on Oak.
@@ -137,7 +137,7 @@ With this branch alone (master's Nav2 settings and auto mapper), a 2-run check m
 
 ## Who's on it and what's next
 
-Max added the simulator (branch `max/feat/go2-sim`). Next: Jeth's lab world (issue #28) in place of the placeholder, and real odometry and lidar numbers from Oak for the dials. TODO(owner): an owner for the simulator.
+Max added the simulator (pull request #35). Next: Jeth's lab world (issue #28) in place of the placeholder, and real odometry and lidar numbers from Oak for the dials. TODO(owner): an owner for the simulator.
 
 ## The code
 
