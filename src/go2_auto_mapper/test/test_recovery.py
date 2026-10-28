@@ -128,7 +128,8 @@ def test_scan_coverage_requires_measured_free_space():
     # swept tail, so it is not clearance.
     for index, _ in enumerate(scan.ranges):
         angle = scan.angle_min + index * scan.angle_increment
-        if abs(math.atan2(math.sin(angle - math.pi), math.cos(angle - math.pi))) < math.radians(15):
+        behind = math.atan2(math.sin(angle - math.pi), math.cos(angle - math.pi))
+        if abs(behind) < math.radians(15):
             scan.ranges[index] = 0.55
     assert not scan_covers_move(scan, -0.3, 0)
     scan.ranges = [float('inf')] * 361
