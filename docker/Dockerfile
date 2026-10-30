@@ -95,6 +95,9 @@ RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc && \
     echo "[ -f /ros2_ws/install/setup.bash ] && source /ros2_ws/install/setup.bash" >> /root/.bashrc && \
     echo "source /etc/dev_aliases.sh" >> /root/.bashrc
 
+# Install piper voice
+RUN python3 -m piper.download_voices en_US-lessac-medium --data-dir .
+
 ENV ROBOT_IP=""
 ENV CONN_TYPE="webrtc"
 ENV WEBRTC_SERVER_HOST="0.0.0.0"

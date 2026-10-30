@@ -29,6 +29,9 @@ import requests
 from std_msgs.msg import String
 from go2_interfaces.msg import WebRtcReq
 
+import wave
+from piper import PiperVoice, SynthesisConfig
+from pathlib import Path
 
 class AudioFormat(Enum):
     """Supported audio formats"""
@@ -43,14 +46,15 @@ class TTSProvider(Enum):
     GOOGLE = "google"
     AMAZON = "amazon"
     OPENAI = "openai"
+    PIPER = "piper"
 
 
 @dataclass
 class TTSConfig:
     """Configuration for TTS functionality"""
     api_key: str
-    provider: TTSProvider = TTSProvider.ELEVENLABS
-    voice_name: str = "XrExE9yKIg1WjnnlVkGX"
+    provider: TTSProvider = TTSProvider.PIPER
+    voice_name: str = "en_US-lessac-medium.onnx"
     local_playback: bool = False
     use_cache: bool = True
     cache_dir: str = "tts_cache"
@@ -62,6 +66,13 @@ class TTSConfig:
     stability: float = 0.5
     similarity_boost: float = 0.5
     model_id: str = "eleven_turbo_v2_5"
+
+    # Piper specific settings
+    volume=1.0,
+    length_scale=1.0,  # speed
+    noise_scale=1.0,  # more audio variation
+    noise_w_scale=1.0,  # more speaking variation
+    normalize_audio=True, # use raw audio from voice
 
 
 class AudioCache:
@@ -84,7 +95,7 @@ class AudioCache:
         """Generate cache file path"""
         cache_key = f"{text}_{voice_name}_{provider}"
         text_hash = hashlib.md5(cache_key.encode()).hexdigest()
-        return os.path.join(self.cache_dir, f"{text_hash}.mp3")
+        return os.path.join(self.cache_dir, f"{text_hash}.wav")
     
     def get(self, text: str, voice_name: str, provider: str) -> Optional[bytes]:
         """Get cached audio data"""
@@ -212,6 +223,43 @@ class TTSProvider_ElevenLabs:
         except requests.exceptions.RequestException:
             return []
 
+class TTSProvider_Piper:
+    """Piper TTS provider implementation"""
+    
+    def __init__(self, config: TTSConfig):
+        self.config = config
+        WORKSPACE_ROOT = Path.cwd()
+        self.voice = PiperVoice.load(f"{WORKSPACE_ROOT}/en_US-lessac-medium.onnx")
+    
+    def synthesize(self, text: str) -> Optional[bytes]:
+        """Generate speech using Piper"""
+
+        # syn_config = SynthesisConfig(
+        #     volume = self.config.volume,
+        #     length_scale = self.config.length_scale,
+        #     noise_scale = self.config.noise_scale,
+        #     noise_w_scale = self.config.noise_w_scale,
+        #     normalize_audio=self.config.normalize_audio,
+        # )
+        #
+        # if hasattr(syn_config, "scales"):
+        #     # If the library packed it as [[0.667, 1.0, 0.8]], 
+        #     # this extracts it out to a flat 1D list: [0.667, 1.0, 0.8]
+        #     import numpy as np
+        #     syn_config.scales = np.array(syn_config.scales).flatten().tolist()
+        # self.voice.config.volume = self.config.volume
+        # self.voice.config.length_scale = self.config.length_scale
+        # self.voice.config.noise_scale = self.config.noise_scale
+        # self.voice.config.noise_w_scale = self.config.noise_w_scale
+
+        bytes_buffer = io.BytesIO()
+
+        with wave.open(bytes_buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            self.voice.synthesize_wav(text, wav_file)
+
+        return bytes_buffer.getvalue()
 
 class AudioProcessor:
     """Audio processing utilities"""
@@ -296,8 +344,8 @@ class EnhancedTTSNode(Node):
     def _declare_parameters(self) -> None:
         """Declare all node parameters"""
         self.declare_parameter("api_key", "")
-        self.declare_parameter("provider", "elevenlabs")
-        self.declare_parameter("voice_name", "XrExE9yKIg1WjnnlVkGX")
+        self.declare_parameter("provider", "piper")
+        self.declare_parameter("voice_name", "en_US-lessac-medium.onnx")
         self.declare_parameter("local_playback", False)
         self.declare_parameter("use_cache", True)
         self.declare_parameter("cache_dir", "tts_cache")
@@ -314,11 +362,11 @@ class EnhancedTTSNode(Node):
         try:
             provider = TTSProvider(provider_str)
         except ValueError:
-            provider = TTSProvider.ELEVENLABS
+            provider = TTSProvider.PIPER
         
         return TTSConfig(
             api_key=self.get_parameter("api_key").get_parameter_value().string_value,
-            provider=provider,
+            provider=TTSProvider.PIPER,
             voice_name=self.get_parameter("voice_name").get_parameter_value().string_value,
             local_playback=self.get_parameter("local_playback").get_parameter_value().bool_value,
             use_cache=self.get_parameter("use_cache").get_parameter_value().bool_value,
@@ -338,6 +386,8 @@ class EnhancedTTSNode(Node):
                 self.get_logger().error("ElevenLabs API key not provided!")
                 return None
             return TTSProvider_ElevenLabs(self.config)
+        elif self.config.provider == TTSProvider.PIPER:
+            return TTSProvider_Piper(self.config)
         else:
             self.get_logger().error(f"Unsupported TTS provider: {self.config.provider}")
             return None
@@ -428,65 +478,120 @@ class EnhancedTTSNode(Node):
             play(audio)
             self.get_logger().info("🔊 Local playback completed")
         except Exception as e:
-            self.get_logger().error(f"❌ Local playback error: {str(e)}")
+            try:
+                audio = AudioSegment.from_wav(io.BytesIO(audio_data))
+                play(audio)
+                self.get_logger().info("🔊 Local playback completed")
+            except Exception as e:
+                self.get_logger().error(f"❌ Local playback error: {str(e)}")
     
+                
     def _play_on_robot(self, audio_data: bytes) -> None:
-        """Send audio to robot for playback"""
+        """Send audio to robot for playback, accepting MP3 or WAV audio."""
         try:
-            # Convert to WAV
-            wav_data = self.audio_processor.convert_to_wav(audio_data, AudioFormat.MP3)
+            # Detect WAV format using its file header
+            if (
+                len(audio_data) >= 12
+                and audio_data[:4] == b"RIFF"
+                and audio_data[8:12] == b"WAVE"
+            ):
+                # Already WAV; skip conversion
+                wav_data = audio_data
+                self.get_logger().info("Audio is already WAV; skipping conversion")
+            else:
+                # Assume MP3 and convert to WAV
+                wav_data = self.audio_processor.convert_to_wav(
+                    audio_data, AudioFormat.MP3
+                )
+
             if not wav_data:
                 self.get_logger().error("❌ Failed to convert audio to WAV")
                 return
-            
+
+            seg = (
+                AudioSegment.from_wav(io.BytesIO(wav_data))
+                .set_frame_rate(16000)   # try 48000 if 44100 stays silent
+                .set_channels(1)
+                .set_sample_width(2)
+            )
+            buf = io.BytesIO()
+            seg.export(buf, format="wav")
+            wav_data = buf.getvalue()
+
             # Get audio duration for timing
-            duration = self.audio_processor.get_duration(wav_data, AudioFormat.WAV)
-            
+            duration = self.audio_processor.get_duration(
+                wav_data, AudioFormat.WAV
+            )
+
+            import wave as _wave
+            with open("/tmp/last_tts.wav", "wb") as f:
+                f.write(wav_data)
+            with _wave.open("/tmp/last_tts.wav", "rb") as w:
+                self.get_logger().info(
+                    f"WAV debug: rate={w.getframerate()} ch={w.getnchannels()} "
+                    f"width={w.getsampwidth()} frames={w.getnframes()}"
+                )
+
             # Encode and split into chunks
             b64_encoded = base64.b64encode(wav_data).decode("utf-8")
-            chunks = self.audio_processor.split_into_chunks(b64_encoded.encode(), self.config.chunk_size)
+            chunks = self.audio_processor.split_into_chunks(
+                b64_encoded.encode(), self.config.chunk_size
+            )
             total_chunks = len(chunks)
-            
-            self.get_logger().info(f"📤 Sending audio to robot: {total_chunks} chunks, {duration:.1f}s duration")
-            
+
+            self.get_logger().info(
+                f"📤 Sending audio to robot: {total_chunks} chunks, "
+                f"{duration:.1f}s duration"
+            )
+
             # Send start command
             self._send_audio_command(4001, "")
             time.sleep(0.1)
-            
+
             # Send audio chunks
             for chunk_idx, chunk in enumerate(chunks, 1):
                 audio_block = {
+                    "current_block_size": len(chunk),
                     "current_block_index": chunk_idx,
                     "total_block_number": total_chunks,
                     "block_content": chunk.decode(),
                 }
                 self._send_audio_command(4003, json.dumps(audio_block))
-                
-                if chunk_idx % 10 == 0:  # Log progress every 10 chunks
-                    self.get_logger().info(f"📤 Sent {chunk_idx}/{total_chunks} chunks")
-                
+
+                if chunk_idx % 10 == 0:
+                    self.get_logger().info(
+                        f"📤 Sent {chunk_idx}/{total_chunks} chunks"
+                    )
+
                 time.sleep(0.2)  # Prevent flooding
-            
+
             # Wait for playback to complete
-            self.get_logger().info(f"⏳ Waiting for playback completion ({duration:.1f}s)...")
+            self.get_logger().info(
+                f"⏳ Waiting for playback completion ({duration:.1f}s)..."
+            )
             time.sleep(duration + 1.0)
-            
+
             # Send end command
             self._send_audio_command(4002, "")
-            
+
             self.get_logger().info("🎵 Robot playback completed")
-            
+
         except Exception as e:
             self.get_logger().error(f"❌ Robot playback error: {str(e)}")
-    
+
     def _send_audio_command(self, api_id: int, parameter: str) -> None:
-        """Send audio command to robot"""
         req = WebRtcReq()
         req.api_id = api_id
         req.priority = 0
         req.parameter = parameter
         req.topic = self.RTC_TOPIC["AUDIO_HUB_REQ"]
+
         self.audio_pub.publish(req)
+
+        self.get_logger().info(
+            f"Published audio command api_id={api_id}, "
+            f"parameter_length={len(parameter)}"
+        )
     
     def _log_initialization(self) -> None:
         """Log initialization details"""

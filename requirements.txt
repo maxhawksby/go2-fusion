@@ -11,3 +11,4 @@ opencv-python
 pydub
 numpy==1.26.4
 ultralytics==8.4.174
+piper-tts
