@@ -18,10 +18,6 @@ src/go2_robot_sdk/coverage.xml
 /object_detection/
 .pytest_cache/
 
-# Built by scripts/wiki/build_graph.py
-site/graph.json
-site/graph.js
-
 # Local wiki app (npm run wiki)
 node_modules/
 

@@ -2,6 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
+verified: 66b809d96df7
 ---
 
 # Auto mapper
@@ -77,7 +78,7 @@ From the package README and Luis's commits (Oct 14-19):
 - **"No usable goal".** Press Scan: it re-looks and retries recently failed spots.
 - **Nibbling the nearest edge.** Ranking goals by distance made it creep along the closest frontier; replaced by "most revealed per meter" on 2026-10-16.
 - **Two motions at once.** Codex reviews on 2026-10-17 found cases where a late Nav2 reply or a recovery move could override a stop; each maneuver is now tracked until Nav2 confirms it ended, and a latched stop always wins.
-- **Waits for fresh data.** After every scan or move it waits up to 20 s for newer `/scan`, `/point_cloud2`, `/map`, costmap and TF. If they don't come, exploration stays stopped until Scan is pressed.
+- **Waits for fresh data.** After every scan or move it waits up to 12 s for newer `/scan`, `/point_cloud2`, `/map`, costmap and TF. If they don't come, exploration stays stopped until Scan is pressed.
 - **The 3D cloud never forgets** moved objects; neither SLAM nor the 3D map is cleared during recovery.
 - **Big maps** make each step slower, because the whole map is rescanned every cycle.
 

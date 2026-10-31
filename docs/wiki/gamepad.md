@@ -2,6 +2,7 @@
 title: Gamepad
 parent: driving
 code: [src/go2_robot_sdk/config/joystick.yaml]
+verified: c0df4a2289b2
 ---
 
 # Gamepad
