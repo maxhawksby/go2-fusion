@@ -63,12 +63,12 @@ On Windows hosts, add `-f docker-compose.windows.yml` to every `docker compose` 
 
 ## Wiki
 
-The team docs are a wiki graph: `README.md` is the center page "Oak", hub pages and one page per program live in `docs/wiki/<slug>.md`, each with `title`, `parent` and optional `code:` globs in its front matter. A pull request check fails when code changes but its page does not. Follow the steps in [.claude/skills/wiki-keeper/SKILL.md](.claude/skills/wiki-keeper/SKILL.md) (Claude Code loads it as a skill; Codex and Cursor: read and follow it):
+The team docs are a wiki graph: `README.md` is the center page "Oak", hub pages and one page per program live in `docs/wiki/<slug>.md`, each with `title`, `parent` and optional `code:` globs in its front matter. The wiki runs on Hypatia; each page with `code:` carries a `verified:` stamp of that code, and the pull request check lists pages whose code changed since. Follow the steps in [.claude/skills/wiki-keeper/SKILL.md](.claude/skills/wiki-keeper/SKILL.md) (Claude Code loads it as a skill; Codex and Cursor: read and follow it):
 
-- Previewing: `npm install` once, then `npm run wiki` (host, not Docker; Node 18+, Python 3.8+) serves the workspace at http://localhost:4410 with live reload; `npm run wiki -- --no-open` when no browser should open. `npm test` runs the wiki tests.
+- Previewing: `npm run wiki` (host, not Docker; Node 18+) serves the workspace at http://localhost:4410 with live reload; `npm run wiki -- --no-open` when no browser should open.
 - Starting a task: open or reuse a GitHub issue, label it `wiki:<slug>`, assign yourself.
-- After changing `src/`, `host_tools/` or `docker/`, or adding or removing a package, and before every pull request: run `python3 scripts/wiki/check_wiki.py` and update each flagged page in plain freshman English (what it does, what it uses, how it breaks). Mark unknowns `TODO(owner)`; never invent facts. Re-run until it passes.
-- If a change truly needs no wiki edit, put `wiki: no change needed - <reason>` in the pull request description.
+- After changing `src/`, `host_tools/` or `docker/`, or adding or removing a package, and before every pull request: run `npx hypatia check`, reread each flagged page against its code and update it in plain freshman English (what it does, what it uses, how it breaks), then run `npx hypatia verify docs/wiki/<page>.md`. Mark unknowns `TODO(owner)`; never invent facts. Re-run until it passes.
+- If a change truly needs no wiki edit, put `wiki: no change needed for <page>.md - <reason>` in the pull request description.
 - Answering questions: when asked, list open questions for the pages you know (`gh issue list --label question`), answer in plain English as an issue comment with links to the pages and code, and update the wiki page if the answer belongs there.
 - Asking for review: open the pull request and fill the template (`.github/pull_request_template.md`): Who, What, Why, Before, After, How to test, Wiki, a line or two each in plain English. Don't request one specific reviewer: the post to Discord #feature-revisions (Who, What, Why, Before, After, the link) asks the whole team, and any teammate can approve. Label nothing extra.
 

@@ -1,17 +1,19 @@
-# Builds the Oak workspace data (scripts/wiki/build_graph.py) and deploys
-# site/ to GitHub Pages.
+# Made by Hypatia 0.4.0 (#a6a26ad7). Run "hypatia upgrade" to update it.
+# Builds the wiki site and its data with Hypatia and deploys it to GitHub
+# Pages. Only for public repos: a private repo's wiki opens locally instead
+# (hypatia serve).
 #
 # One-time setup: GitHub Pages must be enabled for this repo with
 #   Settings > Pages > Source: GitHub Actions
 # Until then the deploy step fails; the build step still checks the wiki.
 #
-# The site always shows master. Besides pushes to master, it rebuilds when
-# issues, comments or pull requests change (so "Working on now", questions
-# and review requests stay current) and every 6 hours.
+# The site always shows master. Besides pushes to it, it rebuilds
+# when issues, comments or pull requests change (so "Working on now",
+# questions and review requests stay current) and every hour.
 #
-# Pull requests use pull_request_target: it runs this workflow from master
-# (never the pull request's code), so pull requests from forks also refresh
-# the site and the Pages deploy stays on the default branch.
+# Pull requests use pull_request_target: it runs this workflow from the
+# default branch (never the pull request's code), so pull requests from forks
+# also refresh the site and the Pages deploy stays on the default branch.
 name: Wiki site
 
 on:
@@ -21,15 +23,16 @@ on:
       - README.md
       - docs/wiki/**
       - docs/team.yml
-      - scripts/wiki/**
-      - site/**
       - .github/workflows/wiki-site.yml
   issues:
     types: [opened, edited, labeled, unlabeled, closed, reopened]
   issue_comment:
     types: [created, edited, deleted]
   pull_request_target:
-    types: [opened, synchronize, reopened, review_requested, ready_for_review, closed]
+    # no "synchronize": a push to a pull request's branch already asks for a
+    # rebuild through wiki-refresh.yml, and two runs at once cancel one
+    # another, which shows the pull request a cancelled check
+    types: [opened, reopened, review_requested, ready_for_review, closed]
   schedule:
     - cron: "17 * * * *"  # hourly safety net; events above cover most changes
   workflow_dispatch:
@@ -49,26 +52,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
-          # Always master, never the pull request's code.
+          # Always the default branch, never the pull request's code.
           ref: ${{ github.event.repository.default_branch }}
-          # Full history for "last change" and "recent". With depth 0, checkout
-          # also fetches every branch into refs/remotes/origin/*, which
-          # "Active branches" reads.
+          # Full history for the team, "last change" and "recent". With depth
+          # 0, checkout also fetches every branch into refs/remotes/origin/*,
+          # which "Active branches" reads.
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v5
         with:
-          python-version: "3.11"
-      - name: Build graph.json
+          node-version: "20"
+      - name: Build the wiki site
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           WIKI_BRANCH: ${{ github.event.repository.default_branch }}
-        run: python3 scripts/wiki/build_graph.py
+        run: npx hypatia@0.4.0 build --out _site
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: _site
 
   deploy:
     needs: build

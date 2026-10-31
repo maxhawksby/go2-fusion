@@ -1,7 +1,7 @@
 # Team 48 - who works on Oak.
 #
-# Read by scripts/wiki/build_graph.py (the wiki site) and
-# scripts/wiki/discord_ping.py (Discord pings). Keep this simple shape:
+# The Hypatia config: read by Hypatia for the wiki site (hypatia build,
+# hypatia serve) and Discord pings (hypatia ping). Keep this simple shape:
 # one "- id:" block per person, one "key: value" per line.
 #
 # id          short lowercase id used everywhere else in the data
@@ -52,3 +52,5 @@ people:
     color: "#efe3c2"
     discord_id: ""
     focus: Piper text-to-speech through Oak's speaker
+drift: warn
+coverage: src

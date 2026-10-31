@@ -21,4 +21,4 @@
 
 ## Wiki
 <!-- Which wiki page you updated. If none needs it, write on its own line:
-     wiki: no change needed - <reason> -->
+     wiki: no change needed for <page>.md - <reason> -->

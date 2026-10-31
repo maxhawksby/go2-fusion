@@ -54,9 +54,8 @@ graph LR
 
 **You need:** a laptop with Docker Desktop and about 16 GB of RAM. Windows users also need WSL2 (Linux inside Windows). Macs work too. You do **not** need the robot.
 
-**Open the team wiki first.** The quickest way is the [live wiki](https://maxhawksby.github.io/go2-fusion/) in your browser. To edit pages and see your changes instantly, run it on your laptop instead. It runs outside Docker, and needs only [Node.js](https://nodejs.org/) 18+ and Python 3.8+. From the repo folder:
+**Open the team wiki first.** The quickest way is the [live wiki](https://maxhawksby.github.io/go2-fusion/) in your browser. To edit pages and see your changes instantly, run it on your laptop instead. It runs outside Docker, and needs only [Node.js](https://nodejs.org/) 18+. From the repo folder:
 ```shell
-npm install    # once
 npm run wiki   # opens http://localhost:4410 and reloads when a page changes
 ```
 

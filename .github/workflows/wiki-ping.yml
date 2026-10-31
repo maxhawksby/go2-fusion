@@ -1,0 +1,50 @@
+# Made by Hypatia 0.4.0 (#53a2f253). Run "hypatia upgrade" to update it.
+# Posts to Discord when a pull request asks for review (Who, What, Why,
+# Before, After from its description, the wiki pages it touches, the link)
+# or someone asks a wiki question (an issue labelled "question"). People with
+# a discord_id in docs/team.yml are @mentioned, others named.
+#
+# One-time setup: make a Discord webhook per channel (channel > Edit Channel
+# > Integrations > Webhooks > New Webhook > Copy URL) and save it as a repo
+# secret (Settings > Secrets and variables > Actions):
+#   DISCORD_REVIEW_WEBHOOK_URL     review requests
+#   DISCORD_QUESTIONS_WEBHOOK_URL  questions (optional; else the review channel)
+# DISCORD_WEBHOOK_URL works as a last fallback. With no secret set this
+# workflow logs "Discord not set up yet" and passes.
+#
+# Pull requests use pull_request_target so pull requests from forks can read
+# the secret. It runs this workflow from the default branch and never checks
+# out or runs the pull request's code.
+name: Wiki ping
+
+on:
+  issues:
+    types: [opened, labeled]
+  pull_request_target:
+    types: [opened, review_requested, ready_for_review]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0  # history, to find who changed each page last
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: Post to Discord
+        env:
+          DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL }}
+          DISCORD_QUESTIONS_WEBHOOK_URL: ${{ secrets.DISCORD_QUESTIONS_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # open work on pages, and reviewers added just after "opened"
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          WIKI_BRANCH: ${{ github.event.repository.default_branch }}
+        run: npx hypatia@0.4.0 ping
