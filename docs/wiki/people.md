@@ -2,6 +2,7 @@
 title: People
 parent: team
 code: [CONTRIBUTING.md, AGENTS.md]
+verified: a9f316da8958
 ---
 
 # People
@@ -19,7 +20,7 @@ Part of: [Team](team.md)
 - **GitHub:** [LuisMend12](https://github.com/LuisMend12) (commits also show as LuisM23). TODO(Max): Luis's full name.
 - **Focus:** the auto mapper, so Oak explores and maps a room by itself.
 - **Pages to ask about:** [Auto mapper](auto-mapper.md), [SLAM](slam.md), [Nav2](nav2.md), [RViz panels](rviz-panels.md), [Maps & Nav](maps-nav.md). He also added the auto mapper's own [twist_mux](twist-mux.md) lane, `/cmd_vel_mapper` (priority 6).
-- **Current work:** Oak kept stopping because floor points that drifted in the 3D point cloud were marked as obstacles, and a 0.5 m lidar cut-off hid nearby walls. Luis took the cloud out of Nav2's obstacle maps, used a filtered 2D scan, lowered the minimum range to 0.1 m, and added RViz buttons to Scan (a 360 degree turn so SLAM can find itself) and Reset maps. The explorer now picks goals by how much unexplored space they reveal, and frontier search is about 100x faster. Merged to `master`.
+- **Current work:** Oak kept stopping because floor points that drifted in the 3D point cloud were marked as obstacles, and a 0.5 m lidar cut-off hid nearby walls. Luis took the cloud out of Nav2's obstacle maps, used a filtered 2D scan, lowered the minimum range to 0.1 m, and added RViz buttons to Scan (a 360 degree turn so SLAM can find itself) and Reset maps. The explorer now picks goals by how much unexplored space they reveal, and frontier search is about 100x faster. Merged to `master`. Open since then: pull request #37, driver stream recovery, 3D mapping, detection thresholds and SocialNav.
 - **Next:** full exploration tests on Oak.
 
 ## Adib
@@ -35,7 +36,7 @@ Part of: [Team](team.md)
 - **GitHub:** [noahsteinberg](https://github.com/noahsteinberg). Noah Steinberg.
 - **Focus:** the Team 48 **Oak Control dashboard**, a browser page for watching and controlling Oak, plus `go2_dashboard_bridge`, the ROS 2 program it talks to.
 - **Pages to ask about:** [Voice](voice.md) (Piper review), [Posture](posture.md) (dashboard quick actions), [Lab setup](lab-setup.md). He also moved the packages into `src/` and organized the root docs (pull requests #7 and #9).
-- **Current work:** verified live sensors and object detection over WebRTC and Foxglove; camera feed selection, voice input, robot actions, command parsing, local-network security and control safety. The bridge starts read-only. Wrote a repeatable lab-testing guide. On branch `feat/desktop-app-prototype` (pull request #14) and `noah/tts-piper-review` (pull request #13).
+- **Current work:** verified live sensors and object detection over WebRTC and Foxglove; camera feed selection, voice input, robot actions, command parsing, local-network security and control safety. The bridge starts read-only. Wrote a repeatable lab-testing guide. On branches `feat/desktop-app-prototype` and `noah/tts-piper-review`; their pull requests (#14 and #13) were closed without merging on 2026-10-26.
 - **Next:** the dashboard's own drive input with a motion lock, before live keyboard driving is turned on there.
 
 ## Jeth
@@ -43,7 +44,7 @@ Part of: [Team](team.md)
 - **GitHub:** commits appear as `jevgome`. TODO(Max): confirm that is Jeth's GitHub username, and Jeth's full name.
 - **Focus:** Piper text-to-speech, so Oak can talk without a paid service.
 - **Pages to ask about:** [Voice](voice.md).
-- **Current work:** local speech plays through Oak's speaker using a separate `unitree_webrtc_connect` driver and Unitree's megaphone mode. Audio is choppy and drops the start of short clips. On branch `jeth/feat/tts`.
+- **Current work:** local speech plays through Oak's speaker using a separate `unitree_webrtc_connect` driver and Unitree's megaphone mode. Audio is choppy and drops the start of short clips. On branch `jeth/feat/tts-node`.
 - **Next:** fix the packet loss, then connect text-to-speech to the voice command pipeline.
 
 ## Max
@@ -51,7 +52,7 @@ Part of: [Team](team.md)
 - **GitHub:** [maxhawksby](https://github.com/maxhawksby). Max Hawksby.
 - **Focus:** computer vision, and the wiki.
 - **Pages to ask about:** [Object detection](object-detection.md), [Team](team.md), and the wiki itself.
-- **Current work:** YOLO object detection that remembers objects on the map, to make mapping rooms easier (pull request #21). Also open: a navigation safety fix that stops on stale sensors (pull request #20), and the [Simulator](simulator.md) (branch `max/feat/go2-sim`).
+- **Current work:** the [Simulator](simulator.md), merged to `master` (pull request #35). YOLO object detection that remembers objects on the map (pull request #21) and a navigation safety fix that stops on stale sensors (pull request #20) were closed without merging on 2026-10-26.
 - **Next:** TODO(Max).
 
 ## How we work together

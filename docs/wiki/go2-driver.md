@@ -2,6 +2,7 @@
 title: Go2 driver
 parent: driver
 code: [src/go2_robot_sdk/**]
+verified: 4a47000a90a5
 ---
 
 # Go2 driver
@@ -48,7 +49,7 @@ Other launch files (`robot_cpp`, `navigation`, `mapping`, `webrtc_web`) are vari
 
 ## Who's on it and what's next
 
-Luis ported reconnect, drop detection and the stop fix. Adib is next looking at odometry reliability and turn accuracy. Max has an unmerged branch, `fix/nav-obstacle-safety`, that makes the driver stop on stale sensors. TODO(owner): an owner for this package.
+Luis ported reconnect, drop detection and the stop fix. Adib is next looking at odometry reliability and turn accuracy. Max has an unmerged branch, `max/fix/nav-obstacle-safety`, that makes the driver stop on stale sensors; its pull request (#20) was closed without merging on 2026-10-26. TODO(owner): an owner for this package.
 
 ## The code
 

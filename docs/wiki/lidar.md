@@ -2,6 +2,7 @@
 title: Lidar
 parent: senses
 code: [src/lidar_processor/**, src/lidar_processor_cpp/**, src/go2_robot_sdk/go2_robot_sdk/infrastructure/sensors/lidar_decoder.py]
+verified: 72918ddfe836
 ---
 
 # Lidar
@@ -39,7 +40,7 @@ Their settings (the same in both versions):
 | `pointcloud_aggregator` | `downsample_rate` | `10` | Keep every Nth point |
 | `pointcloud_aggregator` | `publish_rate` | `5.0` | Messages per second |
 
-The C++ version uses PCL (the Point Cloud Library), including PCL's statistical outlier removal, and has its own launch files: `lidar_to_pointcloud.launch.py`, `pointcloud_aggregator.launch.py`, and `lidar_processing_pipeline.launch.py` for both together. It is BSD-3-Clause licensed.
+The C++ version uses PCL (the Point Cloud Library), including PCL's statistical outlier removal. Its README lists three launch files (`lidar_to_pointcloud.launch.py`, `pointcloud_aggregator.launch.py`, `lidar_processing_pipeline.launch.py`), but the package has no `launch/` folder, so those commands fail; its two programs, `lidar_to_pointcloud_node` and `pointcloud_aggregator_node`, run through the robot launch files below (they need `robot_ip_lst`, which those pass in). It is BSD-3-Clause licensed.
 
 `robot.launch.py` starts the Python versions; `robot_cpp.launch.py`, `mapping.launch.py` and `navigation.launch.py` start the C++ versions.
 
@@ -56,6 +57,7 @@ The C++ version uses PCL (the Point Cloud Library), including PCL's statistical 
 - **Odometry drift smears the cloud.** The driver's cloud piles up in `odom`, and odometry's height drifts, so the floor gets smeared from about -0.6 to +0.2 m. That is why Nav2 now ignores the cloud and uses `/scan` (comment in `nav2_params.yaml`).
 - **The 3D map never forgets.** Points stay until the map is reset, so people who walked by stay in it (auto mapper README).
 - **Launch files disagree.** `mapping.launch.py` and `navigation.launch.py` build `/scan` from `/pointcloud/filtered` with a 0.3 m minimum and a -1 to 3 m height band; `robot_cpp.launch.py` uses -0.2 to 2 m. Only `robot.launch.py` has Luis's tuned values, which `nav2_params.yaml` and the SLAM settings assume.
+- **The C++ README's launch commands fail**: the launch files it names are not in the package.
 - **The C++ version lags.** `lidar_processor_cpp` has no reset service and does not save in the map frame, so "Reset maps" only clears the 3D map under `robot.launch.py`.
 - **Topic name.** `lidar_to_pointcloud` listens on `/robot0/point_cloud2` in single-robot mode; launch files remap it to `/point_cloud2`. Still listed as "check" in the [Test log](test-log.md), open issue 3.
 - **Slow decoder.** A faster LZ4 decoder exists on the old `fix_hz_lidar_stream` branch (claimed about 2 Hz to 62 Hz) but was not merged ([Decisions](decisions.md), follow-up 2).
@@ -78,7 +80,7 @@ cd docker
 docker compose exec unitree_ros bash -ic 'ros2 topic hz /point_cloud2'
 docker compose exec unitree_ros bash -ic 'ros2 topic echo /scan --once'
 docker compose run --rm unitree_ros bash -c 'python3 -m pytest /ros2_ws/src/lidar_processor/test'
-docker compose exec unitree_ros bash -ic 'ros2 launch lidar_processor_cpp lidar_processing_pipeline.launch.py map_name:="my_custom_map" max_range:=15.0 publish_rate:=10.0'
+docker compose run --rm unitree_ros ros2 launch go2_robot_sdk robot_cpp.launch.py   # the stack with the C++ lidar nodes
 ```
 
 <!-- sources: src/lidar_processor/lidar_processor/lidar_to_pointcloud_node.py, frame_transform.py, pointcloud_aggregator_node.py, src/lidar_processor_cpp/README.md and src/*.cpp, src/go2_robot_sdk/go2_robot_sdk/infrastructure/sensors/lidar_decoder.py, ros2_publisher.py (frame odom), launch/robot.launch.py, robot_cpp.launch.py, mapping.launch.py, navigation.launch.py, config/nav2_params.yaml comments, src/go2_auto_mapper/README.md, docs/TEST_LOG.md, docs/FUSION.md, git log Oct 14-19 (Luis) -->
