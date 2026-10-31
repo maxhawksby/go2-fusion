@@ -83,14 +83,14 @@ If the build ever gets into a strange state, `docker compose down -v` deletes th
 
 ## Keeping the wiki current
 
-To read the wiki as a workspace (page tree, map, who is working on what), run `npm install` once and then `npm run wiki` from the repo folder (needs Node.js 18+ and Python 3.8+, outside Docker). It reloads the page as you edit.
+To read the wiki as a workspace (page tree, map, who is working on what), run `npm run wiki` from the repo folder (needs Node.js 18+, outside Docker). It reloads the page as you edit.
 
-The team docs are a wiki: `README.md` is the center page "Oak", and `docs/wiki/` holds one hub page per area plus one page per program. Each page lists the code it describes, so an automatic check on every pull request notices when you change a program but not its page.
+The team docs are a wiki: `README.md` is the center page "Oak", and `docs/wiki/` holds one hub page per area plus one page per program. The wiki runs on [Hypatia](https://github.com/maxhawksby/hypatia). Each page lists the code it describes and carries a stamp of that code, so an automatic check on every pull request notices when you change a program but not its page.
 
 - Starting a task? Open (or reuse) a GitHub issue, add the label `wiki:<page-name>`, and assign yourself, so the wiki graph shows who is working on what.
 - Changed a program, or added or removed a package? Update its page in plain English: what it does, what it uses, how it breaks. Write `TODO(owner)` for anything you don't know. A new package gets a new page linked from its hub.
-- Check before you open a pull request: `python3 scripts/wiki/check_wiki.py` (or `npm run wiki:check`). It says exactly what to fix.
-- If your change really doesn't affect the page (say, a rename), add this line to the pull request description instead: `wiki: no change needed - <reason>`.
+- Check before you open a pull request: `npx hypatia check`. It says exactly what to fix. After you reread a page against its code, mark it current with `npx hypatia verify docs/wiki/<page>.md`.
+- If your change really doesn't affect the page (say, a rename), add this line to the pull request description instead: `wiki: no change needed for <page>.md - <reason>`.
 
 Your AI agent does all of this for you through the wiki-keeper steps in [AGENTS.md](AGENTS.md).
 
