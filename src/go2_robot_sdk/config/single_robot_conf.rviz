@@ -65,7 +65,7 @@ Visualization Manager:
       Description Source: Topic
       Description Topic:
         Depth: 5
-        Durability Policy: Volatile
+        Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /robot_description
@@ -334,7 +334,7 @@ Visualization Manager:
       # the "indexed_8bit_image" shader this display uses fails to link
       # ("active samplers with a different type refer to the same texture
       # image unit"), crashing rviz2 every time a map is received. Use
-      # go2_map_viewer_cpp, go2_map_viewer_julia, or Foxglove for the map
+      # go2_map_viewer_cpp, the MapViewer panel, or Foxglove for the map
       # instead. Safe to flip back to `true` to retest after a Mesa/driver
       # update.
       Name: Map
@@ -474,8 +474,8 @@ Visualization Manager:
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.7618959546089172
-        Y: -1.3177106380462646
+        X: 0
+        Y: 0
         Z: 0
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
@@ -483,7 +483,9 @@ Visualization Manager:
       Name: Current View
       Near Clip Distance: 0.009999999776482582
       Pitch: 0.46979716420173645
-      Target Frame: <Fixed Frame>
+      # Follow the robot: with the fixed frame, the camera stayed where the
+      # robot started, and after driving off it showed only the old room.
+      Target Frame: base_link
       Value: XYOrbit (rviz_default_plugins)
       Yaw: 4.827390670776367
     Saved: ~

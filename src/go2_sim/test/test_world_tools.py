@@ -125,6 +125,17 @@ def test_compose_world_places_robot_and_keeps_plugins():
     assert len(names) == len(set(names))
 
 
+def test_camera_only_when_asked_for():
+    with open(TEMPLATE) as f:
+        template = f.read()
+    plain = ET.fromstring(wt.render_robot(template))
+    assert plain.find("link/sensor[@name='front_camera']") is None
+    camera = ET.fromstring(wt.render_robot(template, camera_rate=5.0)).find(
+        "link/sensor[@name='front_camera']")
+    assert float(camera.find('update_rate').text) == 5.0
+    assert camera.find('topic').text == '/sim/camera'
+
+
 def test_compose_world_adds_missing_plugins():
     with open(TEMPLATE) as f:
         robot = wt.render_robot(f.read())

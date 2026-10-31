@@ -10,11 +10,20 @@ from typing import Callable, Dict, Any
 from ...domain.interfaces import IRobotDataReceiver, IRobotController
 from ...domain.entities import RobotData, RobotConfig
 from .go2_connection import Go2Connection
-from .connection_health import DATA_STALL_TIMEOUT_SEC, data_stalled
+from .connection_health import (
+    DATA_STALL_TIMEOUT_SEC, GIVE_UP, NUDGE, StreamWatch, data_stalled,
+)
+
+# How often to log which streams are arriving and how fast.
+STREAM_LOG_PERIOD_SEC = 30.0
 from ...application.utils.command_generator import gen_command, gen_mov_command
 from ...domain.constants import ROBOT_CMD, RTC_TOPIC
 
 logger = logging.getLogger(__name__)
+# The driver logs Python modules at WARN; the periodic stream summary is
+# meant to be seen, so it gets its own INFO-level logger (as the node does).
+stream_logger = logging.getLogger(__name__ + '.streams')
+stream_logger.setLevel(logging.INFO)
 
 
 class WebRTCAdapter(IRobotDataReceiver, IRobotController):
@@ -28,6 +37,11 @@ class WebRTCAdapter(IRobotDataReceiver, IRobotController):
         self.webrtc_msgs = asyncio.Queue()
         self.on_validated_callback = on_validated_callback
         self.on_video_frame_callback = on_video_frame_callback
+        # Per robot: lidar cloud and camera liveness (see connection_health),
+        # and when stream rates were last logged.
+        self.lidar_watch: Dict[str, StreamWatch] = {}
+        self.video_watch: Dict[str, StreamWatch] = {}
+        self.stream_log_at: Dict[str, float] = {}
         # Store the event loop (passed from main thread or detect current)
         if event_loop:
             self.main_loop = event_loop
@@ -69,7 +83,9 @@ class WebRTCAdapter(IRobotDataReceiver, IRobotController):
 
             self.connections[robot_id] = conn
             await conn.connect()
-            await conn.disableTrafficSaving(True)
+            # Traffic saving and the lidar are switched in _on_validated:
+            # here the data channel isn't open yet, and a request sent now
+            # was silently dropped.
 
             logger.info(f"Connected to robot {robot_id} at {robot_ip}")
 
@@ -97,6 +113,9 @@ class WebRTCAdapter(IRobotDataReceiver, IRobotController):
                 f"{DATA_STALL_TIMEOUT_SEC:.0f} s (odometry, lidar, state); "
                 "treating the connection as lost"
             )
+            event.set()
+            return False
+        if conn is not None and not self._check_streams(robot_id, conn):
             event.set()
             return False
         return True
@@ -217,9 +236,18 @@ class WebRTCAdapter(IRobotDataReceiver, IRobotController):
         """Callback after connection validation"""
         try:
             if robot_id in self.connections:
+                conn = self.connections[robot_id]
                 for topic in RTC_TOPIC.values():
-                    self.connections[robot_id].data_channel.send(
+                    conn.data_channel.send(
                         json.dumps({"type": "subscribe", "topic": topic}))
+                self._enable_lidar(conn)
+                now = time.monotonic()
+                self.lidar_watch[robot_id] = StreamWatch()
+                self.lidar_watch[robot_id].start(now)
+                if self.config.enable_video:
+                    self.video_watch[robot_id] = StreamWatch()
+                    self.video_watch[robot_id].start(now)
+                self.stream_log_at[robot_id] = now
             
             if self.on_validated_callback:
                 self.on_validated_callback(robot_id)
@@ -227,9 +255,69 @@ class WebRTCAdapter(IRobotDataReceiver, IRobotController):
         except Exception as e:
             logger.error(f"Error in validated callback: {e}")
 
+    def _enable_lidar(self, conn) -> None:
+        """Ask the robot for the lidar cloud: traffic saving off (the code's
+        own note says the lidar needs it) and the lidar switched on. Neither
+        moves the robot."""
+        conn.publish("", {"req_type": "disable_traffic_saving",
+                          "instruction": "on"}, "rtc_inner_req")
+        conn.publish(RTC_TOPIC["ULIDAR_SWITCH"], "on")
+
+    def note_video_frame(self, robot_id: str) -> None:
+        """Called by the driver node for each decoded camera frame."""
+        watch = self.video_watch.get(robot_id)
+        if watch is not None:
+            watch.seen(time.monotonic())
+
+    def _check_streams(self, robot_id: str, conn) -> bool:
+        """Nudge a quiet lidar or camera stream; False when the lidar stays
+        quiet after a nudge, so the caller reconnects."""
+        now = time.monotonic()
+        lidar = self.lidar_watch.get(robot_id)
+        if lidar is not None:
+            action = lidar.check(now)
+            if action == NUDGE:
+                logger.warning(
+                    f"No lidar from robot {robot_id} for {lidar.stall_sec:.0f} s "
+                    "while other data arrives; asking for it again"
+                )
+                self._enable_lidar(conn)
+            elif action == GIVE_UP:
+                logger.error(
+                    f"Lidar from robot {robot_id} still missing after asking "
+                    "again; treating the connection as lost"
+                )
+                return False
+
+        video = self.video_watch.get(robot_id)
+        if video is not None and video.check(now) in (NUDGE, GIVE_UP):
+            # A new stream starts with a key frame; without one the decoder
+            # can't show anything ("non-existing PPS"). Camera trouble alone
+            # never forces a reconnect.
+            logger.warning(
+                f"No camera frames from robot {robot_id} for "
+                f"{video.stall_sec:.0f} s; asking for the video again"
+            )
+            conn.publish("", "on", "vid")
+
+        if now - self.stream_log_at.get(robot_id, now) >= STREAM_LOG_PERIOD_SEC:
+            period = now - self.stream_log_at[robot_id]
+            rates = [
+                f"{name} {watch.take_count() / period:.1f}/s"
+                for name, watch in (("lidar", lidar), ("camera", video))
+                if watch is not None
+            ]
+            stream_logger.info(f"Robot {robot_id} streams: {', '.join(rates)}")
+            self.stream_log_at[robot_id] = now
+        return True
+
     def _on_data_channel_message(self, _, msg: Dict[str, Any], robot_id: str) -> None:
         """Handle incoming data channel messages"""
         try:
+            if isinstance(msg, dict) and msg.get("topic") == RTC_TOPIC["ULIDAR_ARRAY"]:
+                watch = self.lidar_watch.get(robot_id)
+                if watch is not None:
+                    watch.seen(time.monotonic())
             if self.data_callback:
                 # Создаем объект RobotData для передачи в callback
                 # Фактическая обработка будет в RobotDataService

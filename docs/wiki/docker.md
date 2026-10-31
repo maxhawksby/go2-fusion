@@ -14,9 +14,9 @@ Part of: [Lab setup](lab-setup.md)
 
 Two words to know: an **image** is the recipe-baked box, built once; a **container** is a running copy of it.
 
-Our image holds **only the dependencies** (ROS packages, PyTorch, Open3D, Julia, Gazebo Fortress for the [Simulator](simulator.md) and so on), not our code.
+Our image holds **only the dependencies** (ROS packages, PyTorch, Open3D, Gazebo Fortress for the [Simulator](simulator.md) and so on), not our code.
 When the container starts, Docker **mounts** your repo's `src/` folder inside it at `/ros2_ws/src`, so the container sees your edits instantly.
-Only `src/` (plus the Julia map viewer folder) is mounted: other repo folders such as `docs/`, `scripts/` and `host_tools/` are not inside the container.
+Only `src/` is mounted: other repo folders such as `docs/`, `scripts/` and `host_tools/` are not inside the container.
 Then the start-up script (`entrypoint.sh`) builds the workspace with `colcon build --symlink-install` and runs the default command, `ros2 launch go2_robot_sdk robot.launch.py` (the full robot stack).
 Build output is kept in Docker volumes, so each start only rebuilds what changed.
 
@@ -73,7 +73,7 @@ On Windows from PowerShell, add `-f docker-compose.windows.yml` after `docker co
 
 ## Who's on it and what's next
 
-TODO(owner): no single owner. Luis pinned Julia to 1.13.1 and restored the Foxglove port; Noah moved packages under `src/`.
+TODO(owner): no single owner. Luis restored the Foxglove port; Noah moved packages under `src/`.
 
 ## The code
 

@@ -1,9 +1,12 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include <QImage>
 #include <QLabel>
@@ -119,6 +122,7 @@ private:
 
   rclcpp::Node::SharedPtr node_;
   rclcpp::executors::SingleThreadedExecutor executor_;
+  std::atomic<bool> stop_spinning_{false};
   std::thread spin_thread_;
 
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
@@ -147,6 +151,16 @@ private:
   GoalHandleNav::SharedPtr current_goal_handle_;
   uint64_t goal_generation_{0};
   bool cancel_requested_{false};
+
+  // Closing the panel cancels its goals (see the destructor). Goals sent but
+  // not yet accepted or rejected are counted, since they have no handle yet;
+  // closing_ makes the response callback cancel them, into close_cancels_.
+  using CancelFuture =
+    std::shared_future<rclcpp_action::Client<NavigateToPose>::CancelResponse::SharedPtr>;
+  std::condition_variable goals_answered_;
+  int goals_awaiting_answer_{0};
+  bool closing_{false};
+  std::vector<CancelFuture> close_cancels_;
 
   MapCanvas * canvas_;
   QLabel * status_label_;

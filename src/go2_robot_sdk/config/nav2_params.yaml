@@ -200,6 +200,12 @@ local_costmap:
       # At 1 Hz an obstacle could appear only after the robot reached it.
       update_frequency: 5.0
       publish_frequency: 2.0
+      # The auto mapper waits for a fresh /local_costmap/costmap after every
+      # stop. Without this, Nav2 re-sends the full grid only when the rolling
+      # window moves, so a robot standing still (or spinning in place) never
+      # got one and exploration stalled ("timed out waiting for fresh
+      # costmap"; found in go2_sim). 400 x 400 cells at 2 Hz is cheap.
+      always_send_full_costmap: True
       global_frame: odom
       robot_base_frame: base_link
       use_sim_time: False

@@ -342,6 +342,7 @@ class Go2DriverNode(Node):
 
                 # Publish via ROS2Publisher
                 self.ros2_publisher.publish_camera_data(robot_data)
+                self.webrtc_adapter.note_video_frame(robot_id)
                 await asyncio.sleep(0)
 
             except Exception as e:

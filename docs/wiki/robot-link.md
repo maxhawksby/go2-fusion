@@ -28,6 +28,12 @@ You pass it as `ROBOT_AES_KEY`. Never put it in a file in the repo; ask a teamma
 
 **Staying connected.** If the connection closes, or the data channel goes quiet for 5 seconds while video keeps coming, the driver treats it as lost and reconnects, waiting 5 s, then 10 s, up to 60 s between tries.
 
+**Watching each stream.** One stream can also go quiet while the rest keeps flowing: after a reconnect, odometry came back but the lidar cloud or the camera sometimes did not. So the driver watches the lidar and the camera separately:
+
+- After 10 s without lidar, it asks the dog for it again (traffic saving off, lidar switched on; neither moves the robot). Still nothing 10 s later: it treats the connection as lost and reconnects.
+- After 10 s without camera frames, it asks for the video again, and keeps asking. A silent camera never forces a reconnect.
+- The lidar request is now sent once the connection is validated. Sent earlier, before the data channel was open, it was silently dropped.
+
 **2. CycloneDDS over Ethernet (`CONN_TYPE=cyclonedds`).**
 DDS is the networking layer ROS 2 itself uses. With a cable plugged into the dog and your computer on the robot's subnet, ROS can discover the dog's own topics directly, with no IP or key.
 In this repo that path is barely used: the driver's CycloneDDS handlers are empty placeholders, and discovery through Docker Desktop on Windows is untested.
@@ -50,6 +56,8 @@ The `external_lib/` folder holds two pieces the link needs: `aioice` (a patched 
 | `RSA key format is not supported`, or a key error | Firmware 1.1.15+: set `ROBOT_AES_KEY`. |
 | `aes_key must be 16 bytes (32 hex chars)` or `aes_key rejected by robot` | The key is mistyped or belongs to another dog. |
 | Connects, then drops or refuses | The phone app or a teammate is still connected. |
+| `No lidar from robot 0 for 10 s while other data arrives; asking for it again` | The lidar went quiet. Usually it comes back; if not, the next message is `still missing after asking again` and the driver reconnects. |
+| `No camera frames from robot 0 for 10 s; asking for the video again` | The camera went quiet. Lidar and driving keep working. |
 | `The aioice submodule is missing` at container start | Run `git submodule update --init --recursive` on your machine. |
 
 ## Who's on it and what's next
@@ -60,7 +68,7 @@ Luis ported the reconnect and drop detection from the team fork. An unmerged bra
 
 https://github.com/maxhawksby/go2-fusion/tree/master/src/go2_robot_sdk/go2_robot_sdk/infrastructure/webrtc
 
-Unit test for the stall detector (in a container shell):
+Unit tests for the stall detector and the per-stream watch (in a container shell):
 
 ```shell
 cd /ros2_ws && python3 -m pytest src/go2_robot_sdk/test/test_connection_health.py

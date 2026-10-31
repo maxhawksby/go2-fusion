@@ -40,11 +40,13 @@ REQUIRED_WORLD_PLUGINS = [
 # ----------------------------------------------------------------------------
 
 def render_robot(template_text, base_height=0.32, lidar_rate=5.0,
-                 lidar_range=12.0, lidar_samples=720, lidar_noise=0.01):
+                 lidar_range=12.0, lidar_samples=720, lidar_noise=0.01, camera_rate=0.0):
     """Fill the $fields of the Oak model template (models/oak/model.sdf.template).
 
     base_height is how high base_link rides above the floor; the feet slab,
-    bumper and legs are sized from it.
+    bumper and legs are sized from it. camera_rate > 0 adds the front camera
+    at that many pictures a second; 0 leaves it out, since rendering it costs
+    CPU on laptops without a GPU.
     """
     bumper_bottom = 0.08                      # floor clearance of the bumper
     bumper_top = base_height + 0.08           # top of the body
@@ -59,10 +61,31 @@ def render_robot(template_text, base_height=0.32, lidar_rate=5.0,
         lidar_range=lidar_range,
         lidar_samples=int(lidar_samples),
         lidar_noise=lidar_noise,
+        camera=CAMERA_SENSOR.format(rate=camera_rate) if camera_rate > 0 else '',
     )
     return string.Template(template_text).substitute(
         {k: (f'{v:.4f}' if isinstance(v, float) else str(v))
          for k, v in values.items()})
+
+
+# Oak's front camera: in the head, looking straight ahead (go2.urdf's
+# front_camera). 1280x720 like the real one would be slow to render on a CPU,
+# so a quarter of that; the VLM shrinks pictures to 448 wide anyway. The
+# horizontal field of view is a guess. TODO(owner): measure the real camera's.
+CAMERA_SENSOR = """
+    <sensor name="front_camera" type="camera">
+      <pose>0.31 0 0.05 0 0 0</pose>
+      <topic>/sim/camera</topic>
+      <update_rate>{rate}</update_rate>
+      <always_on>1</always_on>
+      <visualize>false</visualize>
+      <camera>
+        <horizontal_fov>1.5708</horizontal_fov>
+        <image><width>640</width><height>360</height><format>R8G8B8</format></image>
+        <clip><near>0.05</near><far>30</far></clip>
+        <visibility_mask>4294967293</visibility_mask>
+      </camera>
+    </sensor>"""
 
 
 def world_name(world_text):

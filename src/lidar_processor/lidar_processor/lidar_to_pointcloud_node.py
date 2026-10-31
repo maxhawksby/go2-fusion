@@ -7,9 +7,8 @@ LiDAR to PointCloud Node
 Enhanced LiDAR data processing node with better architecture and performance.
 """
 
-import itertools
 import os
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 from dataclasses import dataclass
 from threading import Lock
 
@@ -25,6 +24,7 @@ from tf2_ros import TransformException
 import open3d as o3d
 
 from lidar_processor.frame_transform import transform_points
+from lidar_processor.point_map import CellPointMap
 
 
 @dataclass
@@ -37,62 +37,46 @@ class LidarConfig:
     max_points: int = 1000000    # Maximum points to keep in memory
     voxel_size: float = 0.01     # Voxel downsampling size
     publish_rate: float = 5.0    # Hz, independent of incoming scan rate
+    # Size of the 2D cells a fresh cloud refreshes (see point_map.py).
+    refresh_cell_size: float = 0.25
 
 
 class PointCloudAggregator:
-    """Thread-safe point cloud aggregation with memory management"""
+    """Thread-safe accumulated cloud that follows the environment.
+
+    Each incoming cloud replaces what the map held where it can see, and
+    leaves the rest alone (see point_map.CellPointMap). Over max_points, the
+    areas seen longest ago are dropped first.
+    """
 
     def __init__(self, config: LidarConfig):
         self.config = config
-        # dict preserves insertion order, giving O(1) dedup *and* a cheap
-        # way to evict the actually-oldest points once over the cap. The
-        # previous approach sorted by distance from the world origin and
-        # kept only the closest max_points - meaning any point farther from
-        # (0,0,0) than the current farthest kept point was permanently
-        # dropped once the cap was first hit, silently capping the usable
-        # mapped area well short of max_points for any exploration that
-        # moves away from the start position.
-        self.points: Dict[Tuple[float, float, float], None] = {}
+        self.points = CellPointMap(config.refresh_cell_size, config.max_points)
         self._lock = Lock()
         self._points_changed = False
 
-    def add_points(self, new_points: List[Tuple[float, float, float]]) -> None:
-        """Add new points to the aggregated cloud"""
+    def add_points(self, new_points: List[Tuple[float, float, float]]) -> int:
+        """Merge a fresh cloud in; returns how many stale points it removed."""
         with self._lock:
-            for point in new_points:
-                # Round points to reduce memory usage
-                rounded_point = (
-                    round(point[0], 3),
-                    round(point[1], 3),
-                    round(point[2], 3)
-                )
-                self.points[rounded_point] = None
-
-            # Memory management - evict the oldest-inserted points once
-            # over the limit (a point seen again isn't re-ordered, since
-            # this bounds memory rather than tracking freshness).
-            overflow = len(self.points) - self.config.max_points
-            if overflow > 0:
-                for key in list(itertools.islice(self.points.keys(), overflow)):
-                    del self.points[key]
-
+            dropped = self.points.update(new_points)
             self._points_changed = True
+            return dropped
 
-    def get_points_copy(self) -> List[Tuple[float, float, float]]:
-        """Get a thread-safe copy of current points"""
+    def get_points_copy(self):
+        """Copy of all points, as an (N, 3) numpy array"""
         with self._lock:
-            return list(self.points.keys())
-    
+            return self.points.points()
+
     def has_changes(self) -> bool:
         """Check if points have changed since last check"""
         with self._lock:
             return self._points_changed
-    
+
     def mark_saved(self) -> None:
         """Mark current state as saved"""
         with self._lock:
             self._points_changed = False
-    
+
     def get_point_count(self) -> int:
         """Get current point count"""
         with self._lock:
@@ -101,8 +85,7 @@ class PointCloudAggregator:
     def clear(self) -> int:
         """Drop every point; returns how many there were"""
         with self._lock:
-            count = len(self.points)
-            self.points.clear()
+            count = self.points.clear()
             self._points_changed = True
             return count
 
@@ -179,6 +162,9 @@ class LidarToPointCloudNode(Node):
         self.declare_parameter('max_points', 1000000)
         self.declare_parameter('voxel_size', 0.01)
         self.declare_parameter('publish_rate', 5.0)
+        # Each fresh cloud replaces the map in the 2D cells of this size it
+        # covers, so moved or removed objects drop out (see point_map.py).
+        self.declare_parameter('refresh_cell_size', 0.25)
         # Saved .ply coordinates are in this frame. The live cloud stays in
         # odom; each save applies the latest transform, so a loop closure
         # moves the file with the map.
@@ -193,6 +179,8 @@ class LidarToPointCloudNode(Node):
         max_points = self.get_parameter('max_points').get_parameter_value().integer_value
         voxel_size = self.get_parameter('voxel_size').get_parameter_value().double_value
         publish_rate = self.get_parameter('publish_rate').get_parameter_value().double_value
+        refresh_cell_size = self.get_parameter(
+            'refresh_cell_size').get_parameter_value().double_value
 
         return LidarConfig(
             robot_ip_list=robot_ip_lst,
@@ -201,7 +189,8 @@ class LidarToPointCloudNode(Node):
             save_interval=save_interval,
             max_points=max_points,
             voxel_size=voxel_size,
-            publish_rate=publish_rate
+            publish_rate=publish_rate,
+            refresh_cell_size=refresh_cell_size,
         )
 
     def _setup_subscriptions(self) -> None:
@@ -275,7 +264,7 @@ class LidarToPointCloudNode(Node):
         """Publish aggregated point cloud"""
         try:
             points = self.aggregator.get_points_copy()
-            if points:
+            if len(points):
                 pointcloud_msg = point_cloud2.create_cloud_xyz32(header, points)
                 self.pointcloud_pub.publish(pointcloud_msg)
         except Exception as e:
@@ -298,7 +287,7 @@ class LidarToPointCloudNode(Node):
                 return
             
             points = self.aggregator.get_points_copy()
-            if not points:
+            if not len(points):
                 return
 
             source_frame = 'odom'
@@ -342,7 +331,8 @@ class LidarToPointCloudNode(Node):
 
         Stored points stay in the cloud frame. The file is rewritten from
         them with the transform as it is now, so a loop closure shifts the
-        whole .ply. Nothing is deleted to refresh a moved obstacle.
+        whole .ply. Moved obstacles drop out as fresh clouds replace the
+        area they cover (see point_map.py).
         """
 
         if source_frame == self.map_frame:

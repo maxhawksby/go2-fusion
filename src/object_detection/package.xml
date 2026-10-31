@@ -12,6 +12,8 @@
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>cv_bridge</depend>
+  <depend>visualization_msgs</depend>
+  <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

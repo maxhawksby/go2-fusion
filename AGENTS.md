@@ -29,7 +29,7 @@ All ROS packages live under `src/`.
 
 ## Build and run: always in Docker
 
-The image holds only dependencies. Only the repo's `src/` folder is mounted, at `/ros2_ws/src` (plus `go2_map_viewer_julia/` at `/ros2_ws/src/go2_map_viewer_julia`); colcon's `build/`, `install/` and `log/` live in Docker volumes. Other repo folders (`docs/`, `scripts/`, `host_tools/`) are not in the container. The container runs `colcon build --symlink-install` on start. Never install ROS or packages on the host.
+The image holds only dependencies. Only the repo's `src/` folder is mounted, at `/ros2_ws/src`; colcon's `build/`, `install/` and `log/` live in Docker volumes. Other repo folders (`docs/`, `scripts/`, `host_tools/`) are not in the container. The container runs `colcon build --symlink-install` on start. Never install ROS or packages on the host.
 
 ```shell
 docker info                                          # if this fails, ask the human to start Docker Desktop; never start/restart it yourself

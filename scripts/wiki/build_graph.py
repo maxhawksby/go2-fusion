@@ -417,7 +417,7 @@ def history(commits, pages, people):
 
 
 # Only program code counts as "worked on", not docs, configs at the root or Docker.
-CODE_ROOTS = ("src/", "host_tools/", "go2_map_viewer_julia/")
+CODE_ROOTS = ("src/", "host_tools/")
 BULK_COMMIT_FILES = 60
 
 

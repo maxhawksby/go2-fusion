@@ -23,6 +23,10 @@ Part of: [Senses](senses.md)
 
 **Important today (master):** those positions are relative to the robot's body (`base_link`), not to the room. When Oak turns or walks, the same chair's x and y change, so it can get a second ID. Nothing is placed on the [SLAM](slam.md) map yet. That is exactly what Max's in-progress work fixes (see "What's next" below).
 
+**People (in progress, branch `luis/feat/people-forecast`).** Ideas taken from [SocialNav](https://github.com/ram95d/SocialNav) (MIT), a perception stack for a smart walker. Each `person` box is moved into the `odom` frame with TF, so a person keeps one ID (`person_3`) while Oak or they move. From their last few positions (8 points, 0.4 s apart) the node works out how fast they are walking and draws a straight line 4.8 s ahead: "if they keep going, they will be here". People closer than 1.5 m to each other count as a group, like two people talking, so a robot should go around them, not between them. This is published on `/people` and drawn in RViz on `/people/markers`. The [auto mapper](auto-mapper.md) uses it to keep goals away from people and to let them pass. SocialNav itself predicts paths with a trained network on a GPU and measures distance with a depth camera; Oak has neither in Docker, so this version uses the straight-line guess and the box-height distance above.
+
+**Any object by name (optional).** With YOLOE weights (`model_path:=yoloe-26s-seg.pt`, the open-vocabulary model SocialNav uses) the `classes` parameter lists what to look for in plain words, for example `person,chair,red box`, instead of YOLO's fixed 80 classes.
+
 **The older detector.** `coco_detector` is a second, older detector that uses a different network (MobileNet, from the torchvision library). It publishes the standard ROS message `vision_msgs/Detection2DArray` on `/detected_objects`, with a default confidence cut-off of 0.9 and no positions or memory. It is kept for now and is planned to be retired (see [Decisions](decisions.md), follow-up 3).
 
 **Settings.** `object_detection` was written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav); its pose topic was renamed from `/detected_objects` to `/detected_objects/poses` when it came into this repo. Its parameters:
@@ -32,6 +36,8 @@ Part of: [Senses](senses.md)
 | `model_path` | `share/object_detection/models/yolov8n.pt` | YOLO weights file |
 | `num_threads` | `4` | CPU threads for PyTorch. Unlimited, it takes every core and starves the driver, SLAM, Nav2 and RViz |
 | `max_rate_hz` | `5.0` | Most pictures per second to run YOLO on; pictures in between are dropped. `0` runs on every picture |
+| `classes` | empty | Comma-separated names to look for; needs YOLOE weights. Empty keeps the model's own classes |
+| `track_people` | `True` | Track people, forecast their walk and find groups (`/people`) |
 
 To change the default weights, add the file to `models/`, list it in `setup.py` `data_files`, and update the default in `detector_node.py`. It needs `ultralytics` from pip, which is in the repo's `requirements.txt`, so the Docker image has it.
 
@@ -40,6 +46,7 @@ To change the default weights, add the file to `models/`, list it in `setup.py` 
 ## Connects to
 
 - [Camera](camera.md) - both detectors read `/camera/image_raw`, the driver's camera topic.
+- [Auto mapper](auto-mapper.md) - reads `/people` to keep goals out of people's way and wait for them.
 - [Object navigation](object-navigation.md) - reads `/detected_objects_dict` and walks toward an object by ID.
 - [LLM agent](llm-agent.md) - its `look_for_object` tool is not wired to this memory yet; the agent's README says a fix would read `/detected_objects_dict`.
 - [SLAM](slam.md) and [TF and robot model](tf.md) - needed for the map-based memory in progress.
@@ -53,6 +60,8 @@ Topics (a topic is a named channel that ROS programs publish messages to and lis
 | `/detections/image_annotated` | `object_detection` writes | Picture with boxes and labels drawn on; only drawn while someone watches it |
 | `/detected_objects/poses` | `object_detection` writes | Rough position of each box, `base_link` frame, no label |
 | `/detected_objects_dict` | `object_detection` writes | The JSON memory |
+| `/people` | `object_detection` writes | JSON, `odom` frame: each person's `x`, `y`, speed `vx`/`vy` (m/s), `group` (a number, or null when alone) and `path` (12 points, 0.4 s apart) |
+| `/people/markers` | `object_detection` writes | RViz: orange dot per person, yellow forecast line, blue ring per group; only built while someone watches |
 | `/detected_objects` | `coco_detector` writes | Standard detection message, no positions |
 | `/annotated_image` | `coco_detector` writes | Picture with boxes |
 
@@ -64,6 +73,9 @@ Topics (a topic is a named channel that ROS programs publish messages to and lis
 - **ID mix-ups on master.** Matching checks whether an ID starts with the class name, so `car` can match `carrot_1`, and after an object expires a new one can reuse a live number (commit `b078372`).
 - **Speed.** About 4.5 pictures a second on CPU, 55 to 130 ms each, measured on Oak on 2026-10-11 ([Test log](test-log.md)). Results lag the camera by about one picture.
 - **First run needs internet.** `ultralytics` downloads a font the first time it draws boxes, and `coco_detector` downloads its network.
+- **People forecasts are only as good as the positions.** They use the same rough distance guess, and the left/right flip above, so on master a person walking left is drawn walking right. A person partly out of the picture seems to jump away, which looks like a fast walk for a moment. The straight line ignores turns and other people.
+- **No people without TF.** People need the `odom` pose from the driver; without it the node warns every 10 s ("No odom pose, people not tracked") and `/people` stays quiet. Objects still work.
+- **YOLOE is untested on Oak.** TODO(Luis): confirm `yoloe-26s-seg.pt` downloads and runs in the container (it also downloads a text model for `classes`), and how many pictures a second it manages on the CPU.
 
 ## Who's on it and what's next
 

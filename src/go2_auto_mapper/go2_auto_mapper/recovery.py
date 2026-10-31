@@ -8,7 +8,7 @@ accumulated 3D point map.
 
 import math
 
-from go2_auto_mapper.obstacle_sensing import cost_at
+from go2_auto_mapper.obstacle_sensing import LETHAL_COST, cost_at
 
 # nav2_params.yaml footprint: nose 0.36 m ahead of base_link, tail 0.45 m
 # behind, body 0.40 m wide. The margin is added on every side of the swept
@@ -36,6 +36,18 @@ REFRESH_TIMEOUT_SEC = 12.0
 SLAM_MIN_TRAVEL_M = 0.2
 
 
+# How far a recovery move may wander before tick_recovery aborts it:
+# heading drift from the start yaw, and sideways drift off the commanded
+# line. The clearance checks cover the body anywhere inside that envelope,
+# so an abort always comes before the body leaves checked space. Kept tight
+# because the envelope grows with them: at 0.10 m and 0.15 rad a wall
+# 0.17 m beside the body refused every move, and in go2_sim Oak never made
+# a single recovery move in 4 runs. Aborting is safe: Oak just stops.
+DRIFT_YAW_RAD = 0.10
+DRIFT_ACROSS_M = 0.05
+_YAW_SAMPLES = 7
+
+
 def swept_bounds(dx, dy):
     """Robot-frame rectangle the padded body passes through for a translation
     of (dx, dy) meters. Orientation stays fixed."""
@@ -48,50 +60,161 @@ def swept_bounds(dx, dy):
     )
 
 
-def scan_covers_move(scan, dx, dy):
-    """True when every sample of the swept body has a finite scan range past it.
+def _hull(points):
+    """Convex hull, counter-clockwise (monotone chain)."""
 
-    Missing rays, NaNs and infinite returns do not prove the space is clear.
+    points = sorted(set(points))
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower, upper = [], []
+    for p in points:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(points):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def move_envelope(dx, dy, start=0.0):
+    """Polygons (robot frame at the start pose) that together hold every
+    place the padded body can be during the move (dx, dy), from `start`
+    meters along it to the end, while the heading stays within
+    DRIFT_YAW_RAD and the position within DRIFT_ACROSS_M of the line.
+
+    The whole body is covered, both halves: Oak can turn while it moves,
+    so the half facing away from the move can swing into a wall beside it.
+    Returns (polygons, pad): `pad` covers the gaps between yaw samples.
+    """
+
+    distance = math.hypot(dx, dy)
+    ux, uy = (dx / distance, dy / distance) if distance > 0 else (1.0, 0.0)
+    nx, ny = -uy, ux
+    front = ROBOT_FRONT_M + SAFETY_MARGIN_M
+    rear = ROBOT_REAR_M + SAFETY_MARGIN_M
+    half = ROBOT_HALF_WIDTH_M + SAFETY_MARGIN_M
+    corners = [(a, b) for a in (-rear, front) for b in (-half, half)]
+    offsets = [
+        (s * ux + side * nx, s * uy + side * ny)
+        for s in (min(start, distance), distance)
+        for side in (-DRIFT_ACROSS_M, DRIFT_ACROSS_M)
+    ]
+    polygons = []
+    for k in range(_YAW_SAMPLES):
+        theta = -DRIFT_YAW_RAD + 2 * DRIFT_YAW_RAD * k / (_YAW_SAMPLES - 1)
+        c, s = math.cos(theta), math.sin(theta)
+        body = [(a * c - b * s, a * s + b * c) for a, b in corners]
+        polygons.append(_hull([
+            (bx + ox, by + oy) for bx, by in body for ox, oy in offsets
+        ]))
+    step = 2 * DRIFT_YAW_RAD / (_YAW_SAMPLES - 1)
+    pad = math.hypot(rear, half) * math.sin(step / 2)
+    return polygons, pad
+
+
+def _inside(polygons, x, y, pad):
+    """True when (x, y) is within `pad` of any of the convex polygons."""
+
+    for poly in polygons:
+        for i, (x0, y0) in enumerate(poly):
+            x1, y1 = poly[(i + 1) % len(poly)]
+            length = math.hypot(x1 - x0, y1 - y0)
+            if (x1 - x0) * (y - y0) - (y1 - y0) * (x - x0) < -pad * length:
+                break
+        else:
+            return True
+    return False
+
+
+def _trigger_exempt(x, y, dx, pad=0.0):
+    """True for robot-frame points (start pose) that belong to the obstacle
+    that stopped Oak, while the move backs away from it.
+
+    The stop comes from an obstacle in front of the nose
+    (free_distance_ahead), often within the padded nose, so counting it
+    would refuse every move away from it and latch Oak stopped next to the
+    first close wall (found in go2_sim). Only that obstacle is exempt: points
+    past the nose, and only on a move with a backward part. Walls beside the
+    body, and the nose obstacle on a sideways move, are always checked.
+    """
+
+    return dx < 0 and x >= ROBOT_FRONT_M - pad
+
+
+def scan_covers_move(scan, dx, dy):
+    """True when no scan return falls inside the body's move envelope
+    (move_envelope), except returns on the obstacle that stopped Oak
+    (_trigger_exempt), and the new space the move enters is measured.
+
+    Missing rays, NaNs and infinite returns do not prove the space is clear,
+    so they refuse the move where they cross space ahead of base_link along
+    the move. Behind it the body is already standing there, and the
+    costmap check still covers it; the scan has a few empty rays (no
+    return in its height band), and refusing on those blocked every
+    backward move (found in go2_sim).
     """
 
     if scan.angle_increment <= 0:
         return False
-    x0, x1, y0, y1 = swept_bounds(dx, dy)
+    count = len(scan.ranges)
+    # pointcloud_to_laserscan's default scan (robot.launch.py) is 360 rays
+    # from -pi: straight behind (+pi) is ray 0 again, not ray 360. Without
+    # the wrap every backward move looked unmeasured (found in go2_sim).
+    full_circle = count * scan.angle_increment >= 2 * math.pi - 1e-6
+    polygons, pad = move_envelope(dx, dy)
+    xs = [p[0] for poly in polygons for p in poly]
+    ys = [p[1] for poly in polygons for p in poly]
     step = 0.025
-    for ix in range(math.floor(x0 / step), math.ceil(x1 / step) + 1):
-        for iy in range(math.floor(y0 / step), math.ceil(y1 / step) + 1):
+    for ix in range(math.floor(min(xs) / step), math.ceil(max(xs) / step) + 1):
+        for iy in range(math.floor(min(ys) / step), math.ceil(max(ys) / step) + 1):
             x, y = ix * step, iy * step
             radius = math.hypot(x, y)
-            if radius < scan.range_min:
+            if radius < scan.range_min or not _inside(polygons, x, y, pad):
                 continue
             angle = math.atan2(y, x)
             index = round((angle - scan.angle_min) / scan.angle_increment)
-            if not 0 <= index < len(scan.ranges):
+            if full_circle:
+                index %= count
+            if not 0 <= index < count:
                 return False
             value = scan.ranges[index]
             if not math.isfinite(value) or not scan.range_min <= value <= scan.range_max:
-                return False
+                if x * dx + y * dy >= 0.0:
+                    return False
+                continue
             if value < radius + SAFETY_MARGIN_M:
-                return False
+                hit_x = value * math.cos(angle)
+                hit_y = value * math.sin(angle)
+                if not _trigger_exempt(hit_x, hit_y, dx):
+                    return False
     return True
 
 
-def swept_clear(grid, x, y, yaw, dx, dy):
-    """True when the swept, padded footprint contains no obstacle.
+def swept_clear(grid, x, y, yaw, dx, dy, start=0.0):
+    """True when no wall cell lies in the body's move envelope
+    (move_envelope) for the move (dx, dy) from the pose (x, y, yaw), counted
+    from `start` meters along it. Mid-move, pass the start pose and the
+    progress so far: the envelope is anchored where the move began.
 
-    Unknown cells and cells off the grid are unsafe. Inflation is allowed;
-    inscribed (99) and lethal (100) are not.
+    Unknown cells, cells off the grid and lethal (100) cells are unsafe,
+    except the obstacle that stopped Oak (_trigger_exempt). Inflation,
+    including inscribed (99), is allowed: the padded body plus the drift
+    envelope already keeps the clearance. Counting it too doubled the body
+    width, so no move was ever clear (found in go2_sim). Nav2's own
+    footprint checks use lethal only.
     """
 
     c, s = math.cos(yaw), math.sin(yaw)
-    bounds = swept_bounds(dx, dy)
-    corners = [
-        (x + a * c - b * s, y + a * s + b * c)
-        for a in bounds[:2] for b in bounds[2:]
-    ]
+    polygons, pad = move_envelope(dx, dy, start)
+    local = [p for poly in polygons for p in poly]
+    corners = [(x + a * c - b * s, y + a * s + b * c) for a, b in local]
     res = grid.info.resolution
     ox, oy = grid.info.origin.position.x, grid.info.origin.position.y
-    pad = res * math.sqrt(2) / 2
+    pad += res * math.sqrt(2) / 2
     gx0 = math.floor((min(p[0] for p in corners) - ox) / res) - 1
     gx1 = math.ceil((max(p[0] for p in corners) - ox) / res) + 1
     gy0 = math.floor((min(p[1] for p in corners) - oy) / res) - 1
@@ -101,14 +224,14 @@ def swept_clear(grid, x, y, yaw, dx, dy):
             wx, wy = ox + (gx + 0.5) * res, oy + (gy + 0.5) * res
             along = (wx - x) * c + (wy - y) * s
             across = -(wx - x) * s + (wy - y) * c
-            inside = (
-                bounds[0] - pad <= along <= bounds[1] + pad
-                and bounds[2] - pad <= across <= bounds[3] + pad
-            )
-            if not inside:
+            if not _inside(polygons, along, across, pad):
                 continue
             cost = cost_at(grid, wx, wy)
-            if cost is None or cost < 0 or cost >= 99:
+            if cost is None or cost < 0:
+                return False
+            if cost >= LETHAL_COST and not _trigger_exempt(
+                along, across, dx, res / 2
+            ):
                 return False
     return True
 
