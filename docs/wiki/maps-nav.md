@@ -48,7 +48,7 @@ All of it runs on the laptop, inside Docker, as part of the normal robot stack (
 
 ## How it connects to the other hubs
 
-- [Senses](senses.md) - provides `/scan`, `/point_cloud2` and the TF tree. Object detection's in-progress memory pins objects to this hub's `map` frame.
+- [Senses](senses.md) - provides `/scan`, `/point_cloud2` and the TF tree. Object detection's unmerged map-memory branch pins objects to this hub's `map` frame.
 - [Driving](driving.md) - twist_mux and the [RViz panels](rviz-panels.md) (map viewer, AutoMapper, keyboard) live there; manual driving overrides everything here.
 - [Brains](brains.md) - the [LLM agent](llm-agent.md) and [Object navigation](object-navigation.md) also send the robot places.
 - [Driver](driver.md) - if the robot link drops, the map stops growing and Nav2 stops.

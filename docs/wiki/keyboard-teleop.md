@@ -2,6 +2,7 @@
 title: Keyboard teleop
 parent: driving
 code: [src/keyboard_teleop/**]
+verified: 30602120f809
 ---
 
 # Keyboard teleop

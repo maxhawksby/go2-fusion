@@ -2,6 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
+verified: b4115b628e04
 ---
 
 # Simulator
@@ -12,7 +13,7 @@ Part of: [Lab setup](lab-setup.md)
 
 > **Get it running.** Run every line from a fresh terminal at the repo root. First `git switch master && git pull`.
 >
-> **On this branch alone the auto mapper stalls at about 5% of the map**, because of recovery bugs. The fixes are in branch `max/fix/explorer-recovery` (pending review). Driving by hand and the other tests work now.
+> **On `master` the auto mapper stalls at about 5% of the map**, because of recovery bugs. The fixes are in branch `max/fix/explorer-recovery`, which is not on GitHub yet. Driving by hand and the other tests work now.
 >
 > 0. **Stop the robot stack first** (WSL: `cd docker && docker compose down`; PowerShell: `cd docker; docker compose -f docker-compose.windows.yml down`; Mac: Ctrl-C any running `robot.launch.py`). The sim and the robot stack share build folders.
 > 1. **Rebuild the image once:** it adds Gazebo, about 1 GB to download. On a 16-core desktop the rebuild took about 11 minutes; a laptop is slower. The image ends up around 14 GB.
@@ -119,7 +120,7 @@ Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall b
 
 ## What it found so far
 
-With this branch alone (master's Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
+With `master` alone (its Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
 
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap").
 - **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. TODO(Luis): check on Oak.
@@ -137,7 +138,7 @@ With this branch alone (master's Nav2 settings and auto mapper), a 2-run check m
 
 ## Who's on it and what's next
 
-Max added the simulator (branch `max/feat/go2-sim`). Next: Jeth's lab world (issue #28) in place of the placeholder, and real odometry and lidar numbers from Oak for the dials. TODO(owner): an owner for the simulator.
+Max added the simulator, merged to `master` in pull request #35. Next: Jeth's lab world (issue #28) in place of the placeholder, and real odometry and lidar numbers from Oak for the dials. TODO(owner): an owner for the simulator.
 
 ## The code
 

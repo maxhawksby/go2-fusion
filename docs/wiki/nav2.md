@@ -2,6 +2,7 @@
 title: Nav2
 parent: maps-nav
 code: [src/go2_robot_sdk/config/nav2_params.yaml, src/go2_robot_sdk/launch/navigation.launch.py]
+verified: b17f2aec3713
 ---
 
 # Nav2

@@ -2,6 +2,7 @@
 title: SLAM
 parent: maps-nav
 code: [src/go2_robot_sdk/config/mapper_params_online_async.yaml, src/go2_robot_sdk/launch/mapping.launch.py]
+verified: 9e5421dac09c
 ---
 
 # SLAM
@@ -35,7 +36,7 @@ Each time Oak has moved 0.2 m or turned 0.2 rad (about 11 degrees), slam_toolbox
 - [Nav2](nav2.md) - plans on `/map` and uses `map` to know where the robot is.
 - [Auto mapper](auto-mapper.md) - looks for unexplored edges of `/map`.
 - [Map viewers](map-viewers.md) and [RViz panels](rviz-panels.md) - show `/map`.
-- [Object detection](object-detection.md) - the in-progress object memory is pinned to the `map` frame.
+- [Object detection](object-detection.md) - the unmerged map-memory branch pins objects to the `map` frame.
 
 ## How it breaks
 
