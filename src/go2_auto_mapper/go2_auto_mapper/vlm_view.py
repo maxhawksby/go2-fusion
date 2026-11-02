@@ -49,7 +49,7 @@ class VlmView(Node):
         super().__init__('vlm_view')
         self.declare_parameter('vlm_url', os.environ.get('VLM_URL', DEFAULT_URL))
         self.declare_parameter('vlm_model', os.environ.get('VLM_MODEL', DEFAULT_MODEL))
-        self.declare_parameter('period_sec', 5.0)
+        self.declare_parameter('period_sec', 2.0)
         self.declare_parameter('timeout_sec', 90.0)   # the first answer loads the model
         self.url = self.get_parameter('vlm_url').value
         self.model = self.get_parameter('vlm_model').value
