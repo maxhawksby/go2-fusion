@@ -75,6 +75,10 @@ Part of: [Maps and navigation](maps-nav.md)
 
 Set `NAV_LOG_DIR` in the container's environment (or the `nav_log_dir` parameter) and the explorer keeps a diary in that folder: `goals.jsonl` has one line per goal, with where Oak was, the goal, how it ended (`reached`, `failed` or `paused`), how many new map squares it led to (`revealed_cells`), and any recovery moves or stuck moments. With the VLM on, it also saves the camera picture toward the goal. Off by default. It is there for reading a run afterwards, and as training data if the VLM is ever fine-tuned: a picture labeled by what walking that way really showed. The last goal of a run is not written, because it is only finished when the next goal is sent.
 
+### SocialNav paths (watch only)
+
+`ros2 run go2_auto_mapper socialnav_view` asks the [SocialNav](https://github.com/AMAP-EAI/SocialNav) model (CVPR 2026, Apache-2.0), served by `host_tools/socialnav/server.py` on a GPU server, which way to walk. Every 3 s it sends the last 5 camera pictures (1 s apart), where Oak was for each, and the goal: the explorer's current goal (`/frontier_explorer/goal`), or a point 3 m ahead (`goal_ahead_m`, `goal_left_m`) if the explorer is off. It publishes the 5 waypoints it gets back as `/socialnav/path` (add a Path display in RViz) and a line on `/socialnav/status` saying how many have room by the lidar. **It never drives Oak.** It needs `SOCIALNAV_URL` (default `http://localhost:8100/waypoints`). How well it works on Oak is unknown: the model's training prompt is private, `step_scale` is a guess (at least 0.3 m), and in a first test on fake pictures the goal barely changed its path.
+
 ### Using the VLM
 
 The model needs an NVIDIA GPU, so it runs on a cloud server, not the laptop. The laptop reaches it through an SSH tunnel; the explorer never waits on the network for more than `vlm_timeout`.
