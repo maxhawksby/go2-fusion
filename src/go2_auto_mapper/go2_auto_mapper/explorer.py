@@ -223,6 +223,8 @@ class FrontierExplorer(Node):
         self.fault_checked_stamp = None
         # Own twist_mux input (priority 6): above Nav2, below keyboard and joystick.
         self.recovery_pub = self.create_publisher(Twist, '/cmd_vel_mapper', 10)
+        # The goal Nav2 is driving to, for watchers such as socialnav_view.
+        self.goal_pub = self.create_publisher(PoseStamped, '~/goal', 10)
         sensor_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', lambda msg: self.observe('scan', msg), sensor_qos)
@@ -1129,6 +1131,7 @@ class FrontierExplorer(Node):
         self.current_goal = (x, y)
         self.goal_sent_time = time.monotonic()
 
+        self.goal_pub.publish(goal.pose)
         future = self.nav_client.send_goal_async(
             goal
         )
