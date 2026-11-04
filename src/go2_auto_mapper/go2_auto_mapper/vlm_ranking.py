@@ -46,9 +46,8 @@ DESCRIBE_PROMPT = (
     'camera for forward. {lidar} Never suggest a direction the lidar says is under '
     '{clear:.1f} m. Chair legs and gaps under desks are not paths. Do not invent a '
     'doorway you cannot see. Reply with JSON only, in this form: '
-    '{{"description": "2 short sentences: the room, objects, people, and any open '
-    'space or doorway", "move": "forward, left, right, turn_around or stop", '
-    '"reason": "one short sentence"}}'
+    '{{"description": "one short sentence: the room and any open space or doorway", '
+    '"move": "forward, left, right, turn_around or stop", "reason": "a few words"}}'
 )
 
 # Moves the model may suggest, with the direction each would walk in (radians,
@@ -158,8 +157,10 @@ def build_describe_request(model, jpeg, lidar='The lidar is not available now.')
             {'type': 'text', 'text': prompt},
             {'type': 'image_url', 'image_url': {'url': url}},
         ]}],
+        # The answer, not the picture, is most of the time: about 12 ms a token
+        # for Qwen2.5-VL 7B on the GPU server (2026-11-02).
         'temperature': 0.0,
-        'max_tokens': 160,
+        'max_tokens': 80,
         'response_format': {'type': 'json_object'},
     }
 
