@@ -2021,22 +2021,40 @@ def main(args=None):
 
     stop_when_parent_dies()
 
-    rclpy.init(args=args)
+    # Keep the ROS context alive while Ctrl+C runs stop(). The default rclpy
+    # signal handler shuts the context down first, which prevents the final
+    # zero velocity and active Nav2 goal cancellation from being published.
+    from rclpy.signals import SignalHandlerOptions
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
 
     node = FrontierExplorer()
+    shutdown_requested = False
+
+    def request_shutdown(_signum, _frame):
+        nonlocal shutdown_requested
+        shutdown_requested = True
+        raise KeyboardInterrupt
+
+    previous_sigint_handler = signal.signal(signal.SIGINT, request_shutdown)
 
     try:
-
         rclpy.spin(node)
-
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
-
-    node.stop()
-    node.destroy_node()
-
-    if rclpy.ok():
-        rclpy.shutdown()
+    except RuntimeError:
+        # SIGINT can interrupt rclpy while it is converting a subscription
+        # message, in which case the extension raises RuntimeError instead of
+        # delivering KeyboardInterrupt. Only suppress that shutdown race;
+        # unrelated runtime failures must still be visible.
+        if not shutdown_requested:
+            raise
+    finally:
+        if rclpy.ok():
+            node.stop()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+        signal.signal(signal.SIGINT, previous_sigint_handler)
 
 
 if __name__ == '__main__':
