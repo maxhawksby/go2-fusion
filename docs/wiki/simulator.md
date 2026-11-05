@@ -76,6 +76,13 @@ This runs the auto mapper 10 times with no windows. Each run starts a fresh simu
 
 Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores it): `results.csv`, `results.md` (the table), each run's final map, and logs. Options: `--runs 3`, `--timeout 600`, `--stall-timeout 300` (0 = never), `--seed 2`, `--world <name or .sdf>`. Dials go after `--`, for example `ros2 run go2_sim trials --runs 5 -- lidar_rate:=2.0 odom_noise_xy:=0.05`.
 
+The trial runner also starts the [Scoreboard](scoreboard.md) before each auto
+mapper. Its independent artifacts are under the run's `scoreboard/` folder,
+including a rosbag by default. The legacy simulator scorer remains in place and
+the CSV reports whether distance (within 10% or 0.5 m), completeness (within one
+percentage point) and collision counts agree. Use `--no-scoreboard-bag` for a
+small development run or `--no-scoreboard` to isolate the legacy scorer.
+
 ## Watch the trials live
 
 The trials run headless, but you can look in on them. Start the trials in a named container, then attach windows from a second terminal:
@@ -121,6 +128,19 @@ Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall b
 ## What it found so far
 
 Before the recovery fixes (master's old Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
+
+The first [Scoreboard](scoreboard.md) integration proof on 2026-11-05
+reproduced that stop with seed 27. It also proved that the new scorer and this
+legacy scorer agree despite the failed exploration: both measured 0.0 m,
+0 collisions and 5.7% completeness. Treat that as measurement-pipeline
+evidence, not as a successful mapping run.
+
+After pull request #41 merged the costmap and recovery fixes, the same seed was
+rerun on 2026-11-05. It traveled 2.8 m, mapped 48.0% and recorded 0 collisions
+before the runner declared it stuck after 60 seconds with less than 0.25 m of
+new movement. The independent scoreboard measured 2.7235 m, 47.959% and 0
+collisions. This confirms the old startup stall is fixed and the measurement
+paths agree, but it does not claim that exploration finishes reliably.
 
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
 - **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. Three bugs caused it, all fixed (see [Auto mapper](auto-mapper.md)); still to confirm on Oak.

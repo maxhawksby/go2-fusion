@@ -21,6 +21,7 @@ every run's sim.launch.py.
 
 import argparse
 import csv
+import glob
 import json
 import math
 import os
@@ -175,6 +176,25 @@ def stop_group(proc, first_signal=signal.SIGINT, wait=20.0):
             continue
 
 
+def finish_scoreboard(proc, env, wait=15.0):
+    """Ask the recorder to finalize before falling back to process signals."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        subprocess.run(
+            ['ros2', 'service', 'call', '/scoreboard/finish',
+             'std_srvs/srv/Trigger', '{}'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            timeout=10.0,
+            check=False,
+        )
+        proc.wait(timeout=wait)
+    except (OSError, subprocess.TimeoutExpired):
+        stop_group(proc, wait=wait)
+
+
 def write_current_run(index, runs, env):
     info = {k: env.get(k, '') for k in
             ('ROS_DOMAIN_ID', 'ROS_LOCALHOST_ONLY', 'IGN_PARTITION')}
@@ -194,12 +214,43 @@ def clear_current_run():
         pass
 
 
-def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
+def scoreboard_parity(legacy, scoreboard):
+    """Compare the independent scorers with explicit, reviewable tolerances."""
+    try:
+        legacy_distance = float(legacy['distance_m'])
+        score_distance = float(scoreboard['distance_m'])
+        legacy_completeness = float(legacy['completeness_pct'])
+        score_completeness = float(scoreboard['completeness_pct'])
+        legacy_collisions = int(legacy['collisions'])
+        score_collisions = int(scoreboard['collisions'])
+    except (KeyError, TypeError, ValueError):
+        checks = {'distance': False, 'completeness': False, 'collisions': False}
+        return checks, ['scoreboard metrics unavailable']
+    checks = {
+        'distance': abs(legacy_distance - score_distance)
+        <= max(0.5, 0.10 * max(legacy_distance, 0.1)),
+        'completeness': abs(legacy_completeness - score_completeness) <= 1.0,
+        'collisions': legacy_collisions == score_collisions,
+    }
+    return checks, [name for name, passed in checks.items() if not passed]
+
+
+def _latest_scoreboard_summary(root):
+    paths = glob.glob(os.path.join(root, '*', 'run.json'))
+    if not paths:
+        return None
+    path = max(paths, key=os.path.getmtime)
+    with open(path, encoding='utf-8') as stream:
+        return json.load(stream)
+
+
+def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launch_extra):
     import rclpy
     from rclpy.signals import SignalHandlerOptions
     from nav2_msgs.action import NavigateToPose
     from rclpy.action import ActionClient
     from rclpy.executors import SingleThreadedExecutor
+    from std_srvs.srv import Trigger
 
     domain = 50 + (index % 40)   # a fresh ROS domain per run: no leftovers can talk to it
     env = os.environ.copy()
@@ -216,14 +267,19 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
     result = dict(run=index + 1, seed=run_seed, start_x=round(x, 2), start_y=round(y, 2),
                   start_yaw=round(yaw, 2), completeness_pct=0.0, time_s=0.0, collisions=0,
                   distance_m=0.0, finished='no', end_reason='', rtf=float('nan'),
-                  end_x=float('nan'), end_y=float('nan'))
+                  end_x=float('nan'), end_y=float('nan'),
+                  scoreboard_distance_m='', scoreboard_completeness_pct='',
+                  scoreboard_collisions='', scoreboard_parity='disabled')
 
     launch_log = open(os.path.join(logs, f'{tag}_launch.log'), 'w')
     explorer_log = open(os.path.join(logs, f'{tag}_explorer.log'), 'w')
+    scoreboard_log = open(os.path.join(logs, f'{tag}_scoreboard.log'), 'w')
     launch = subprocess.Popen(launch_cmd, stdout=launch_log, stderr=subprocess.STDOUT,
                               env=env, start_new_session=True)
     write_current_run(index, args.runs, env)
     explorer = None
+    scoreboard = None
+    scoreboard_root = os.path.join(out_dir, 'scoreboard', tag)
     context = rclpy.Context()
     # Our own Ctrl+C / SIGTERM handling (main), so the finally below always
     # stops this run's simulator and auto mapper.
@@ -249,7 +305,49 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
                                                            else 'no lidar on /point_cloud2'))
             return result
 
-        # 2. Start the auto mapper, exactly as the RViz panel does.
+        # 2. Start the measurement-only scoreboard before the mapper so its
+        # first exploration event cannot be missed.
+        if not args.no_scoreboard:
+            scoreboard_command = [
+                'ros2', 'run', 'go2_scoreboard', 'recorder', '--ros-args',
+                '-p', 'use_sim_time:=true',
+                '-p', 'source:=sim',
+                '-p', f'run_label:=frontier_seed_{run_seed}',
+                '-p', f'results_root:={scoreboard_root}',
+                '-p', f'record_bag:={str(not args.no_scoreboard_bag).lower()}',
+                '-p', f'ground_truth_map:={gt_path}',
+                '-p', f'start_x:={x:.6f}', '-p', f'start_y:={y:.6f}',
+                '-p', f'start_yaw:={yaw:.6f}',
+                '-p', "configuration_json:='"
+                + json.dumps({
+                    'algorithm': 'frontier',
+                    'seed': run_seed,
+                    'launch_args': launch_extra,
+                }, separators=(',', ':')) + "'",
+            ]
+            scoreboard = subprocess.Popen(
+                scoreboard_command, stdout=scoreboard_log, stderr=subprocess.STDOUT,
+                env=env, start_new_session=True)
+            # The recorder computes its source fingerprint and then starts a
+            # separate rosbag process. A fixed sleep raced both on slower
+            # machines and produced bags missing the start event and initial
+            # odometry. Wait for the actual ROS graph instead.
+            ready_client = node.create_client(Trigger, '/scoreboard/ready')
+            scoreboard_deadline = time.monotonic() + min(30.0, args.startup_timeout)
+            while time.monotonic() < scoreboard_deadline:
+                executor.spin_once(timeout_sec=0.2)
+                if scoreboard.poll() is not None:
+                    result['end_reason'] = (
+                        f'scoreboard exited during startup (code {scoreboard.returncode})')
+                    return result
+                if ready_client.service_is_ready():
+                    break
+            else:
+                result['end_reason'] = 'scoreboard startup timeout'
+                return result
+            node.destroy_client(ready_client)
+
+        # 3. Start the auto mapper, exactly as the RViz panel does.
         explorer = subprocess.Popen(['ros2', 'run', 'go2_auto_mapper', 'explorer'],
                                     stdout=explorer_log, stderr=subprocess.STDOUT,
                                     env=env, start_new_session=True)
@@ -295,9 +393,22 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
             result['completeness_pct'] = round(
                 world_tools.score_completeness(gt, grid, pose), 1)
             save_slam_map(grid, os.path.join(out_dir, 'maps', f'{tag}_map.yaml'))
+        if scoreboard is not None:
+            finish_scoreboard(scoreboard, env)
+            scoreboard_summary = _latest_scoreboard_summary(scoreboard_root)
+            if scoreboard_summary is None:
+                result['scoreboard_parity'] = 'missing scoreboard report'
+            else:
+                result['scoreboard_distance_m'] = scoreboard_summary['distance_m']
+                result['scoreboard_completeness_pct'] = scoreboard_summary['completeness_pct']
+                result['scoreboard_collisions'] = scoreboard_summary['collisions']
+                _checks, failures = scoreboard_parity(result, scoreboard_summary)
+                result['scoreboard_parity'] = (
+                    'pass' if not failures else 'fail: ' + ', '.join(failures))
         return result
     finally:
         clear_current_run()
+        stop_group(scoreboard, wait=15.0)
         stop_group(explorer, wait=8.0)
         stop_group(launch, wait=20.0)
         executor.shutdown()
@@ -305,6 +416,7 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
         rclpy.shutdown(context=context)
         launch_log.close()
         explorer_log.close()
+        scoreboard_log.close()
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +425,8 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
 
 COLUMNS = ['run', 'seed', 'start_x', 'start_y', 'start_yaw', 'completeness_pct', 'time_s',
            'collisions', 'distance_m', 'finished', 'end_reason', 'end_x', 'end_y', 'rtf']
+COLUMNS += ['scoreboard_distance_m', 'scoreboard_completeness_pct',
+            'scoreboard_collisions', 'scoreboard_parity']
 
 
 def table(results):
@@ -375,6 +489,10 @@ def main(argv=None):
     parser.add_argument('--clearance', type=float, default=0.7,
                         help='free space (m) around each random start pose')
     parser.add_argument('--out', default=None, help='results folder')
+    parser.add_argument('--no-scoreboard', action='store_true',
+                        help='run only the legacy simulator scorer')
+    parser.add_argument('--no-scoreboard-bag', action='store_true',
+                        help='score runs but skip rosbag recording')
     args = parser.parse_args(argv)
 
     # Stopping the runner (Ctrl+C, SIGTERM, docker stop) unwinds through each
@@ -398,7 +516,7 @@ def main(argv=None):
 
     results = []
     try:
-        run_all(args, world_path, gt, out_dir, header, launch_extra, results)
+        run_all(args, world_path, gt, gt_path, out_dir, header, launch_extra, results)
     except KeyboardInterrupt:
         print('[trials] stopped early; each started run was shut down.', flush=True)
 
@@ -406,7 +524,7 @@ def main(argv=None):
     print(f'[trials] wrote {out_dir}/results.csv and results.md', flush=True)
 
 
-def run_all(args, world_path, gt, out_dir, header, launch_extra, results):
+def run_all(args, world_path, gt, gt_path, out_dir, header, launch_extra, results):
     startup_failures = 0
     for i in range(args.runs):
         run_seed = args.seed * 1000 + i
@@ -414,7 +532,7 @@ def run_all(args, world_path, gt, out_dir, header, launch_extra, results):
                                              clearance=args.clearance)
         print(f'[trials] run {i + 1}/{args.runs}: start {pose[0]:.2f}, {pose[1]:.2f}, '
               f'yaw {pose[2]:.2f}', flush=True)
-        r = run_one(args, i, world_path, gt, pose, run_seed, out_dir, launch_extra)
+        r = run_one(args, i, world_path, gt, gt_path, pose, run_seed, out_dir, launch_extra)
         results.append(r)
         write_results(out_dir, results, header)
         print(f"[trials] run {i + 1}: {r['completeness_pct']:.1f} % in {r['time_s']:.0f} s, "

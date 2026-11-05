@@ -26,6 +26,12 @@ Part of: [Maps and navigation](maps-nav.md)
 7. **Head for open space.** After 3 failed goals in a row (or similar signs of being stuck), it drives to the nearest spot with 0.8 m of room on every side, scans, and carries on.
 8. **Finish.** With no frontiers left it logs "Exploration complete" and waits, in case a door opens.
 
+At the same state transitions it publishes structured, reliable
+`/auto_mapper/events` messages for the [Scoreboard](scoreboard.md): exploration
+start/stop/completion, goal sent/accepted/outcome, recovery start/finish and
+stale sensing. These messages observe existing choices; they do not choose a
+frontier, change a threshold or send motion.
+
 **Buttons.** The RViz AutoMapper panel has **Start/Stop**, **Scan** (pause the goal, forget recent failures, turn 360 degrees; the same as calling `/frontier_explorer/scan`) and **Reset maps** (restart SLAM with an empty 2D map and clear the 3D point cloud).
 
 ### The finer details
@@ -69,6 +75,7 @@ Part of: [Maps and navigation](maps-nav.md)
 - [twist_mux](twist-mux.md) - recovery moves on `/cmd_vel_mapper` (priority 6).
 - [RViz panels](rviz-panels.md) - the AutoMapper panel starts and stops it.
 - [Simulator](simulator.md) - try it with no robot, or score it over 10 runs.
+- [Scoreboard](scoreboard.md) - counts goals and recoveries from structured events.
 
 ## How it breaks
 
