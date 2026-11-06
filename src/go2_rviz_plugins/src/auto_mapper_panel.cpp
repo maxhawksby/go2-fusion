@@ -1,8 +1,11 @@
 #include "go2_rviz_plugins/auto_mapper_panel.hpp"
 
 #include <csignal>
+#include <string>
 #include <unistd.h>
 
+#include <ament_index_cpp/get_package_prefix.hpp>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
@@ -19,7 +22,7 @@ namespace
 // How long to wait after a graceful SIGINT (the Ctrl+C-equivalent path
 // explorer.py's own shutdown handling expects, so it cancels any in-flight
 // Nav2 goal) before giving up and force-killing the process.
-constexpr int kGracefulStopTimeoutMs = 5000;
+constexpr int kGracefulStopTimeoutMs = 12000;
 
 // Re-enable a service button if the node never answers the request.
 constexpr int kServiceReplyTimeoutMs = 5000;
@@ -35,6 +38,24 @@ constexpr char kResetMapLabel[] = "Reset maps";
 // a fresh one with an empty map. RViz runs in the same container as the
 // stack, so pkill reaches it.
 constexpr char kSlamProcessPattern[] = "async_slam_toolbox_node";
+
+// How long the spin thread waits for work before checking whether to stop.
+constexpr auto kSpinPollPeriod = std::chrono::milliseconds(100);
+
+// An installed go2_auto_mapper executable, or an empty string if it can't be found.
+// Starting it directly (not through `ros2 run`) makes it the panel's own child:
+// Stop's SIGINT reaches it, and its parent-death signal fires when RViz exits.
+// Through `ros2 run`, both went to the wrapper, which outlives RViz.
+QString mapperExecutable(const std::string & name)
+{
+  try {
+    const std::string prefix = ament_index_cpp::get_package_prefix("go2_auto_mapper");
+    const QString path = QString::fromStdString(prefix + "/lib/go2_auto_mapper/" + name);
+    return QFileInfo(path).isExecutable() ? path : QString();
+  } catch (const ament_index_cpp::PackageNotFoundError &) {
+    return QString();
+  }
+}
 }  // namespace
 
 AutoMapperPanel::AutoMapperPanel(QWidget * parent)
@@ -70,7 +91,14 @@ AutoMapperPanel::AutoMapperPanel(QWidget * parent)
   scan_client_ = node_->create_client<std_srvs::srv::Trigger>(kScanService);
   reset_map_client_ = node_->create_client<std_srvs::srv::Trigger>(kResetMapService);
   executor_.add_node(node_);
-  spin_thread_ = std::thread([this]() {executor_.spin();});
+  // Not executor_.spin(): a cancel() that lands before spin() starts is lost,
+  // and the destructor's join() would then wait forever.
+  spin_thread_ = std::thread(
+    [this]() {
+      while (!stop_spinning_ && rclcpp::ok()) {
+        executor_.spin_once(kSpinPollPeriod);
+      }
+    });
 
   connect(scan_button_, &QPushButton::clicked, this, &AutoMapperPanel::onScanClicked);
   connect(reset_map_button_, &QPushButton::clicked, this, &AutoMapperPanel::onResetMapClicked);
@@ -93,6 +121,7 @@ AutoMapperPanel::~AutoMapperPanel()
 {
   // Stop the spin thread first: a late service reply must not call back into
   // a panel that's being destroyed.
+  stop_spinning_ = true;
   executor_.cancel();
   if (spin_thread_.joinable()) {
     spin_thread_.join();
@@ -129,7 +158,15 @@ void AutoMapperPanel::onStartStopClicked()
     start_stop_button_->setEnabled(false);
     // Inherits this process's environment, which is already ROS-sourced
     // since rviz2 itself was launched through ros2 launch.
-    process_->start("ros2", {"run", "go2_auto_mapper", "explorer"});
+    const QString explorer = mapperExecutable("explorer");
+    if (explorer.isEmpty()) {
+      appendLog(
+        "[panel] go2_auto_mapper's explorer not found directly; using `ros2 run`. "
+        "Stop and closing RViz may then leave it running (see the README).");
+      process_->start("ros2", {"run", "go2_auto_mapper", "explorer"});
+    } else {
+      process_->start(explorer, QStringList());
+    }
   } else {
     stopping_ = true;
     setStatus("Stopping...");
@@ -152,6 +189,14 @@ void AutoMapperPanel::onScanClicked()
 
 void AutoMapperPanel::onResetMapClicked()
 {
+  // The explorer's goals, failed spots and frontiers belong to the old map,
+  // and a scan in progress keeps turning without one. Stopping it first
+  // cancels its motion and confirms that before it exits.
+  if (process_->state() != QProcess::NotRunning) {
+    appendLog("[panel] Reset maps: stop the auto mapper first (Stop), then reset.");
+    return;
+  }
+
   const auto answer = QMessageBox::question(
     this, "Reset maps",
     "Throw away the 2D SLAM map and the 3D point cloud, and start both over "
@@ -187,14 +232,28 @@ void AutoMapperPanel::callTrigger(
   }
 
   button->setEnabled(false);
-  QTimer::singleShot(kServiceReplyTimeoutMs, button, [button]() {button->setEnabled(true);});
 
   auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-  client->async_send_request(
+  const int64_t request_id = client->async_send_request(
     request,
     [this, label](TriggerClient::SharedFuture future) {
       const auto response = future.get();
       emit serviceReplied(label, response->success, QString::fromStdString(response->message));
+    }).request_id;
+  pending_requests_[label] = request_id;
+
+  // No reply in time: drop the request so the client doesn't keep it (and
+  // its callback) forever, and give the button back.
+  QTimer::singleShot(
+    kServiceReplyTimeoutMs, button, [this, client, button, label, request_id]() {
+      const auto pending = pending_requests_.find(label);
+      if (pending == pending_requests_.end() || pending->second != request_id) {
+        return;  // answered, or superseded by a newer request
+      }
+      pending_requests_.erase(pending);
+      client->remove_pending_request(request_id);
+      button->setEnabled(true);
+      appendLog(QString("[panel] %1: no reply, gave up.").arg(label));
     });
 }
 
@@ -206,6 +265,7 @@ QPushButton * AutoMapperPanel::buttonFor(const QString & label) const
 void AutoMapperPanel::onServiceReplied(
   const QString & label, bool success, const QString & message)
 {
+  pending_requests_.erase(label);
   buttonFor(label)->setEnabled(true);
   appendLog(QString("[panel] %1: %2").arg(label, success ? message : "refused, " + message));
 }

@@ -30,7 +30,7 @@ The code is split into layers: `domain/` (plain data and constants, like the rob
 Turn parts off with arguments such as `rviz2:=false`, `nav2:=false`, `slam:=false`, `foxglove:=false`, `joystick:=false`, `teleop:=false`. `driver:=false` leaves out the driver itself; the [Simulator](simulator.md) uses it to run the same stack with its own stand-in driver.
 Other launch files (`robot_cpp`, `navigation`, `mapping`, `webrtc_web`) are variants; note `webrtc_web.launch.py` skips twist_mux.
 
-**Configs** live in `config/`: `twist_mux.yaml`, `joystick.yaml`, `nav2_params.yaml` (explained on the [Nav2](nav2.md) page), `mapper_params_online_async.yaml` (SLAM) and the RViz layouts.
+**Configs** live in `config/`: `twist_mux.yaml`, `joystick.yaml`, `nav2_params.yaml` (explained on the [Nav2](nav2.md) page), `mapper_params_online_async.yaml` (SLAM) and the RViz layouts. In the default layout (`single_robot_conf.rviz`) the view follows the robot (`base_link`) instead of staying where it started, and every layout reads the robot model with "Transient Local" durability, so the model shows even when RViz opens after the robot model was published.
 
 ## Connects to
 
