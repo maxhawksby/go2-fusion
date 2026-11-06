@@ -58,40 +58,11 @@ RUN apt-get update && \
     rosdep install --from-paths src --ignore-src -r -y && \
     rm -rf /var/lib/apt/lists/*
 
-# rosbridge_server and Julia are for go2_map_viewer_julia, a standalone
-# dashboard script, not a colcon package — so there's no package.xml to
-# declare rosbridge_server as a rosdep key, and it's installed directly here
-# instead. Placed this late so editing either doesn't invalidate the slow
-# pip/rosdep layers above. Only the Project.toml/Manifest.toml are copied in
-# (not map_viewer.jl itself, which stays live-mounted with the rest of the
-# repo), so this layer only reruns when the Julia dependency set changes.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-humble-rosbridge-server && \
-    rm -rf /var/lib/apt/lists/*
-
 # Gazebo Fortress and its ROS bridge, for the go2_sim simulator (same layer as
 # docker/Dockerfile). Published for both arm64 and amd64.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-ros-gz && \
     rm -rf /var/lib/apt/lists/*
-
-RUN curl -fsSL https://install.julialang.org | sh -s -- --yes
-ENV PATH="/root/.juliaup/bin:${PATH}"
-# Pinned to match go2_map_viewer_julia/Manifest.toml's julia_version - an
-# unpinned install otherwise lets a future rebuild silently pick up
-# whatever Julia version juliaup's "release" channel resolves to at build
-# time, which can drift from the committed Manifest.toml.
-RUN juliaup add 1.13.1 && juliaup default 1.13.1
-
-COPY go2_map_viewer_julia/Project.toml go2_map_viewer_julia/Manifest.toml \
-    /opt/go2_map_viewer_julia/
-# Defer Julia compilation until its dashboard is used on this Mac.
-ARG JULIA_PRECOMPILE=false
-RUN cd /opt/go2_map_viewer_julia && \
-    julia --project=. -e 'import Pkg; Pkg.instantiate(; allow_autoprecomp=false)' && \
-    if [ "$JULIA_PRECOMPILE" = true ]; then \
-      julia --project=. -e 'import Pkg; Pkg.precompile()'; \
-    fi
 
 COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh
 COPY docker/dev_aliases.sh /etc/dev_aliases.sh
