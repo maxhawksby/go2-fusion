@@ -9,6 +9,7 @@ Times are local (EST). Branches named max/automapper-sim* are local experiment b
 - The #1 killer is the latch: after backing off a wall, the explorer says "no safe direction: rear and both sides lack clearance" and holds still. It only re-checks on a new scan, and a still robot sees the same scan, so it never clears. That ended 8 of 10 baseline runs.
 - Giving up a goal the instant a wall is within 0.3 m (blocked_timeout 0.0) feeds the latch. Waiting 2 s raised the 2-run average from 65.8 % to 91.5 % (step 1), but both runs still ended in the latch.
 - Releasing the latch does not help: Oak is wedged with its nose 0.05-0.10 m from a wall, so it re-latches at once (step 2, 16 releases per run, 0 escapes).
+- The latch is real, not a sensor quirk: Oak ends up crosswise in tight spots with 0.1-0.3 m front and back, and the only escape tried is one fixed 0.3 m move that cannot fit (step 4).
 - Padding Nav2's footprint 0.10 m does not stop the latch, and makes the last frontiers unreachable (step 3).
 - SLAM can freeze right after the startup scan; the explorer then waits forever (step 3, first run 1). A recovery case for #29.
 - Runs can map 99 % and still not "finish": the latch stops Oak before the explorer declares the room complete.
@@ -19,9 +20,12 @@ Times are local (EST). Branches named max/automapper-sim* are local experiment b
 - Branch: max/automapper-sim-v2-diag (local) = v2 + logging only. Compared against: nothing; this measures, it changes no behavior.
 - Hypothesis: at the latch, backing up is refused by the scan-coverage rule (a lidar ray with no reading toward the move counts as unsafe), not by walls on the map.
 - Change: none to behavior. At each latch, log which check (map clearance or scan coverage) rejects the rear, left and right moves, and what the scan reads behind and ahead.
-- Runs: running.
-- Verdict: pending.
-- Next: pending.
+- Runs:
+  - Run 1: 47.2 %, not finished, 0 collisions, 222 s, 4.0 m. One latch at the same spot as earlier runs (ended 5.2, 2.1).
+  - Run 2: 99.2 %, not finished, 0 collisions, 900 s (timeout), 31.8 m. One latch, then the last frontiers were never reached.
+  - At every latch, all 3 moves (rear, left, right) fail BOTH checks: map clearance and scan coverage. The scan rays are real readings, not empty ones. Run 2: nearest reading ahead 0.66 m from the robot's center (nose 0.36 m), so 0.30 m of floor in front; behind 0.71-0.74 m (tail 0.45 m), so about 0.27 m behind. Run 1 is tighter behind (0.56 m, about 0.11 m).
+- Verdict: hypothesis denied. The empty-ray rule is not the cause. Oak is genuinely boxed: it ends up crosswise in a narrow passage, with about 0.3 m in front and 0.1-0.3 m behind. The escape only tries one fixed 0.3 m move (plus 0.05 m margin), which cannot fit. A shorter move would fit in run 2.
+- Next (step 5, off v2): when the 0.3 m escape does not fit, try shorter ones (0.15 m, then 0.08 m) before latching.
 
 ## 2026-11-06 12:10 - Step 3: pad Oak's footprint 0.10 m in Nav2
 - Branch: max/automapper-sim-v4 (local) = v2 + one change. Compared against: v2 (step 1).
