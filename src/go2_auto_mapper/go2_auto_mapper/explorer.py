@@ -15,6 +15,7 @@ from nav_msgs.msg import OccupancyGrid
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Twist
 from sensor_msgs.msg import LaserScan, PointCloud2
+from std_msgs.msg import String
 from go2_interfaces.msg import AutoMapperEvent
 from go2_auto_mapper.recovery import (
     DRIFT_ACROSS_M,
@@ -54,6 +55,7 @@ from go2_auto_mapper.frontier_scoring import (
     visit_utility,
     world_key,
 )
+from go2_auto_mapper.social_space import line_crosses, parse_people, social_zones, zone_at
 
 
 class FrontierExplorer(Node):
@@ -108,6 +110,14 @@ class FrontierExplorer(Node):
         self.declare_parameter('open_space_clearance', 0.8)
         self.declare_parameter('stuck_failure_count', 3)
 
+        # People from object_detection's /people (ideas from SocialNav):
+        # don't pick goals in someone's personal space, across where they
+        # are walking or inside a group, and stop briefly to let a person
+        # ahead pass. Without /people nothing changes.
+        self.declare_parameter('avoid_people', True)
+        self.declare_parameter('yield_to_people', True)
+        self.declare_parameter('personal_space', 1.0)
+
         self.map_topic = self.get_parameter(
             'map_topic'
         ).value
@@ -153,6 +163,9 @@ class FrontierExplorer(Node):
         self.stuck_failure_count = self.get_parameter(
             'stuck_failure_count'
         ).value
+        self.avoid_people = self.get_parameter('avoid_people').value
+        self.yield_to_people = self.get_parameter('yield_to_people').value
+        self.personal_space = self.get_parameter('personal_space').value
 
         # -----------------------------
         # Map
@@ -223,6 +236,18 @@ class FrontierExplorer(Node):
             self.local_costmap_callback,
             map_qos
         )
+
+        # (people, monotonic receipt time), from object_detection.
+        self.people = ([], None)
+        # When the robot started waiting for a person ahead, and whether this
+        # person has used up their wait (see yield_for_people).
+        self.yield_since = None
+        self.yield_spent = False
+        if self.avoid_people or self.yield_to_people:
+            self.people_sub = self.create_subscription(
+                String, '/people',
+                lambda msg: setattr(self, 'people', (parse_people(msg.data), time.monotonic())),
+                10)
 
         # -----------------------------
         # TF
@@ -465,6 +490,25 @@ class FrontierExplorer(Node):
 
             return None
 
+    def people_zones(self):
+        """Circles around people, their next steps and groups, in the map
+        frame; empty when /people is stale or TF can't place it."""
+
+        people, received = self.people
+        if not people or received is None or time.monotonic() - received > PEOPLE_MAX_AGE_SEC:
+            return []
+        try:
+            t = self.tf_buffer.lookup_transform(
+                self.map_frame, PEOPLE_FRAME, rclpy.time.Time()
+            ).transform
+        except TransformException:
+            return []
+        q = t.rotation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        return social_zones(
+            people, t.translation.x, t.translation.y, yaw, personal=self.personal_space
+        )
+
     # ==========================================================
     # MAP CELL HELPERS
     # ==========================================================
@@ -607,6 +651,7 @@ class FrontierExplorer(Node):
         # direction counts as open.
         view = self.local_view()
         blocked = self.recently_blocked() and self.blocked_heading is not None
+        zones = self.people_zones() if self.avoid_people else []
 
         # Skip frontiers a recent visit didn't shrink: the scan at the goal
         # couldn't see into them, so going back would just repeat that.
@@ -728,6 +773,14 @@ class FrontierExplorer(Node):
                 < BLOCKED_CONE_RAD
             )
 
+            # 2: the goal is in someone's space; 1: the straight way there
+            # crosses a person, their next steps or a group; 0: neither.
+            social = 0
+            if zone_at(goal_x, goal_y, zones) is not None:
+                social = 2
+            elif line_crosses(robot_x, robot_y, goal_x, goal_y, zones) is not None:
+                social = 1
+
             candidates.append(
                 (
                     score,
@@ -738,19 +791,21 @@ class FrontierExplorer(Node):
                     line_clear,
                     toward_blocked,
                     goal_range,
-                    frontier
+                    frontier,
+                    social
                 )
             )
 
         if not candidates:
             return None
 
-        # In order: stay away from a just-blocked direction, then walk far
-        # enough, then have a clear straight line in Nav2's costmap, then the
-        # score. Each only breaks ties of the ones before it, so exploring
-        # never stalls when no candidate is ideal.
+        # In order: stay away from a just-blocked direction, then out of
+        # people's space, then walk far enough, then have a clear straight
+        # line in Nav2's costmap and past people, then the score. Each only
+        # breaks ties of the ones before it, so exploring never stalls when
+        # no candidate is ideal.
         def tier(c):
-            return (c[6], not c[4], not c[5])
+            return (c[6], c[9] == 2, not c[4], not c[5], c[9] == 1)
 
         best_tier = min(tier(c) for c in candidates)
         pool = [c for c in candidates if tier(c) == best_tier]
@@ -1677,6 +1732,8 @@ class FrontierExplorer(Node):
             if self.maneuver_active:
                 self.blocked_since = None
                 return
+            if self.yield_for_people():
+                return
 
             view = self.local_view()
             if view is None:
@@ -1729,6 +1786,42 @@ class FrontierExplorer(Node):
                 self._stop_for(f'obstacle watch error: {e}')
             else:
                 self.get_logger().error(f'Obstacle watch error: {e}')
+
+    def yield_for_people(self):
+        """While driving to a goal, hold still when a person, their next
+        steps or a group is just ahead, so they can pass. True while holding.
+
+        The wait ends after YIELD_MAX_SEC, under Nav2's 10 s progress check,
+        and is not repeated until the way ahead has been clear once: someone
+        standing still in a hallway must not stop exploring. Nav2's own
+        obstacle avoidance still applies after that."""
+
+        if not (self.yield_to_people and self.goal_active):
+            self.yield_since, self.yield_spent = None, False
+            return False
+        pose = self.get_robot_pose(self.map_frame)
+        if pose is None:
+            return False
+        x, y, yaw = pose
+        ahead = line_crosses(
+            x, y, x + YIELD_LOOKAHEAD_M * math.cos(yaw), y + YIELD_LOOKAHEAD_M * math.sin(yaw),
+            self.people_zones(),
+        )
+        if ahead is None:
+            self.yield_since, self.yield_spent = None, False
+            return False
+        if self.yield_spent:
+            return False
+        now = time.monotonic()
+        if self.yield_since is None:
+            self.yield_since = now
+            self.get_logger().info(f'A {ahead.kind} is just ahead; waiting for them to pass.')
+        if now - self.yield_since >= YIELD_MAX_SEC:
+            self.yield_spent = True
+            self.get_logger().info('Still in the way; carrying on around them.')
+            return False
+        self._hold_stop()
+        return True
 
     def back_away_while_idle(self, gap):
         """Something is right in front and the robot isn't driving anywhere:
@@ -2081,6 +2174,16 @@ ESCAPE_COOLDOWN_SEC = 30.0
 
 # "No usable goal" this many loops in a row counts as stuck.
 STUCK_NO_GOAL_CYCLES = 2
+
+# object_detection publishes /people in this frame.
+PEOPLE_FRAME = 'odom'
+# /people older than this is ignored: the people have moved on.
+PEOPLE_MAX_AGE_SEC = 2.0
+# How far ahead a person makes the robot wait, and for how long at most.
+# The wait must stay under Nav2's progress checker (10 s,
+# movement_time_allowance in nav2_params.yaml) or Nav2 aborts the goal.
+YIELD_LOOKAHEAD_M = 1.5
+YIELD_MAX_SEC = 6.0
 
 
 def stop_when_parent_dies():

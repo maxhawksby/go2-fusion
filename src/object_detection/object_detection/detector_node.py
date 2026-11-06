@@ -4,7 +4,7 @@ from rclpy.node import Node
 from rclpy.time import Time
 
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PointStamped
+from geometry_msgs.msg import Point, PointStamped
 from std_msgs.msg import String
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -22,6 +22,8 @@ import json
 import math
 import os
 
+from object_detection.people import PeopleTracker, people_dict
+
 # How often the object memory is logged. Logging it on every frame floods
 # the console and the /rosout topic.
 MEMORY_LOG_PERIOD_SEC = 5.0
@@ -29,6 +31,9 @@ MEMORY_LOG_PERIOD_SEC = 5.0
 # A detection this close (meters) to a remembered object of the same class is
 # taken to be that object.
 MATCH_RADIUS_M = 0.5
+# People are tracked in this frame so their walking speed does not include
+# Oak's own motion; the auto mapper reads /people in it.
+PEOPLE_FRAME = "odom"
 
 
 class ObjectDetector(Node):
@@ -78,6 +83,21 @@ class ObjectDetector(Node):
             f"min confidence {self.min_confidence})"
         )
         self.model = YOLO(model_path)
+        # Open-vocabulary weights (YOLOE, as in SocialNav) look for any names
+        # you give them, e.g. "person,chair,red box"; empty keeps the
+        # model's own classes.
+        classes = [
+            c.strip() for c in self.declare_parameter("classes", "").value.split(",")
+            if c.strip()
+        ]
+        if classes and hasattr(self.model, "set_classes"):
+            self.model.set_classes(classes)
+            self.get_logger().info(f"Looking for: {classes}")
+        elif classes:
+            self.get_logger().error(
+                f"{model_path} has fixed classes; `classes` needs YOLOE weights, "
+                "e.g. model_path:=yoloe-26s-seg.pt"
+            )
 
         # Depth 1: when inference falls behind, only the newest frame is kept
         # instead of a backlog of stale ones.
@@ -129,6 +149,15 @@ class ObjectDetector(Node):
 
         # Object expiry time (seconds)
         self.expiry_time = 20
+
+        # People tracking with walking forecasts and groups, from SocialNav.
+        self.people = None
+        if self.declare_parameter("track_people", True).value:
+            self.people = PeopleTracker()
+            self.people_pub = self.create_publisher(String, "/people", 10)
+            self.people_markers_pub = self.create_publisher(
+                MarkerArray, "/people/markers", 10
+            )
 
         self.get_logger().info("RGB object detector with memory ready")
 
@@ -243,6 +272,9 @@ class ObjectDetector(Node):
         image_height = frame.shape[0]
 
         current_time = self.get_clock().now().nanoseconds / 1e9
+        # Each person's position as measured, in the source frame, for the
+        # people tracker (which needs PEOPLE_FRAME, not the memory's frame).
+        person_points = []
 
         # Process detections
         for box in results[0].boxes:
@@ -273,6 +305,8 @@ class ObjectDetector(Node):
             else:
                 point.point.x = float(forward)
                 point.point.y = float(-right)
+            if label == "person":
+                person_points.append(PointStamped(header=point.header, point=point.point))
             if transform is not None:
                 point = do_transform_point(point, transform)
             x_pos = point.point.x
@@ -318,6 +352,8 @@ class ObjectDetector(Node):
 
         self.publish_markers()
         self.publish_dict()
+        if self.people is not None:
+            self.update_people(person_points, source, msg.header.stamp, current_time)
 
     def publish_dict(self):
         """
@@ -413,6 +449,77 @@ class ObjectDetector(Node):
             markers.markers.append(text)
 
         self.marker_pub.publish(markers)
+
+    # ==========================================================
+    # People
+    # ==========================================================
+
+    def update_people(self, points, source, stamp, now):
+        """Track this frame's people in PEOPLE_FRAME and publish /people."""
+        if source == self.robot_frame and not self.tf_buffer.can_transform(
+            PEOPLE_FRAME, source, Time()
+        ):
+            self.get_logger().warn(
+                f"No {PEOPLE_FRAME} pose, people not tracked",
+                throttle_duration_sec=MEMORY_LOG_PERIOD_SEC,
+            )
+            return
+        try:
+            transform = self.lookup_transform(PEOPLE_FRAME, source, stamp)
+        except TransformException as e:
+            self.get_logger().warn(
+                f"No TF {source} -> {PEOPLE_FRAME}, people not tracked: {e}",
+                throttle_duration_sec=MEMORY_LOG_PERIOD_SEC,
+            )
+            return
+        odom = [do_transform_point(p, transform).point for p in points]
+        self.people.update([(p.x, p.y) for p in odom], now)
+        people = self.people.people(now)
+
+        msg = String()
+        msg.data = json.dumps(people_dict(people))
+        self.people_pub.publish(msg)
+        if self.people_markers_pub.get_subscription_count() > 0:
+            self.people_markers_pub.publish(self.people_markers(people))
+
+    def people_markers(self, people):
+        """Sphere per person, a line along their forecast, a ring per group."""
+        markers = MarkerArray()
+        clear = Marker()
+        clear.action = Marker.DELETEALL
+        markers.markers.append(clear)
+        stamp = self.get_clock().now().to_msg()
+
+        def marker(kind, marker_id, r, g, b):
+            m = Marker()
+            m.header.frame_id = PEOPLE_FRAME
+            m.header.stamp = stamp
+            m.ns, m.id, m.type, m.action = "people", marker_id, kind, Marker.ADD
+            m.pose.orientation.w = 1.0
+            m.color.r, m.color.g, m.color.b, m.color.a = r, g, b, 0.8
+            markers.markers.append(m)
+            return m
+
+        groups = {}
+        for i, p in enumerate(people):
+            dot = marker(Marker.SPHERE, 3 * i, 1.0, 0.5, 0.0)
+            dot.pose.position.x, dot.pose.position.y = p.x, p.y
+            dot.scale.x = dot.scale.y = dot.scale.z = 0.3
+            path = marker(Marker.LINE_STRIP, 3 * i + 1, 1.0, 1.0, 0.0)
+            path.scale.x = 0.05
+            path.points = [Point(x=x, y=y) for x, y in [(p.x, p.y)] + p.path]
+            if p.group is not None:
+                groups.setdefault(p.group, []).append((p.x, p.y))
+        for g, members in groups.items():
+            cx = sum(x for x, _ in members) / len(members)
+            cy = sum(y for _, y in members) / len(members)
+            radius = max(math.hypot(x - cx, y - cy) for x, y in members) + 0.5
+            ring = marker(Marker.CYLINDER, 3 * len(people) + g, 0.2, 0.6, 1.0)
+            ring.pose.position.x, ring.pose.position.y = cx, cy
+            ring.scale.x = ring.scale.y = 2.0 * radius
+            ring.scale.z = 0.05
+            ring.color.a = 0.3
+        return markers
 
 
 def main():
