@@ -2,7 +2,7 @@
 title: Object detection
 parent: senses
 code: [src/object_detection/**, src/coco_detector/**]
-verified: 76d7ad300750
+verified: 9f60701a0f04
 ---
 
 # Object detection
@@ -30,7 +30,7 @@ Part of: [Senses](senses.md)
 
 **The older detector.** `coco_detector` is a second, older detector that uses a different network (MobileNet, from the torchvision library). It publishes the standard ROS message `vision_msgs/Detection2DArray` on `/detected_objects`, with a default confidence cut-off of 0.9 and no positions or memory. It is kept for now and is planned to be retired (see [Decisions](decisions.md), follow-up 3).
 
-**Settings.** `object_detection` was written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav); its pose topic was renamed from `/detected_objects` to `/detected_objects/poses` when it came into this repo. Its parameters:
+**Settings.** `object_detection` was written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav); its pose topic was renamed from `/detected_objects` to `/detected_objects/poses` when it came into this repo, and later replaced by the labeled markers on `/detected_objects/markers`. Its parameters:
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
@@ -52,7 +52,7 @@ To change the default weights, add the file to `models/`, list it in `setup.py` 
 - [Auto mapper](auto-mapper.md) - reads `/people` to keep goals out of people's way and wait for them.
 - [Object navigation](object-navigation.md) - reads `/detected_objects_dict` and walks toward an object by ID.
 - [LLM agent](llm-agent.md) - its `look_for_object` tool is not wired to this memory yet; the agent's README says a fix would read `/detected_objects_dict`.
-- [SLAM](slam.md) and [TF and robot model](tf.md) - needed for the unmerged map-based memory.
+- [SLAM](slam.md) and [TF and robot model](tf.md) - the memory lives on the SLAM map (`map` frame), and people in `odom`; both come from TF.
 - [RViz panels](rviz-panels.md) - you can watch the boxes in RViz with an Image display.
 
 Topics (a topic is a named channel that ROS programs publish messages to and listen on):
@@ -70,18 +70,18 @@ Topics (a topic is a named channel that ROS programs publish messages to and lis
 
 ## How it breaks
 
-- **Positions are rough.** No depth camera, no use of the camera calibration, no TF lookup (object_detection README, "Limits"). A chair half out of view looks shorter, so it looks farther away.
+- **Positions are rough.** No depth camera and no use of the camera calibration: distance is the box-height guess above, so TF only moves a rough guess onto the map. A chair half out of view looks shorter, so it looks farther away.
 - **Speed.** About 4.5 pictures a second on CPU, 55 to 130 ms each, measured on Oak on 2026-10-11 ([Test log](test-log.md)). Results lag the camera by about one picture.
 - **First run needs internet.** `ultralytics` downloads a font the first time it draws boxes, and `coco_detector` downloads its network.
 - **People forecasts are only as good as the positions.** They use the same rough distance guess. A person partly out of the picture seems to jump away, which looks like a fast walk for a moment. The straight line ignores turns and other people.
-- **No people without TF.** People need the `odom` pose from the driver; without it the node warns every 10 s ("No odom pose, people not tracked") and `/people` stays quiet. Objects still work.
+- **No people without TF.** People need the `odom` pose from the driver; without it the node warns every 5 s ("No odom pose, people not tracked") and `/people` stays quiet. Objects still work.
 - **YOLOE is untested on Oak.** TODO(Luis): confirm `yoloe-26s-seg.pt` downloads and runs in the container (it also downloads a text model for `classes`), and how many pictures a second it manages on the CPU.
 
 ## Who's on it and what's next
 
 **Max** owns computer vision. His goal: YOLO that remembers objects in a local memory, to make mapping rooms easier.
 
-TODO(owner): Max to add the plan after the branch merges, for example longer memory than 20 seconds and retiring `coco_detector`.
+TODO(owner): Max to add the plan, for example longer memory than 20 seconds and retiring `coco_detector`.
 
 ## The code
 
