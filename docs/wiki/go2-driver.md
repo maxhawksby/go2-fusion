@@ -43,6 +43,7 @@ Other launch files (`robot_cpp`, `navigation`, `mapping`, `webrtc_web`) are vari
 
 - **Oak walked into a wall** (2026-10-11, old code): the driver dropped every zero velocity, so stop never reached the dog. Fixed; on new code the stop arrived.
 - **Data stalls:** the camera kept streaming but lidar and odometry went silent after a Ctrl+C. The driver now treats 5 seconds without data as a lost connection and reconnects. A forced restart also recovered it then: `docker compose up -d --force-recreate`.
+- **Lidar or camera silent after a reconnect** (October 2026): odometry came back but the cloud or the camera did not, and the 5-second check could not see it because other data kept arriving. The driver now watches the lidar and the camera on their own; see [Robot link](robot-link.md). Every 30 s it logs how fast each arrives, as a line like `Robot 0 streams: lidar 6.8/s, camera …/s`.
 - **One bad video frame used to end the camera feed for good.** Now it gives up only after 10 errors in a row.
 - **`ElevenLabs API key not provided`** in the logs is the text-to-speech node, not the driver. Ignore it.
 - **H264 decode warnings** are occasional dropped video packets. Harmless.
