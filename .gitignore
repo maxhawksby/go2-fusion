@@ -27,3 +27,6 @@ node_modules/
 
 # Agent worktrees
 .worktrees/
+
+# Local rosbag recordings
+src/bags/
