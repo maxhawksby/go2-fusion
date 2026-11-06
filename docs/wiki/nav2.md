@@ -2,7 +2,7 @@
 title: Nav2
 parent: maps-nav
 code: [src/go2_robot_sdk/config/nav2_params.yaml, src/go2_robot_sdk/launch/navigation.launch.py]
-verified: b17f2aec3713
+verified: 639a5226d507
 ---
 
 # Nav2
@@ -15,7 +15,7 @@ Part of: [Maps and navigation](maps-nav.md)
 
 Nav2 (Navigation 2) is the standard ROS navigation system. Oak uses it mostly as-is, with its own settings in `nav2_params.yaml`. A goal arrives on the `/navigate_to_pose` action (an "action" is a request that takes a while and reports progress, like ordering food and getting updates). Then several parts work together:
 
-- **Costmaps.** A costmap is a copy of the map where every 5 cm square gets a "cost": 0 for open floor, highest for a wall, and a cushion of rising cost around each wall (0.55 m, the `inflation_radius`). Think of the area around furniture painted in "don't go here" shades, darker the closer you get. There are two: a **global costmap** of the whole room on the `map` frame, for planning, and a **local costmap**, a 20 x 20 m window around the robot on the `odom` frame, for steering. Both mark and clear obstacles from the live lidar `/scan`.
+- **Costmaps.** A costmap is a copy of the map where every 5 cm square gets a "cost": 0 for open floor, highest for a wall, and a cushion of rising cost around each wall (0.55 m, the `inflation_radius`). Think of the area around furniture painted in "don't go here" shades, darker the closer you get. There are two: a **global costmap** of the whole room on the `map` frame, for planning, and a **local costmap**, a 20 x 20 m window around the robot on the `odom` frame, for steering. Both mark and clear obstacles from the live lidar `/scan`. The local costmap is sent out in full twice a second on `/local_costmap/costmap`, even when Oak stands still, so the [Auto mapper](auto-mapper.md) always gets a fresh one.
 - **Planner.** The Smac Hybrid planner finds a path through the global costmap that a robot with Oak's footprint (0.81 m long, 0.40 m wide) can follow. It will not plan through unknown space.
 - **Controller.** The DWB controller runs 10 times a second, tries out small moves and picks the one that follows the path best without hitting anything, then publishes a speed command on `/cmd_vel`. Top speed is 0.5 m/s forward and 1.0 rad/s turning.
 - **Behaviors.** Spin, back up, drive on heading and wait, used for recoveries. The [Auto mapper](auto-mapper.md) uses Spin for its 360 degree scans.
