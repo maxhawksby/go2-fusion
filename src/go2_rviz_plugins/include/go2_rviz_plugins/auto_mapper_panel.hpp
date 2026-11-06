@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+#include <map>
 #include <thread>
 
 #include <QProcess>
@@ -16,8 +19,9 @@ class QPushButton;
 namespace go2_rviz_plugins
 {
 
-// Runs `ros2 run go2_auto_mapper explorer` as a child process and surfaces
-// start/stop controls plus its log output. Two buttons call std_srvs/Trigger
+// Runs go2_auto_mapper's explorer as a child process (the installed
+// executable itself, falling back to `ros2 run`) and surfaces start/stop
+// controls plus its log output. Two buttons call std_srvs/Trigger
 // services through a small rclcpp node of the panel's own, spun on a
 // background thread like MapViewerPanel's:
 //   - Scan: the explorer's /frontier_explorer/scan (a 360 degree turn so
@@ -74,9 +78,12 @@ private:
 
   rclcpp::Node::SharedPtr node_;
   rclcpp::executors::SingleThreadedExecutor executor_;
+  std::atomic<bool> stop_spinning_{false};
   std::thread spin_thread_;
   TriggerClient::SharedPtr scan_client_;
   TriggerClient::SharedPtr reset_map_client_;
+  // Request awaiting a reply, by button label. GUI thread only.
+  std::map<QString, int64_t> pending_requests_;
 };
 
 }  // namespace go2_rviz_plugins
