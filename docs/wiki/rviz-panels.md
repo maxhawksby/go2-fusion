@@ -27,7 +27,9 @@ Clicking elsewhere (losing focus) releases every key and sends a stop.
 More details:
 
 - **MapViewer** handles rapid re-clicks, and a cancel pressed before Nav2 accepts the goal, the same way as the standalone C++ viewer, so they do not race. It runs its own ROS node, `go2_rviz_map_viewer_panel`, on a background thread, separate from RViz's own ROS connection.
-- **AutoMapper Start** runs the explorer as a child process with RViz's already-sourced ROS environment. **Stop** sends it Ctrl+C (`SIGINT`, not the default `SIGTERM`), so the explorer cancels its Nav2 goal before exiting; if it has not exited within 5 s, the panel force-kills it. Scan and Reset maps go through the panel's own node, `go2_rviz_auto_mapper_panel`, and their replies show in the log. There is no frontier count or current-goal readout.
+- **AutoMapper Start** runs the installed explorer program directly as a child process, with RViz's already-sourced ROS environment. Through `ros2 run`, Ctrl+C and RViz closing reached only the `ros2` wrapper and the explorer kept running; it falls back to `ros2 run` (and says so in the log) only when it can't find the program. **Stop** sends it Ctrl+C (`SIGINT`, not the default `SIGTERM`), so the explorer cancels its Nav2 goal before exiting; if it has not exited within 12 s, the panel force-kills it. The explorer cancels the goal Oak is walking to first, since its full shutdown can take about 9 s when Nav2 is slow. Closing RViz stops it too.
+- **Reset maps** refuses while the explorer runs ("stop the auto mapper first"): its goals and failed spots belong to the old map. **Scan** and **Reset maps** give up after 5 s without a reply, log `no reply, gave up` and enable the button again.
+- **Closing the MapViewer** cancels the Nav2 goal it sent, waiting up to 2 s for Nav2 to answer, so Oak doesn't keep walking with no Cancel button left. If Nav2 doesn't answer in time it cancels all goals, other nodes' too: stopping is the safe side. Scan and Reset maps go through the panel's own node, `go2_rviz_auto_mapper_panel`, and their replies show in the log. There is no frontier count or current-goal readout.
 - **Reset maps, exactly.** 2D: it stops `slam_toolbox` (`pkill -INT -f async_slam_toolbox_node`), and `robot.launch.py` restarts it (`respawn=True`) with an empty `/map`; Humble's slam_toolbox has no reset service. 3D: `/lidar_to_pointcloud/reset` clears the cloud `lidar_processor` builds up (`/pointcloud/aggregated`, saved to `3d_map.ply`). It refills right away from `/point_cloud2`, which already carries the robot's own local 3D map; that part lives on the robot and is not reset.
 
 ## Connects to
@@ -43,6 +45,7 @@ More details:
 - **AutoMapper moves the robot on its own.** Only press Start or Scan when you are in the room watching Oak.
 - **Idle zeros (fixed):** the KeyboardTeleop panel used to send zeros about 4 times a second, which blocked Nav2, the agent and object navigation. Found on the robot 2026-10-11 and fixed.
 - **Laggy keys (fixed):** a key press used to wait up to 100 ms for the next timer tick. Fixed 2026-10-19 by sending changes immediately.
+- **Explorer left running (fixed):** Stop and closing RViz used to leave the explorer walking Oak around, because the panel started it through `ros2 run`. Fixed in October 2026 by starting it directly.
 - **Reset maps pauses navigation** for a few seconds while SLAM restarts and `map -> odom` is missing.
 - **MapViewer click-to-walk is not retested** on the current code; it is an open item in the [test log](test-log.md).
 - **No window at all:** RViz needs a display. On Windows, see [WSL and Windows](wsl.md).
