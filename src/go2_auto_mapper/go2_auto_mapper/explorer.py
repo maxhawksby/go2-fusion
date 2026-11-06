@@ -2513,28 +2513,42 @@ def main(args=None):
 
     stop_when_parent_dies()
 
-    # rclpy's own SIGINT handler shuts the ROS context down at once, so
-    # stop() would then publish and cancel on a dead context, and Nav2 keeps
-    # driving to the last goal. Without it, SIGINT raises KeyboardInterrupt
-    # (Python's default) and stop() runs while ROS still works. SIGTERM
-    # (e.g. docker stop) is treated the same way.
-    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    # Keep the ROS context alive while Ctrl+C runs stop(). The default rclpy
+    # signal handler shuts the context down first, which prevents the final
+    # zero velocity and active Nav2 goal cancellation from being published.
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
 
     node = FrontierExplorer()
+    shutdown_requested = False
+
+    def request_shutdown(_signum, _frame):
+        nonlocal shutdown_requested
+        shutdown_requested = True
+        raise KeyboardInterrupt
+
+    previous_sigint_handler = signal.signal(signal.SIGINT, request_shutdown)
+    # SIGTERM (e.g. docker stop) is treated the same way.
+    previous_sigterm_handler = signal.signal(signal.SIGTERM, request_shutdown)
 
     try:
-
         rclpy.spin(node)
-
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
-
-    node.stop()
-    node.destroy_node()
-
-    if rclpy.ok():
-        rclpy.shutdown()
+    except RuntimeError:
+        # SIGINT can interrupt rclpy while it is converting a subscription
+        # message, in which case the extension raises RuntimeError instead of
+        # delivering KeyboardInterrupt. Only suppress that shutdown race;
+        # unrelated runtime failures must still be visible.
+        if not shutdown_requested:
+            raise
+    finally:
+        if rclpy.ok():
+            node.stop()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+        signal.signal(signal.SIGINT, previous_sigint_handler)
+        signal.signal(signal.SIGTERM, previous_sigterm_handler)
 
 
 if __name__ == '__main__':
