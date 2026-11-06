@@ -60,6 +60,9 @@ class WebRTCAdapter(IRobotDataReceiver, IRobotController):
             # HTTP session instead of releasing them.
             if robot_id in self.connections:
                 await self.disconnect(robot_id)
+            # The old connection's stream watches must not judge this one:
+            # a lidar give-up from before would end it before it validates.
+            self._forget_streams(robot_id)
 
             robot_idx = int(robot_id)
             robot_ip = self.config.robot_ip_list[robot_idx]
@@ -120,8 +123,15 @@ class WebRTCAdapter(IRobotDataReceiver, IRobotController):
             return False
         return True
 
+    def _forget_streams(self, robot_id: str) -> None:
+        """Drop the stream watches; _on_validated starts fresh ones."""
+        self.lidar_watch.pop(robot_id, None)
+        self.video_watch.pop(robot_id, None)
+        self.stream_log_at.pop(robot_id, None)
+
     async def disconnect(self, robot_id: str) -> None:
         """Disconnect from robot"""
+        self._forget_streams(robot_id)
         if robot_id in self.connections:
             try:
                 # Используем правильный метод для закрытия WebRTC соединения

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Asks the SocialNav model which way to walk, and shows its answer. Never drives.
+"""
+Asks the SocialNav model which way to walk, and shows its answer.
 
-Every few seconds it sends the last 5 camera frames (1 s apart), where the robot
-was for each, and the goal to the SocialNav server, and publishes the 5
-waypoints it predicts as /socialnav/path (nav_msgs/Path, map frame) for RViz.
-Each waypoint is checked against the lidar; /socialnav/status says how many have
-room and how long the model took.
+Never drives.
 
-The goal is the explorer's current one (/frontier_explorer/goal) when it runs,
-otherwise a point goal_ahead_m in front of where the robot was when this started.
+Every few seconds it sends the last 5 camera frames (1 s apart), where the robot was for each, and
+the goal to the SocialNav server, and publishes the 5 waypoints it predicts as /socialnav/path
+(nav_msgs/Path, map frame) for RViz. Each waypoint is checked against the lidar; /socialnav/status
+says how many have room and how long the model took.
+
+The goal is the explorer's current one (/frontier_explorer/goal) when it runs, otherwise a point
+goal_ahead_m in front of where the robot was when this started.
 """
 
 import math

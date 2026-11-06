@@ -1,13 +1,13 @@
-"""Tracks people in the odom frame, guesses where they are walking and finds
-groups standing together.
+"""
+Track people in odom, forecast their walk and find groups.
 
-The ideas come from SocialNav (https://github.com/ram95d/SocialNav, MIT): its
-forecasting node keeps 8 positions 0.4 s apart and predicts 12 steps ahead, and
-its group node clusters people closer than 1.5 m (DBSCAN, at least 2 people).
-SocialNav's forecaster is a learned model that needs a GPU and PyTorch
-Lightning; this file uses a constant-velocity forecast instead, the usual
-baseline those models are compared against. No ROS here, so it tests on any
-machine.
+Tracks people in the odom frame, guesses where they are walking and finds groups standing together.
+
+The ideas come from SocialNav (https://github.com/ram95d/SocialNav, MIT): its forecasting node
+keeps 8 positions 0.4 s apart and predicts 12 steps ahead, and its group node clusters people
+closer than 1.5 m (DBSCAN, at least 2 people). SocialNav's forecaster is a learned model that needs
+a GPU and PyTorch Lightning; this file uses a constant-velocity forecast instead, the usual
+baseline those models are compared against. No ROS here, so it tests on any machine.
 """
 
 import math
@@ -60,8 +60,12 @@ class PeopleTracker:
         self.next_id = 1
 
     def update(self, points, now):
-        """Match this picture's people ((x, y) in odom) to tracks, closest
-        pairs first, and start a track for each person left over."""
+        """
+        Match this picture's people to tracks, closest pairs first.
+
+        Match this picture's people ((x, y) in odom) to tracks, closest pairs first, and start a
+        track for each person left over.
+        """
         pairs = sorted(
             (math.hypot(x - track.last[1], y - track.last[2]), track_id, i)
             for track_id, track in self.tracks.items()
@@ -85,8 +89,12 @@ class PeopleTracker:
 
     def people(self, now, obs_len=OBS_LEN, obs_interval=OBS_INTERVAL_SEC,
                pred_len=PRED_LEN, eps=GROUP_EPS_M, min_people=GROUP_MIN_PEOPLE):
-        """Tracks seen in the last SHOW_AGE_SEC, with velocity, forecast
-        and group number (None when alone)."""
+        """
+        Return the tracks seen in the last SHOW_AGE_SEC.
+
+        Tracks seen in the last SHOW_AGE_SEC, with velocity, forecast and group number (None when
+        alone).
+        """
         current = [t for t in self.tracks.values() if now - t.last[0] <= SHOW_AGE_SEC]
         labels = find_groups([t.last[1:] for t in current], eps, min_people)
         people = []
@@ -99,8 +107,12 @@ class PeopleTracker:
 
 
 def velocity(history, window_sec):
-    """Least-squares velocity over the last window_sec of positions; zero
-    when there is too little history or the person is standing."""
+    """
+    Return the least-squares velocity over the last window_sec.
+
+    Least-squares velocity over the last window_sec of positions; zero when there is too little
+    history or the person is standing.
+    """
     t_end = history[-1][0]
     recent = [h for h in history if t_end - h[0] <= window_sec]
     if len(recent) < 2 or t_end - recent[0][0] < MIN_VELOCITY_SPAN_SEC:
@@ -123,8 +135,9 @@ def forecast(x, y, vx, vy, steps, step_sec):
 
 
 def find_groups(points, eps, min_people):
-    """DBSCAN on a handful of points: a group number per point, or None for a
-    person standing alone."""
+    """
+    DBSCAN on a handful of points: a group number per point, or None for a person standing alone.
+    """
     neighbors = [
         [j for j, q in enumerate(points) if math.hypot(p[0] - q[0], p[1] - q[1]) <= eps]
         for p in points

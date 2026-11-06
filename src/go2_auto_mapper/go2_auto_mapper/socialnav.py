@@ -1,6 +1,9 @@
-"""Helpers for asking the SocialNav model (host_tools/socialnav/server.py) for a
-path: a short memory of camera frames and poses, and the conversions between
-the map frame and the model's robot frame of [right, forward] meters.
+"""
+Helpers for asking the SocialNav model for a path.
+
+Helpers for asking the SocialNav model (host_tools/socialnav/server.py) for a path: a short memory
+of camera frames and poses, and the conversions between the map frame and the model's robot frame
+of [right, forward] meters.
 
 No ROS here, so it tests on any machine.
 """
@@ -63,8 +66,11 @@ def step_scale(samples):
 
 
 def build_request(samples, goal_x, goal_y, encode):
-    """The /waypoints body from the history (newest last) and a map-frame goal.
-    encode turns a frame into JPEG bytes; the server takes them as base64."""
+    """
+    The /waypoints body from the history (newest last) and a map-frame goal.
+
+    encode turns a frame into JPEG bytes; the server takes them as base64.
+    """
     _, x, y, yaw, _ = samples[-1]
     return {
         'images': [base64.b64encode(encode(s[4])).decode('ascii') for s in samples],
@@ -82,8 +88,12 @@ def post(url, body, timeout):
 
 
 def lidar_room(ranges, angle_min, angle_increment, right, forward, margin):
-    """True if no lidar reading is closer than the waypoint (plus margin) along
-    its direction; None if the scan has nothing that way."""
+    """
+    Check whether the lidar sees room out to a waypoint.
+
+    True if no lidar reading is closer than the waypoint (plus margin) along its direction; None if
+    the scan has nothing that way.
+    """
     bearing = math.atan2(-right, forward)
     distance = math.hypot(right, forward)
     nearest = None

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Shows what the VLM sees: asks it to describe the camera every few seconds
-and suggest a next move, which it checks against the lidar.
+"""
+Show what the VLM sees and suggests, from the camera.
 
-A node of its own because the explorer drives the robot, and this should work
-with the robot standing still. It only reads the camera and publishes text and
-pictures, never a motion command. The RViz AutoMapper panel's VLM view button
-starts it and shows /vlm/view and /vlm/description. In vlm_mode active the
-explorer reads /vlm/suggestion and favors goals that way; Nav2 still drives.
+Shows what the VLM sees: asks it to describe the camera every few seconds and suggest a next move,
+which it checks against the lidar.
+
+A node of its own because the explorer drives the robot, and this should work with the robot
+standing still. It only reads the camera and publishes text and pictures, never a motion command.
+The RViz AutoMapper panel's VLM view button starts it and shows /vlm/view and /vlm/description. In
+vlm_mode active the explorer reads /vlm/suggestion and favors goals that way; Nav2 still drives.
 """
 
 import math
@@ -90,8 +92,11 @@ class VlmView(Node):
         return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
     def suggestion_text(self, reply, frame_yaw):
-        """The panel's text: the move, what the lidar thinks of it, the
-        description. Also publishes the suggestion for the explorer."""
+        """
+        The panel's text: the move, what the lidar thinks of it, the description.
+
+        Also publishes the suggestion for the explorer.
+        """
         description, move, reason = parse_suggestion(reply)
         if move is None:
             return description

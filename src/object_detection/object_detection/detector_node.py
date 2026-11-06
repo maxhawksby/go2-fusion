@@ -450,10 +450,10 @@ class ObjectDetector(Node):
 
         self.marker_pub.publish(markers)
 
-
     # ==========================================================
     # People
     # ==========================================================
+
     def update_people(self, points, source, stamp, now):
         """Track this frame's people in PEOPLE_FRAME and publish /people."""
         if source == self.robot_frame and not self.tf_buffer.can_transform(

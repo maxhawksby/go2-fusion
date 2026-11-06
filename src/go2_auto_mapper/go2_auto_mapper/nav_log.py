@@ -1,11 +1,13 @@
-"""A diary of the explorer's navigation: where each goal was, how it ended and
-how much new map it really showed, plus the moments it got stuck.
+"""
+Diary of the explorer's navigation, one line per goal.
 
-It keeps track of a run for people reading it afterwards, and it is the training
-data for fine-tuning a VLM: the camera view toward a goal, labeled by what walking
-there actually revealed. Writes goals.jsonl and one JPEG per goal to a folder. No
-ROS here, so it tests on any machine. A failed write warns and never stops the
-robot's exploring.
+A diary of the explorer's navigation: where each goal was, how it ended and how much new map it
+really showed, plus the moments it got stuck.
+
+It keeps track of a run for people reading it afterwards, and it is the training data for
+fine-tuning a VLM: the camera view toward a goal, labeled by what walking there actually revealed.
+Writes goals.jsonl and one JPEG per goal to a folder. No ROS here, so it tests on any machine. A
+failed write warns and never stops the robot's exploring.
 """
 
 import json
@@ -28,8 +30,12 @@ class NavLog:
             self.folder = None
 
     def goal_sent(self, robot, target, known_cells, frontier_size, score, jpeg=None):
-        """A new goal went to Nav2. It also finishes the goal before it: the map
-        has now had its scan at that goal, so what it revealed can be counted."""
+        """
+        A new goal went to Nav2.
+
+        It also finishes the goal before it: the map has now had its scan at that goal, so what it
+        revealed can be counted.
+        """
         self.finish(known_cells)
         self.count += 1
         self.goal = {
@@ -88,5 +94,5 @@ class NavLog:
 
 
 def known_cell_count(data):
-    """Cells of an occupancy grid that are no longer unknown (-1)."""
+    """Count the cells of an occupancy grid that are known."""
     return sum(1 for cell in data if cell != -1)

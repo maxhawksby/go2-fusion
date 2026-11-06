@@ -82,14 +82,14 @@ class FrontierExplorer(Node):
         self.declare_parameter('robot_frame', 'base_link')
         self.declare_parameter('map_frame', 'map')
 
-        self.declare_parameter('min_frontier_size', 3)
+        self.declare_parameter('min_frontier_size', 5)
         self.declare_parameter('goal_distance', 0.8)
         # Frontiers closer than this are only used once no farther one is
         # left, so each leg covers new ground instead of shuffling in place.
         self.declare_parameter('min_goal_distance', 1.5)
         # Goals closer than this to a wall in the SLAM map are skipped:
         # Nav2 can't place the robot's body there, and it scrapes walls.
-        self.declare_parameter('wall_clearance', 0.35)
+        self.declare_parameter('wall_clearance', 0.5)
 
         # Ranking goals by what a visit would reveal (frontier_scoring.py):
         # unknown cells visible from the goal within info_gain_range, by
@@ -134,7 +134,7 @@ class FrontierExplorer(Node):
         # obstacle_stop_distance of the nose (for blocked_timeout seconds;
         # 0 = at once), back away. While driving, the goal is given up first
         # and the robot then heads somewhere open.
-        self.declare_parameter('obstacle_stop_distance', 0.15)
+        self.declare_parameter('obstacle_stop_distance', 0.3)
         self.declare_parameter('blocked_timeout', 0.0)
         self.declare_parameter('backup_distance', 0.3)
 
@@ -142,7 +142,7 @@ class FrontierExplorer(Node):
         # (or an obstacle-ahead abort, or no usable goal), drive to the
         # nearest spot with open_space_clearance meters of room on every
         # side, scan there, then carry on exploring.
-        self.declare_parameter('open_space_clearance', 0.6)
+        self.declare_parameter('open_space_clearance', 0.8)
         self.declare_parameter('stuck_failure_count', 3)
 
         # People from object_detection's /people (ideas from SocialNav):
@@ -2260,7 +2260,7 @@ class FrontierExplorer(Node):
 
         if selected is None:
             self.get_logger().info(
-                'No usable goal:every frontier is too close to a wall or '
+                'No usable goal: every frontier is too close to a wall or '
                 'failed recently. Waiting for the map to change or for '
                 f'failed spots to expire ({self.failed_goal_cooldown_sec:.0f} s).',
                 throttle_duration_sec=10.0
@@ -2326,6 +2326,16 @@ class FrontierExplorer(Node):
         self.recovery_move = None
         self.recovery_pub.publish(Twist())
 
+        # The goal Oak is walking to goes first: the waits below can take
+        # several seconds when Nav2 is slow, and the RViz panel force-kills
+        # the explorer if it takes too long. rclpy.spin() has already
+        # returned, so spin briefly to actually send the cancel.
+        if self.current_goal_handle is not None:
+            self.get_logger().info('Cancelling active navigation goal.')
+            future = self.current_goal_handle.cancel_goal_async()
+            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+            self.current_goal_handle = None
+
         # A goal Nav2 hasn't answered yet has no handle to cancel. Wait (and
         # spin, so the answer is processed) until it's accepted, which sets
         # the handles cancelled below, or rejected.
@@ -2337,13 +2347,8 @@ class FrontierExplorer(Node):
             if not future.done():
                 self._cancel_all_goals(action_name)
 
-        # Cancel whatever Nav2 goal is in flight so the robot doesn't
-        # keep walking toward it after we've stopped sending new ones.
-        # rclpy.spin() has already returned by the time this runs, so we
-        # spin briefly here too, otherwise the cancel request is just
-        # queued and never actually sent before the node is destroyed.
+        # A goal accepted during the wait above.
         if self.current_goal_handle is not None:
-            self.get_logger().info('Cancelling active navigation goal.')
             future = self.current_goal_handle.cancel_goal_async()
             rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
         for orphan in self.orphans:
@@ -2353,6 +2358,11 @@ class FrontierExplorer(Node):
             self.get_logger().info(f'Cancelling the {self.maneuver_name}.')
             future = self.maneuver_handle.cancel_goal_async()
             rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+
+        # Write out the last goal, which is otherwise only written when the
+        # next one is sent.
+        if self.nav_log is not None and self.map is not None:
+            self.nav_log.finish(known_cell_count(self.map.data))
 
     def _cancel_all_goals(self, action_name):
         """Last resort on shutdown: Nav2 never answered one of our goals, so
