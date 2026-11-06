@@ -14,29 +14,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Humble only: the team runs ROS 2 Humble (AGENTS.md), so a Jazzy job adds runner
+        # time without protecting anything we ship.
         ros_distribution:
           - humble
-          - jazzy 
         include:
           # Humble Hawksbill (May 2022 - May 2027)
           - docker_image: rostooling/setup-ros-docker:ubuntu-jammy-ros-humble-ros-base-latest
             ros_distribution: humble
             ros_version: 2
-          - docker_image: rostooling/setup-ros-docker:ubuntu-noble-ros-jazzy-ros-base-latest
-            ros_distribution: jazzy
-            ros_version: 2            
     container:
       image: ${{ matrix.docker_image }}
     steps:
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
       - name: Install libunwind (fix issues on humble)
         run: sudo apt update && sudo apt install --no-install-recommends libunwind-dev -y
+      # Actions are pinned to a commit so an upstream change cannot break CI on its own.
       - name: build and test
-        uses: ros-tooling/action-ros-ci@master
+        uses: ros-tooling/action-ros-ci@3a640b10f09b756dabe556dac5413aba369f71b0 # 0.4.8
         with:
           target-ros2-distro: ${{ matrix.ros_distribution }}
           vcs-repo-file-url: ""
-          skip-tests: true
+          skip-tests: false
