@@ -64,6 +64,16 @@ def test_map_round_trip(tmp_path):
     assert math.isclose(back.origin_x, grid.origin_x)
 
 
+def test_map_round_trip_preserves_unknown_cells(tmp_path):
+    grid = wt.Grid(
+        np.array([[wt.FREE, wt.OCCUPIED, 255]], dtype=np.uint8),
+        0.05, -1.0, -2.0)
+    path = str(tmp_path / 'unknown.yaml')
+    wt.write_map(grid, path)
+    back = wt.read_map(path)
+    assert np.array_equal(back.data, grid.data)
+
+
 def test_start_poses_are_seeded_and_clear():
     obstacles, _ = wt.load_obstacles(_world_text())
     grid = wt.rasterize(obstacles)

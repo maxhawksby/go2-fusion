@@ -38,6 +38,10 @@ COMPLETE_TEXT = 'Exploration complete'
 EXPLORER_NODE = 'frontier_explorer'
 # A new bump only after this long with no contact, so one scrape counts once.
 BUMP_GAP_SEC = 1.0
+# Gazebo can reset or teleport the model while a trial is starting or ending.
+# Neither event is physical travel, so keep the independent trial scorer on
+# the same discontinuity rule as go2_scoreboard.
+MAX_TRUTH_STEP_M = 1.0
 # Where the running trial's ROS domain and Gazebo partition are written, so
 # `ros2 run go2_sim watch` can attach windows to it. Removed when a run ends.
 CURRENT_RUN_FILE = '/tmp/go2_sim_current_run.json'
@@ -60,6 +64,14 @@ def resolve_world(world):
     if not os.path.isfile(path):
         sys.exit(f'World not found: {path}')
     return path
+
+
+def distance_increment(previous, current, max_step=MAX_TRUTH_STEP_M):
+    """Return physical travel between poses, excluding reset/teleport jumps."""
+    if previous is None:
+        return 0.0
+    step = math.hypot(current[0] - previous[0], current[1] - previous[1])
+    return step if step <= max_step else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -117,10 +129,10 @@ def make_monitor(context):
 
         def on_truth(self, msg):
             p = msg.pose.pose.position
-            if self.prev_xy is not None:
-                self.distance += math.hypot(p.x - self.prev_xy[0], p.y - self.prev_xy[1])
-            self.prev_xy = (p.x, p.y)
-            self.true_xy = (p.x, p.y)
+            current = (p.x, p.y)
+            self.distance += distance_increment(self.prev_xy, current)
+            self.prev_xy = current
+            self.true_xy = current
 
         def on_cloud(self, _msg):
             self.cloud_seen = True
@@ -378,7 +390,14 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
         else:
             result['end_reason'] = 'timeout'
         result['time_s'] = round(time.monotonic() - started, 1)
-        # Let SLAM publish the last map (it updates every second).
+
+        # Freeze exploration at the measurement boundary. Previously the
+        # mapper kept moving while the legacy scorer took its map snapshot and
+        # the scoreboard finalized, so the two independent scorers measured
+        # different moments of the same run.
+        stop_group(explorer, wait=8.0)
+
+        # Let the clean explorer shutdown and SLAM's final update propagate.
         settle = time.monotonic() + 3.0
         while time.monotonic() < settle:
             executor.spin_once(timeout_sec=0.2)

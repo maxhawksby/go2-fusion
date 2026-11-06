@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: d4f76d4cc8c0
+verified: cfef1495f57e
 ---
 
 # Simulator
@@ -143,6 +143,16 @@ before the runner declared it stuck after 60 seconds with less than 0.25 m of
 new movement. The independent scoreboard measured 2.7235 m, 47.959% and 0
 collisions. This confirms the old startup stall is fixed and the measurement
 paths agree, but it does not claim that exploration finishes reliably.
+
+On 2026-11-06, a three-run batch demonstrated the remaining variability: two
+starts reached 92.0% and 85.2%, while one stalled early. That batch also exposed
+a validation bug: the explorer could keep mapping between the legacy snapshot
+and scoreboard finalization, and simulator reset jumps inflated legacy distance.
+The trial runner now freezes exploration at one measurement boundary, applies
+the scoreboard's 1 m jump rejection to truth odometry, and preserves unknown
+cells in saved maps. A deterministic seed-27 validation then passed independent
+parity at 48.6% completeness, 3.3 m versus 3.119 m, and zero collisions. See
+the [experiments journal](experiments.md) for the evidence and limitations.
 
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
 - **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. Three bugs caused it, all fixed (see [Auto mapper](auto-mapper.md)); still to confirm on Oak.

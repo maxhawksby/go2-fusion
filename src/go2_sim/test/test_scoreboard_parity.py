@@ -1,4 +1,12 @@
-from go2_sim.trials import scoreboard_parity
+import math
+
+from go2_sim.trials import distance_increment, scoreboard_parity
+
+
+def test_distance_increment_rejects_reset_or_teleport():
+    assert distance_increment(None, (1.0, 2.0)) == 0.0
+    assert math.isclose(distance_increment((1.0, 2.0), (1.3, 2.4)), 0.5)
+    assert distance_increment((1.0, 2.0), (3.0, 2.0)) == 0.0
 
 
 def test_parity_accepts_documented_tolerances():
