@@ -2,7 +2,7 @@
 title: Docker
 parent: lab-setup
 code: [docker/**, requirements.txt]
-verified: c940962a6e69
+verified: 772aa8d489d2
 ---
 
 # Docker
