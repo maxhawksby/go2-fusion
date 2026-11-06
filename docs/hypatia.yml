@@ -52,5 +52,6 @@ people:
     color: "#efe3c2"
     discord_id: ""
     focus: Piper text-to-speech through Oak's speaker
-drift: warn
+only_listed: true   # the people above are the whole team (as docs/team.yml was)
+drift: error        # a page whose code changed since its verified: stamp fails the check
 coverage: src

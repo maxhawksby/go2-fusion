@@ -2,7 +2,7 @@
 title: People
 parent: team
 code: [CONTRIBUTING.md, AGENTS.md]
-verified: a9f316da8958
+verified: 6953522fa55d
 ---
 
 # People
@@ -58,7 +58,7 @@ Part of: [Team](team.md)
 ## How we work together
 
 - **Claim your work.** Tell your agent what you're starting; it opens or finds the issue, tags the page, and assigns you, so your name shows on the map.
-- **Put your name on your branch.** Start it with your id from [team.yml](../team.yml): `max/fix/nav-obstacle-safety`. Anyone can see who owns it.
+- **Put your name on your branch.** Start it with your id from [hypatia.yml](../hypatia.yml): `max/fix/nav-obstacle-safety`. Anyone can see who owns it.
 - **Say what each commit does.** One short sentence, starting with the part of Oak it touches: `Auto mapper: skip frontiers it can't reach`. Your branch's messages show on your People tab, so they tell the team what you're on.
 - **Ask for review.** A pull request with Who, What, Why, Before and After posts to #feature-revisions; one teammate approves before it reaches `master`. Only changes to Oak's software need that approval; wiki, guides and team tooling skip it and Max merges them once checks pass. Full steps: [CONTRIBUTING.md](../../CONTRIBUTING.md).
 

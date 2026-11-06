@@ -63,7 +63,7 @@ If the build ever gets into a strange state, `docker compose down -v` deletes th
 
 ## Branches and pull requests
 
-1. Start every piece of work on its own branch. Never commit to `master`. Start the name with your `id` from [docs/team.yml](docs/team.yml), so everyone can see who owns it: `max/fix/nav-obstacle-safety`, `noah/tts-piper-review`.
+1. Start every piece of work on its own branch. Never commit to `master`. Start the name with your `id` from [docs/hypatia.yml](docs/hypatia.yml), so everyone can see who owns it: `max/fix/nav-obstacle-safety`, `noah/tts-piper-review`.
    ```shell
    git fetch
    git switch -c <your-id>/feat/<short-name> origin/master

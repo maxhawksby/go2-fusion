@@ -1,4 +1,4 @@
-# Made by Hypatia 0.4.0 (#a6a26ad7). Run "hypatia upgrade" to update it.
+# Made by Hypatia 0.4.0 (#3ae75dbb). Run "hypatia upgrade" to update it.
 # Builds the wiki site and its data with Hypatia and deploys it to GitHub
 # Pages. Only for public repos: a private repo's wiki opens locally instead
 # (hypatia serve).
@@ -22,7 +22,7 @@ on:
     paths:
       - README.md
       - docs/wiki/**
-      - docs/team.yml
+      - docs/hypatia.yml
       - .github/workflows/wiki-site.yml
   issues:
     types: [opened, edited, labeled, unlabeled, closed, reopened]

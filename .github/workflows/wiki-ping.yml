@@ -1,8 +1,8 @@
-# Made by Hypatia 0.4.0 (#53a2f253). Run "hypatia upgrade" to update it.
+# Made by Hypatia 0.4.0 (#3044793b). Run "hypatia upgrade" to update it.
 # Posts to Discord when a pull request asks for review (Who, What, Why,
 # Before, After from its description, the wiki pages it touches, the link)
 # or someone asks a wiki question (an issue labelled "question"). People with
-# a discord_id in docs/team.yml are @mentioned, others named.
+# a discord_id in docs/hypatia.yml are @mentioned, others named.
 #
 # One-time setup: make a Discord webhook per channel (channel > Edit Channel
 # > Integrations > Webhooks > New Webhook > Copy URL) and save it as a repo
