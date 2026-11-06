@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: 5f5ddc20d877
+verified: cf5b86ee5e00
 ---
 
 # Auto mapper
@@ -87,7 +87,7 @@ From the package README and Luis's commits (Oct 14-19):
 - **Ctrl+C did not stop cleanly.** ROS shut itself down before the auto mapper's stop step ran, so the final zero speed and the Nav2 goal cancel never went out. Fixed in pull request #41: ROS now stays up until that step is done.
 - **Waits for fresh data.** After every scan or move it waits up to 12 s for newer `/scan`, `/point_cloud2`, `/map`, costmap and TF. If they don't come, exploration stays stopped until Scan is pressed.
 - **The 3D cloud never forgets** moved objects; neither SLAM nor the 3D map is cleared during recovery.
-- **People positions are rough.** They come from the camera's box-height guess, and on master left and right are flipped (see [Object detection](object-detection.md)), so Oak can wait for, or steer around, a person on the wrong side. The camera only looks forward, so people behind or beside Oak are not seen. TODO(Luis): test with people in the lab.
+- **People positions are rough.** They come from the camera's box-height guess (see [Object detection](object-detection.md)), so Oak can wait for a person who is farther away than they look, or steer around one who is not quite where they seem. The camera only looks forward, so people behind or beside Oak are not seen. TODO(Luis): test with people in the lab.
 - **Waiting too long gets the goal dropped.** Nav2 gives up a goal after 10 s without movement (`movement_time_allowance`); the 6 s wait stays under that, so don't raise one without the other.
 - **Big maps** make each step slower, because the whole map is rescanned every cycle.
 
