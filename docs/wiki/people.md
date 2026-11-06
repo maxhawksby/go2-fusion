@@ -20,6 +20,7 @@ Part of: [Team](team.md)
 - **Focus:** the auto mapper, so Oak explores and maps a room by itself.
 - **Pages to ask about:** [Auto mapper](auto-mapper.md), [SLAM](slam.md), [Nav2](nav2.md), [RViz panels](rviz-panels.md), [Maps & Nav](maps-nav.md). He also added the auto mapper's own [twist_mux](twist-mux.md) lane, `/cmd_vel_mapper` (priority 6).
 - **Current work:** Oak kept stopping because floor points that drifted in the 3D point cloud were marked as obstacles, and a 0.5 m lidar cut-off hid nearby walls. Luis took the cloud out of Nav2's obstacle maps, used a filtered 2D scan, lowered the minimum range to 0.1 m, and added RViz buttons to Scan (a 360 degree turn so SLAM can find itself) and Reset maps. The explorer now picks goals by how much unexplored space they reveal, and frontier search is about 100x faster. Merged to `master`.
+- **Also:** an optional camera VLM that helps the auto mapper choose goals, and people tracking in [object detection](object-detection.md), both still being tested.
 - **Next:** full exploration tests on Oak.
 
 ## Adib
