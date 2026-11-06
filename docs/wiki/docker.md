@@ -64,7 +64,7 @@ On Windows from PowerShell, add `-f docker-compose.windows.yml` after `docker co
 
 ## How it breaks
 
-- **Out of memory during the build** (crashed WSL at 7.4 GB): build with `MAKEFLAGS=-j4 colcon build --symlink-install --parallel-workers 2`, or raise WSL's memory.
+- **Out of memory during the build** (crashed WSL at 7.4 GB): the container now builds 2 packages at a time with `-j4` by default. If it still runs out, set `COLCON_WORKERS=1` in the container's environment or raise WSL's memory; on a big machine, raise `COLCON_WORKERS` and `MAKEFLAGS` to build faster.
 - **`The aioice submodule is missing`**: run `git submodule update --init --recursive` on your machine.
 - **Build in a strange state**: `docker compose down -v` deletes the build output; the next start rebuilds from scratch in about a minute.
 - **Do not run `docker system prune`** or delete images: it forces a 15 minute rebuild.
