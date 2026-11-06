@@ -20,6 +20,7 @@ Part of: [Maps and navigation](maps-nav.md)
 1. **Look around first.** At start and after each goal, Oak turns a full circle using Nav2's Spin behavior, so the lidar sees everything around it and SLAM can place it on the map.
 2. **Find frontiers.** It scans `/map` for frontier squares and groups neighbours into regions; regions under 5 squares are treated as noise. Since 2026-10-17 this is one fast numpy pass: about 4.4 ms instead of 0.5 s on a 40 x 40 m map.
 3. **Pick a goal.** For each region it picks spots 0.8 m back into known space and at least 0.5 m from walls. It skips directions it was just blocked in, spots closer than 1.5 m, and spots without a clear straight line. Of the rest, it picks the one that would reveal the most: it casts 48 imaginary rays from each spot out to 4 m and counts unknown squares they would uncover, minus a cost per meter of walking.
+   **Optionally, ask a vision-language model (VLM).** With `vlm_mode` on, the best 4 spots are also shown to a VLM (Qwen2.5-VL) running on a cloud GPU: one camera picture toward each, taken during the last 360 degree turn. It is also told what the map says about each spot (how far, how many unknown squares). It scores each from 0 to 1 for "will walking this way show a lot of new space" (a doorway or hallway scores high, a wall or dead end low), and that score is added to the reveal score. The VLM only reorders spots the map already found safe; lidar and Nav2 still decide where Oak can walk. See [Using the VLM](#using-the-vlm). In `active` mode with the panel's VLM view on, the VLM's suggested move also counts (it is told the lidar's distance each way when it suggests one): goals within 45 degrees of that direction are worth 300 more unknown squares (`vlm_suggest_weight`), unless the lidar sees something closer than 0.8 m that way or the suggestion is over 15 s old. A suggestion only picks among goals the map already found safe, and Nav2 still drives. "Stop" is not obeyed: it changes nothing.
 4. **Go.** It sends the goal to [Nav2](nav2.md) on `/navigate_to_pose`, exactly like clicking "Nav2 Goal" in RViz, so Nav2's obstacle avoidance still applies.
 5. **Learn from it.** If a visit did not shrink the frontier (the opening can't be seen into), that frontier is skipped for 2 minutes. Failed goals are also skipped for 2 minutes.
 6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap, then slides 0.05 to 0.5 m at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If nothing is safe, it stays stopped and logs why.
@@ -63,6 +64,34 @@ Part of: [Maps and navigation](maps-nav.md)
 | `scan_after_goal` | `true` | Turn a full circle after each goal it reaches |
 | `scan_yaw` | `6.283` (2 pi) | How far to turn per scan, in radians |
 | `scan_time_allowance` | `30.0` | Seconds Nav2 has to finish the turn before giving up |
+| `vlm_mode` | `off` | `off`; `shadow` (ask the VLM and log its pick, but use the map score); `active` (add the VLM's score) |
+| `vlm_url` | `http://localhost:8000/v1/chat/completions` | The VLM server's OpenAI-style chat address (vLLM or Ollama), usually through an SSH tunnel |
+| `vlm_model` | `Qwen/Qwen2.5-VL-7B-Instruct` | Model name the server knows it by |
+| `vlm_weight` | `400.0` | How much the VLM counts: from a sure "no" to a sure "yes" is worth this many unknown cells (400 = 1 square meter) |
+| `vlm_timeout` | `8.0` | Seconds to wait for the VLM before going with the map score alone |
+| `nav_log_dir` | empty | Folder for the navigation log; empty is off |
+| `vlm_candidates` | `4` | How many of the best spots to show the VLM |
+
+### The navigation log
+
+Set `NAV_LOG_DIR` in the container's environment (or the `nav_log_dir` parameter) and the explorer keeps a diary in that folder: `goals.jsonl` has one line per goal, with where Oak was, the goal, how it ended (`reached`, `failed` or `paused`), how many new map squares it led to (`revealed_cells`), and any recovery moves or stuck moments. With the VLM on, it also saves the camera picture toward the goal. Off by default. It is there for reading a run afterwards, and as training data if the VLM is ever fine-tuned: a picture labeled by what walking that way really showed. The last goal of a run is not written, because it is only finished when the next goal is sent.
+
+### SocialNav paths (watch only)
+
+`ros2 run go2_auto_mapper socialnav_view` asks the [SocialNav](https://github.com/AMAP-EAI/SocialNav) model (CVPR 2026, Apache-2.0), served by `host_tools/socialnav/server.py` on a GPU server, which way to walk. Every 3 s it sends the last 5 camera pictures (1 s apart), where Oak was for each, and the goal: the explorer's current goal (`/frontier_explorer/goal`), or a point 3 m ahead (`goal_ahead_m`, `goal_left_m`) if the explorer is off. It publishes the 5 waypoints it gets back as `/socialnav/path` (add a Path display in RViz) and a line on `/socialnav/status` saying how many have room by the lidar. **It never drives Oak.** It needs `SOCIALNAV_URL` (default `http://localhost:8100/waypoints`). How well it works on Oak is unknown: the model's training prompt is private, `step_scale` is a guess (at least 0.3 m), and in a first test on fake pictures the goal barely changed its path.
+
+### Using the VLM
+
+The model needs an NVIDIA GPU, so it runs on a GPU server, not the laptop. **Camera pictures leave the robot:** with `vlm_mode` on or the VLM view running, Oak's camera pictures are sent to that server (the team uses a university GPU server), and with `NAV_LOG_DIR` set they are also saved where the explorer runs. Both are off by default. The laptop reaches it through an SSH tunnel; the explorer never waits on the network for more than `vlm_timeout`.
+
+1. **On the GPU server** (over SSH), start an OpenAI-style server. With vLLM: `vllm serve Qwen/Qwen2.5-VL-7B-Instruct --port 8000`. With Ollama: `ollama pull qwen2.5vl:7b`, then use port 11434 and `vlm_model:=qwen2.5vl:7b`. TODO(Luis): which server and model fit the cloud GPU's memory.
+2. **On the laptop**, open the tunnel and leave it running: `ssh -N -L 8000:localhost:8000 <user>@<gpu-server>`. Now `localhost:8000` on the laptop is the server.
+3. **Start the explorer in shadow mode first**, so Oak behaves exactly as before while you read what the VLM would have done:
+   ```shell
+   docker compose exec unitree_ros bash -ic 'ros2 run go2_auto_mapper explorer --ros-args -p vlm_mode:=shadow'
+   ```
+   On Windows (Docker Desktop), the container reaches the laptop as `host.docker.internal`, so add `-p vlm_url:=http://host.docker.internal:8000/v1/chat/completions`. TODO(Luis): confirm this reaches a tunnel bound to the laptop's localhost.
+4. Read the log: each goal prints `VLM agrees` or `VLM differs`, both picks, the scores and the model's one-line reason. When it looks sensible, try `vlm_mode:=active` and compare exploration time and map completeness on the [scorecard](roadmap.md).
 
 ## Connects to
 
@@ -73,6 +102,8 @@ Part of: [Maps and navigation](maps-nav.md)
 - [Object detection](object-detection.md) - reads `/people` (people, their walking forecast and groups, `odom` frame).
 - [RViz panels](rviz-panels.md) - the AutoMapper panel starts and stops it.
 - [Simulator](simulator.md) - try it with no robot, or score it over 10 runs.
+- [RViz panels](rviz-panels.md) - the VLM view button runs `vlm_view`, which publishes `/vlm/view` (picture) and `/vlm/description` (text).
+- [Camera](camera.md) - with `vlm_mode` on, keeps one `/camera/image_raw` picture per direction for the VLM.
 
 ## How it breaks
 
@@ -90,6 +121,8 @@ From the package README and Luis's commits (Oct 14-19):
 - **People positions are rough.** They come from the camera's box-height guess (see [Object detection](object-detection.md)), so Oak can wait for a person who is farther away than they look, or steer around one who is not quite where they seem. The camera only looks forward, so people behind or beside Oak are not seen. TODO(Luis): test with people in the lab.
 - **Waiting too long gets the goal dropped.** Nav2 gives up a goal after 10 s without movement (`movement_time_allowance`); the 6 s wait stays under that, so don't raise one without the other.
 - **Big maps** make each step slower, because the whole map is rescanned every cycle.
+- **VLM server down or slow** (tunnel closed, server off, wrong address): it logs "VLM gave no ranking" with the reason, uses the map score alone, and tries again after 30 s. Exploring never stops for it. In `active` mode each goal can wait up to `vlm_timeout` seconds first.
+- **VLM has nothing to look at.** The camera only sees ahead, so a spot gets a neutral score when no picture faces it (for example right after a move, before the next 360 degree turn). The VLM is new and untested on Oak (added 2026-10-28).
 
 ## Who's on it and what's next
 
@@ -97,7 +130,7 @@ From the package README and Luis's commits (Oct 14-19):
 
 ## The code
 
-https://github.com/maxhawksby/go2-fusion/tree/master/src/go2_auto_mapper (`explorer.py` runs the loop; `frontier_scoring.py`, `recovery.py`, `obstacle_sensing.py` and `open_space.py` hold the logic that has unit tests).
+https://github.com/maxhawksby/go2-fusion/tree/master/src/go2_auto_mapper (`explorer.py` runs the loop; `frontier_scoring.py`, `vlm_ranking.py`, `recovery.py`, `obstacle_sensing.py` and `open_space.py` hold the logic that has unit tests).
 
 With the robot stack running (SLAM and Nav2 on) and a person watching Oak:
 
