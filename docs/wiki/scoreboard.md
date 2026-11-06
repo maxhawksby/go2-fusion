@@ -1,8 +1,7 @@
 ---
 title: Scoreboard
 parent: maps-nav
-code: [src/go2_scoreboard/**]
-verified: 4ef0f27da67b
+code: [src/go2_scoreboard/**, host_tools/scoreboard_dashboard/**]
 ---
 
 # Scoreboard
@@ -85,6 +84,35 @@ Replay does not launch Oak or Nav2:
 ros2 run go2_scoreboard replay /path/to/bag --out /path/to/replays
 ```
 
+## Read-only mission display
+
+The local mission display turns the artifact folders into a simple visual
+scorecard. It shows the occupancy map, completeness or known area, elapsed
+time, distance, goal outcomes, safety counts, resource use and recent mission
+events. Runs can be sorted by date, coverage, duration or name without changing
+the evidence on disk. The coverage trace exposes exact samples on hover. It
+also provides downloads for the underlying evidence files. The display polls
+the results folder once per second, so an active recorder's atomic checkpoints
+appear without restarting the server. A `RECORDING` artifact whose checkpoint
+stops updating is presented as `INTERRUPTED`; the underlying evidence is not
+changed.
+
+From the repository root, run:
+
+```shell
+node host_tools/scoreboard_dashboard/server.mjs
+```
+
+Then open <http://127.0.0.1:3100>. To inspect artifacts stored elsewhere:
+
+```shell
+node host_tools/scoreboard_dashboard/server.mjs --results-root /path/to/results
+```
+
+The server binds to loopback, accepts only `GET` requests and never publishes
+to ROS. It is deliberately separate from Oak Control until the mission and
+safety interfaces have passed robot testing.
+
 ## How it breaks
 
 - Missing optional topics create warnings and nullable fields instead of ending the run.
@@ -127,4 +155,4 @@ runner now preserves both and validates the scoreboard against an independent
 `/odom` accumulator. The Oak run is a measurement baseline, not a completeness
 claim; completeness remains null until a measured answer map exists.
 
-<!-- sources: src/go2_scoreboard/**, src/go2_auto_mapper/go2_auto_mapper/explorer.py structured event publisher, src/go2_sim/go2_sim/trials.py -->
+<!-- sources: src/go2_scoreboard/**, host_tools/scoreboard_dashboard/**, src/go2_auto_mapper/go2_auto_mapper/explorer.py structured event publisher, src/go2_sim/go2_sim/trials.py -->
