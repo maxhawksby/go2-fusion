@@ -52,7 +52,7 @@ You are set up. From here, the [Docker](docker.md) page explains the daily edit 
 ## The 3 most common problems
 
 1. **`docker info` fails or hangs.** Docker Desktop is not running, or (inside WSL) its WSL integration is off. Start Docker Desktop and wait for "Engine running". In WSL, turn on Docker Desktop > Settings > Resources > WSL Integration for your Ubuntu distro. Details: [WSL and Windows](wsl.md).
-2. **The build crashes or WSL freezes.** It ran out of memory: compiling many packages at once used all 7.4 GB WSL had on one laptop. Build with fewer parallel jobs inside the container: `MAKEFLAGS=-j4 colcon build --symlink-install --parallel-workers 2`, or give WSL more memory with `memory=` in your `.wslconfig` file.
+2. **The build crashes or WSL freezes.** It ran out of memory: compiling many packages at once used all 7.4 GB WSL had on one laptop. The container now builds with 2 workers and `-j4` by default; if it still freezes, set `COLCON_WORKERS=1`, or give WSL more memory with `memory=` in your `.wslconfig` file.
 3. **The container stops at once with `The aioice submodule is missing`.** You cloned without `--recursive`. Run `git submodule update --init --recursive` and start again.
 
 ## Pages, in reading order
@@ -64,6 +64,7 @@ You are set up. From here, the [Docker](docker.md) page explains the daily edit 
 5. [Lab checklist](lab-checklist.md) - what to do before and at the lab to connect to the real Oak.
 6. [Test log](test-log.md) - what we tested on Oak, what passed, and what is still open.
 7. [Simulator](simulator.md) - a pretend Oak in Gazebo: watch the auto mapper with no robot, or run it 10 times and get a score table.
+8. [Experiments](experiments.md) - the lab notebook of every simulator experiment: what we changed, the numbers, why runs quit, and what we learned.
 
 ## Going to the lab
 

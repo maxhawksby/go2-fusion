@@ -58,8 +58,9 @@ the log. **Stop** sends it `SIGINT` — not `QProcess`'s
 default `SIGTERM` — specifically so the explorer node's own
 `KeyboardInterrupt`/`ExternalShutdownException` handling runs and cancels
 any in-flight Nav2 goal before exiting, the same clean-shutdown path
-documented in `go2_auto_mapper/README.md`. If it doesn't exit within 5s,
-the panel force-kills it.
+documented in `go2_auto_mapper/README.md`. If it doesn't exit within 12 s,
+the panel force-kills it. (The explorer cancels the goal it is walking to
+first, but its whole shutdown can take about 9 s when Nav2 is slow.)
 
 **This still moves the robot on its own** — same caution as running the
 explorer from a terminal: only use it when you're physically present and

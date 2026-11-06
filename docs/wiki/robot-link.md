@@ -2,6 +2,7 @@
 title: Robot link
 parent: driver
 code: [src/go2_robot_sdk/go2_robot_sdk/infrastructure/webrtc/**, src/go2_robot_sdk/external_lib/**]
+verified: 72865ece908b
 ---
 
 # Robot link
@@ -26,7 +27,7 @@ Connecting is a handshake in a few steps:
 **Newer firmware needs an extra key.** On firmware 1.1.15 and newer the dog's first answer is itself encrypted with a per-device AES key (a 32-character hex code tied to the Unitree account the dog is registered to).
 You pass it as `ROBOT_AES_KEY`. Never put it in a file in the repo; ask a teammate for it.
 
-**Staying connected.** If the connection closes, or the data channel goes quiet for 5 seconds while video keeps coming, the driver treats it as lost and reconnects, waiting 5 s, then 10 s, up to 60 s between tries.
+**Staying connected.** If the connection closes, or the data channel goes quiet for 5 seconds while video keeps coming, the driver treats it as lost and reconnects, waiting 5 s, then 10 s, up to 60 s between tries. A connection that stayed up at least 30 s starts the waits over at 5 s. Each new connection also starts with fresh lidar and camera watches, so a give-up from the old connection cannot end the new one.
 
 **Watching each stream.** One stream can also go quiet while the rest keeps flowing: after a reconnect, odometry came back but the lidar cloud or the camera sometimes did not. So the driver watches the lidar and the camera separately:
 

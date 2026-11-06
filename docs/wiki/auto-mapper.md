@@ -2,6 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
+verified: 5f5ddc20d877
 ---
 
 # Auto mapper
@@ -38,7 +39,7 @@ Part of: [Maps and navigation](maps-nav.md)
 - **Unstuck moves, exactly.** It checks the whole padded body (0.36 m forward, 0.45 m back, 0.40 m wide, plus a 5 cm margin) everywhere it could be during the move: anywhere along the way, up to 0.05 m off the line and turned up to 0.10 rad (about 6 degrees), which are the limits that abort the move. They were 0.10 m and 0.15 rad; at those, the bigger envelope touched walls 0.17 m away and Oak never made a recovery move in the simulator. Only walls themselves (lethal costmap cells) block it, not their inflation. The one exception is the obstacle that stopped Oak: while backing straight away from it, anything past the nose is ignored. Unknown cells, a scan older than 0.75 s, and missing or infinite rays toward the space the move enters all count as unsafe. It picks the safe corridor with the most extra clearance, moves for at most 8 seconds, and rechecks 4 times a second. `/scan` must be in the `base_link` frame. If no direction is safe, the robot drifts, or clearance disappears, it stays stopped (a "latch"). A later fresh scan clears the latch when the way ahead is open, or starts another short move when a rear or side corridor has opened; **Scan** clears it at once.
 - **After a move** it stays stopped until a newer `/scan`, live `/point_cloud2`, local costmap and map/odom transforms arrive. A new SLAM `/map` is needed only when the move was at least 0.2 m (slam_toolbox's minimum travel). Obstacles that moved away are cleared by Nav2's costmap voxel layer tracing `/scan` (`clearing: true` in `nav2_params.yaml`); unknown local costmap cells stay unknown, so recovery never treats them as free. The scan's height filter also limits which obstacles recovery can see.
 - **Stuck** means 3 failed goals in a row (`stuck_failure_count`), an obstacle-ahead abort, or "No usable goal" twice running. The open-space search goes through free space up to 4 m away (so never through walls). A failed escape does not trigger another one, escapes are at least 30 s apart, and escape goals always trigger a scan, even with `scan_after_goal` off. A failed scan also leaves exploration stopped.
-- **Stopping.** Ctrl+C cancels the in-flight Nav2 goal and waits briefly for the cancel to reach Nav2, so Oak does not keep walking toward a goal nobody tracks. Publishing an empty Twist on `/cmd_vel_joy` works as an emergency stop because twist_mux gives it the highest priority (10), overriding Nav2.
+- **Stopping.** Ctrl+C sends a zero speed on `/cmd_vel_mapper`, then cancels the in-flight Nav2 goal and any Spin or back-up still running, waiting up to 2 s for each cancel to reach Nav2, so Oak does not keep walking toward a goal nobody tracks. Publishing an empty Twist on `/cmd_vel_joy` works as an emergency stop because twist_mux gives it the highest priority (10), overriding Nav2.
 
 ### Settings
 
@@ -81,7 +82,7 @@ Set `NAV_LOG_DIR` in the container's environment (or the `nav_log_dir` parameter
 
 ### Using the VLM
 
-The model needs an NVIDIA GPU, so it runs on a cloud server, not the laptop. The laptop reaches it through an SSH tunnel; the explorer never waits on the network for more than `vlm_timeout`.
+The model needs an NVIDIA GPU, so it runs on a GPU server, not the laptop. **Camera pictures leave the robot:** with `vlm_mode` on or the VLM view running, Oak's camera pictures are sent to that server (the team uses a university GPU server), and with `NAV_LOG_DIR` set they are also saved where the explorer runs. Both are off by default. The laptop reaches it through an SSH tunnel; the explorer never waits on the network for more than `vlm_timeout`.
 
 1. **On the GPU server** (over SSH), start an OpenAI-style server. With vLLM: `vllm serve Qwen/Qwen2.5-VL-7B-Instruct --port 8000`. With Ollama: `ollama pull qwen2.5vl:7b`, then use port 11434 and `vlm_model:=qwen2.5vl:7b`. TODO(Luis): which server and model fit the cloud GPU's memory.
 2. **On the laptop**, open the tunnel and leave it running: `ssh -N -L 8000:localhost:8000 <user>@<gpu-server>`. Now `localhost:8000` on the laptop is the server.
@@ -112,9 +113,10 @@ From the package README and Luis's commits (Oct 14-19):
 - **"No usable goal".** Press Scan: it re-looks and retries recently failed spots.
 - **Nibbling the nearest edge.** Ranking goals by distance made it creep along the closest frontier; replaced by "most revealed per meter" on 2026-10-16.
 - **Two motions at once.** Codex reviews on 2026-10-17 found cases where a late Nav2 reply or a recovery move could override a stop; each maneuver is now tracked until Nav2 confirms it ended, and a latched stop always wins.
-- **Latched stopped next to the first close wall.** The unstuck check used to look at Oak's whole padded body, including the nose. Once something was within about 0.25 m of the nose, its inflated cost already covered the body, so backing away and both side moves all looked blocked, and Oak waited forever ("no safe direction: rear and both sides lack clearance"). It also refused moves through Nav2's inscribed band (cells where the robot's *centre* would touch) on top of the padded body, which doubled the body's width, so backing out along a wall 0.2 m away looked blocked too. And it never accepted backing up at all: straight behind Oak is the scan's last-plus-one ray, which it read as "no measurement". Found in the [Simulator](simulator.md). Now the whole body is checked through the allowed drift against walls themselves (lethal cells), only the obstacle Oak backs away from is ignored, and the scan wraps around. A first version checked only the half of the body facing the move, which a review caught: a wall beside the front half could be hit if Oak turned while backing up. Not yet confirmed on Oak.
-- **Backing up is new on the real Oak.** On master these moves were always refused, so Oak has never actually backed up or slid sideways on its own. With these fixes it will. The first tries on the real floor need a spotter ready to stop it (an empty Twist on `/cmd_vel_joy`, or the gamepad).
-- **Waits for fresh data.** After every scan or move it waits up to 20 s for newer `/scan`, `/point_cloud2`, `/map`, costmap and TF. If they don't come, exploration stays stopped until Scan is pressed.
+- **Latched stopped next to the first close wall.** The unstuck check used to look at Oak's whole padded body, including the nose. Once something was within about 0.25 m of the nose, its inflated cost already covered the body, so backing away and both side moves all looked blocked, and Oak waited forever ("no safe direction: rear and both sides lack clearance"). It also refused moves through Nav2's inscribed band (cells where the robot's *centre* would touch) on top of the padded body, which doubled the body's width, so backing out along a wall 0.2 m away looked blocked too. And it never accepted backing up at all: straight behind Oak is the scan's last-plus-one ray, which it read as "no measurement". Found in the [Simulator](simulator.md). Now the whole body is checked through the allowed drift against walls themselves (lethal cells), only the obstacle Oak backs away from is ignored, and the scan wraps around. A first version checked only the half of the body facing the move, which a review caught: a wall beside the front half could be hit if Oak turned while backing up. These fixes reached master in pull request #41 (2026-11-05). In the simulator Oak can still latch stopped beside a 1.2 m doorway (see [Simulator](simulator.md)). Not yet confirmed on Oak.
+- **Backing up is new on the real Oak.** Before pull request #41 these moves were always refused, so Oak has never actually backed up or slid sideways on its own. Now it will. The first tries on the real floor need a spotter ready to stop it (an empty Twist on `/cmd_vel_joy`, or the gamepad).
+- **Ctrl+C did not stop cleanly.** ROS shut itself down before the auto mapper's stop step ran, so the final zero speed and the Nav2 goal cancel never went out. Fixed in pull request #41: ROS now stays up until that step is done.
+- **Waits for fresh data.** After every scan or move it waits up to 12 s for newer `/scan`, `/point_cloud2`, `/map`, costmap and TF. If they don't come, exploration stays stopped until Scan is pressed.
 - **The 3D cloud forgets moved objects only where Oak looks** (see [Lidar](lidar.md)); neither SLAM nor the 3D map is cleared during recovery.
 - **People positions are rough.** They come from the camera's box-height guess, and on master left and right are flipped (see [Object detection](object-detection.md)), so Oak can wait for, or steer around, a person on the wrong side. The camera only looks forward, so people behind or beside Oak are not seen. TODO(Luis): test with people in the lab.
 - **Waiting too long gets the goal dropped.** Nav2 gives up a goal after 10 s without movement (`movement_time_allowance`); the 6 s wait stays under that, so don't raise one without the other.
@@ -124,7 +126,7 @@ From the package README and Luis's commits (Oct 14-19):
 
 ## Who's on it and what's next
 
-**Luis** owns the auto mapper. In the week of 2026-10-18 he made exploration reliable (fixes above, Scan and Reset maps buttons, faster frontiers, Nav2 and SLAM tuning) and merged it to master. Next: full exploration tests on Oak.
+**Luis** owns the auto mapper. In the week of 2026-10-18 he made exploration reliable (fixes above, Scan and Reset maps buttons, faster frontiers, Nav2 and SLAM tuning) and merged it to master. Max fixed the unstuck move after the [Simulator](simulator.md) found it latching (pull request #41), and Noah fixed the Ctrl+C cleanup in the same pull request. Next: full exploration tests on Oak, with a spotter for the first back-up moves.
 
 ## The code
 
@@ -151,5 +153,7 @@ Tests, no robot needed:
 ```shell
 docker compose run --rm unitree_ros bash -c 'python3 -m pytest /ros2_ws/src/go2_auto_mapper/test'
 ```
+
+The robot build check on GitHub also runs these tests on every pull request (style checks are skipped there for now).
 
 <!-- sources: src/go2_auto_mapper/README.md, go2_auto_mapper/explorer.py (subscriptions, action clients, /cmd_vel_mapper), obstacle_sensing.py, frontier_scoring.py, src/go2_robot_sdk/config/twist_mux.yaml, src/go2_rviz_plugins/src/auto_mapper_panel.cpp, docs/USEFUL_COMMANDS.md, AGENTS.md, docs/FUSION.md, git log Oct 14-19 (commits 7ebad74, 6bf385f, 1973d50, 7b3a8e7, 9b9e25b, 264939b, a51627d), contract team updates (Luis) -->

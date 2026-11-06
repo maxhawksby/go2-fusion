@@ -23,7 +23,7 @@ namespace
 // How long to wait after a graceful SIGINT (the Ctrl+C-equivalent path
 // explorer.py's own shutdown handling expects, so it cancels any in-flight
 // Nav2 goal) before giving up and force-killing the process.
-constexpr int kGracefulStopTimeoutMs = 5000;
+constexpr int kGracefulStopTimeoutMs = 12000;
 
 // Re-enable a service button if the node never answers the request.
 constexpr int kServiceReplyTimeoutMs = 5000;

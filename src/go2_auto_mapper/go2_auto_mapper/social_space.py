@@ -1,8 +1,9 @@
-"""Where people are and will walk, as circles the explorer keeps out of.
+"""
+Where people are and will walk, as circles the explorer keeps out of.
 
 Reads the /people JSON from object_detection (ideas from SocialNav,
-https://github.com/ram95d/SocialNav): each person's position, a 12-step
-walking forecast and a group number. Three kinds of circle come out of it:
+https://github.com/ram95d/SocialNav): each person's position, a 12-step walking forecast and a
+group number. Three kinds of circle come out of it:
 
 - personal space around each person,
 - a narrower band along where they are about to walk,
@@ -32,8 +33,11 @@ Zone = namedtuple('Zone', 'x y radius kind')
 
 
 def parse_people(text):
-    """The /people JSON as a list of (x, y, path, group); bad entries are
-    skipped instead of raising."""
+    """
+    Parse the /people JSON into a list of (x, y, path, group).
+
+    Bad entries are skipped instead of raising.
+    """
     try:
         data = json.loads(text)
     except (TypeError, ValueError):
@@ -53,7 +57,7 @@ def parse_people(text):
 
 
 def transform(x, y, tx, ty, yaw):
-    """Point (x, y) moved by a 2D transform (tx, ty, yaw)."""
+    """Shift and turn point (x, y) by (tx, ty, yaw)."""
     c, s = math.cos(yaw), math.sin(yaw)
     return tx + c * x - s * y, ty + s * x + c * y
 
@@ -61,7 +65,7 @@ def transform(x, y, tx, ty, yaw):
 def social_zones(people, tx=0.0, ty=0.0, yaw=0.0, personal=PERSONAL_SPACE_M,
                  path_space=PATH_SPACE_M, horizon=PATH_HORIZON_STEPS,
                  margin=GROUP_MARGIN_M):
-    """Circles to keep out of, moved by (tx, ty, yaw) into the map frame."""
+    """Return the circles to keep out of, in the map frame."""
     zones, groups = [], {}
     for x, y, path, group in people:
         mx, my = transform(x, y, tx, ty, yaw)
@@ -79,14 +83,17 @@ def social_zones(people, tx=0.0, ty=0.0, yaw=0.0, personal=PERSONAL_SPACE_M,
 
 
 def zone_at(x, y, zones):
-    """The first zone containing (x, y), or None."""
+    """Return the first zone containing (x, y), or None."""
     return next((z for z in zones if math.hypot(x - z.x, y - z.y) < z.radius), None)
 
 
 def line_crosses(x0, y0, x1, y1, zones, step=LINE_STEP_M):
-    """The first zone the straight line from (x0, y0) to (x1, y1) enters,
-    ignoring zones the start is already inside (the robot can always leave),
-    or None."""
+    """
+    Return the first zone a straight line enters, or None.
+
+    The first zone the straight line from (x0, y0) to (x1, y1) enters, ignoring zones the start is
+    already inside (the robot can always leave), or None.
+    """
     outside = [z for z in zones if math.hypot(x0 - z.x, y0 - z.y) >= z.radius]
     length = math.hypot(x1 - x0, y1 - y0)
     steps = max(1, int(math.ceil(length / step)))

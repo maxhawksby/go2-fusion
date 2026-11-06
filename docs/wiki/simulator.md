@@ -2,6 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
+verified: d4f76d4cc8c0
 ---
 
 # Simulator
@@ -117,6 +118,8 @@ The first 10-run batch in the placeholder world, default dials, real-time factor
 
 Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the first version of those fixes, before the unstuck move learned to check Oak's whole body through its allowed drift. With the final version, one 8-minute run (seed 1, 2026-10-31) mapped 48.3 %, with 0 costmap timeouts and 0 collisions, but latched stopped next to the 1.2 m doorway after 44 s ("no safe direction: rear and both sides lack clearance") and never moved again. Master without the fixes maps 5.0 % in the same run. TODO(Max): re-run the 10-run batch with the final fixes.
 
+Every simulator experiment since 2026-11-06 (hypothesis, change, runs, why each run quit, verdict) is logged in the [experiments journal](experiments.md).
+
 ## What it found so far
 
 Before the recovery fixes (master's old Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
@@ -148,5 +151,7 @@ Unit tests (no Gazebo needed):
 ```shell
 docker compose run --rm unitree_ros bash -c 'python3 -m pytest /ros2_ws/src/go2_sim/test'
 ```
+
+The robot build check on GitHub also runs these tests on every pull request (style checks are skipped there for now).
 
 <!-- sources: src/go2_sim/** (this branch), src/go2_robot_sdk/launch/robot.launch.py (driver arg), go2_driver_node.py and ros2_publisher.py (topics, odom frame), urdf/go2.urdf (radar_joint), config/nav2_params.yaml (footprint), config/twist_mux.yaml, docs/wiki/driver.md and test-log.md (lidar rates), docs/wiki/auto-mapper.md ("Exploration complete") -->

@@ -143,3 +143,53 @@ def test_quiet_camera_is_nudged_but_never_reconnects():
     assert adapter.is_connected('0')                       # still connected
     adapter.note_video_frame('0')                          # frames are back
     assert video.check(time.monotonic()) == 'ok'
+
+
+def _given_up_adapter():
+    """Return a validated adapter whose lidar watch has already given up."""
+    adapter, conn = _validated_adapter(enable_video=False)
+    watch = adapter.lidar_watch['0']
+    watch.started -= 11.0
+    adapter.is_connected('0')                              # nudge
+    watch.nudged_at -= 11.0
+    conn.last_message_mono = time.monotonic()
+    assert not adapter.is_connected('0')                   # given up
+    return adapter
+
+
+def test_a_reconnect_is_not_judged_by_the_old_watch():
+    adapter = _given_up_adapter()
+    # What connect() does before building the new connection.
+    adapter._forget_streams('0')
+    adapter.connections['0'] = _FakeConn()
+    adapter.disconnected_events['0'] = asyncio.Event()
+    # Not validated yet: no watch, so it must not be ended at once.
+    assert adapter.is_connected('0')
+    adapter._on_validated('0')
+    # Still up 11 s later in watch time: one nudge, no give-up.
+    adapter.lidar_watch['0'].started -= 11.0
+    assert adapter.is_connected('0')
+
+
+def test_disconnect_forgets_the_stream_watches():
+    adapter = _given_up_adapter()
+
+    class Closing(_FakeConn):
+        async def disconnect(self):
+            pass
+
+    adapter.connections['0'] = Closing()
+    asyncio.run(adapter.disconnect('0'))
+    assert '0' not in adapter.lidar_watch
+    assert '0' not in adapter.stream_log_at
+
+
+def test_backoff_doubles_while_connections_keep_failing():
+    from go2_robot_sdk.main import MAX_BACKOFF_SEC, backoff_after
+    assert backoff_after(5.0, 0.0) == 10.0
+    assert backoff_after(40.0, 2.0) == MAX_BACKOFF_SEC
+
+
+def test_backoff_starts_over_after_a_good_connection():
+    from go2_robot_sdk.main import INITIAL_BACKOFF_SEC, STABLE_CONNECTION_SEC, backoff_after
+    assert backoff_after(60.0, STABLE_CONNECTION_SEC) == INITIAL_BACKOFF_SEC

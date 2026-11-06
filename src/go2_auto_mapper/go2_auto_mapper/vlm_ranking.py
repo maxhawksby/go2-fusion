@@ -1,12 +1,15 @@
-"""Asking a vision-language model (VLM) which frontier looks most worth
-exploring, from the camera's view toward each one.
+"""
+Ask a vision-language model which frontier is worth exploring.
 
-The model runs on a GPU server behind an OpenAI-compatible chat API (vLLM
-and Ollama both serve one), usually reached through an SSH tunnel. Nothing
-here needs ROS, so it can be tested with hand-made data.
+Asking a vision-language model (VLM) which frontier looks most worth exploring, from the camera's
+view toward each one.
 
-The VLM only re-ranks goals the explorer already found free and clear of
-walls: lidar, SLAM and Nav2 still decide where the robot can walk.
+The model runs on a GPU server behind an OpenAI-compatible chat API (vLLM and Ollama both serve
+one), usually reached through an SSH tunnel. Nothing here needs ROS, so it can be tested with
+hand-made data.
+
+The VLM only re-ranks goals the explorer already found free and clear of walls: lidar, SLAM and
+Nav2 still decide where the robot can walk.
 """
 
 import base64
@@ -26,7 +29,7 @@ from go2_auto_mapper.obstacle_sensing import angle_difference
 NEUTRAL_SCORE = 0.5
 
 PROMPT = (
-    'You are helping a robot dog, 0.7 m long and 0.3 m wide, map an unfamiliar '
+    'You are helping a robot dog, 0.81 m long and 0.40 m wide, map an unfamiliar '
     'indoor building. Each of the {n} images below is its camera view toward a '
     'different unexplored area, with what its map says about that area. The map '
     'already knows the distances and walls. Use the picture for what the map '
@@ -39,7 +42,7 @@ PROMPT = (
 )
 
 DESCRIBE_PROMPT = (
-    'You are the camera of a robot dog, 0.7 m long and 0.3 m wide, exploring a '
+    'You are the camera of a robot dog, 0.81 m long and 0.40 m wide, exploring a '
     'building to map it. Describe what you see, then suggest its next move, toward '
     'a doorway, hallway or open room it could map. Its lidar measures distances you '
     'cannot judge from a picture, and it only knows about what is in front of the '
@@ -82,7 +85,8 @@ def heading_bin(yaw, bins):
 
 
 class ViewMemory:
-    """The latest camera frame per heading, with where the robot stood.
+    """
+    The latest camera frame per heading, with where the robot stood.
 
     The robot turns a full circle at the start and after every goal, so
     this fills with a view in every direction from where it now stands.
@@ -97,7 +101,8 @@ class ViewMemory:
         self.views[heading_bin(yaw, self.bins)] = (x, y, yaw, frame, now)
 
     def view_toward(self, x, y, bearing, now, max_offset_m, max_angle, max_age):
-        """The frame best facing `bearing` from near (x, y), or None.
+        """
+        Return the frame best facing `bearing` from near (x, y), or None.
 
         A view only counts if it was taken within `max_offset_m` of (x, y),
         at most `max_age` seconds ago, and within `max_angle` radians of
@@ -116,8 +121,11 @@ class ViewMemory:
 
 
 def build_request(model, jpegs, facts=None):
-    """Chat-completions payload asking the model to score each image. facts,
-    if given, is one line per image of what the map says about that area."""
+    """
+    Chat-completions payload asking the model to score each image.
+
+    facts, if given, is one line per image of what the map says about that area.
+    """
     content = [{'type': 'text', 'text': PROMPT.format(n=len(jpegs))}]
     for i, jpeg in enumerate(jpegs, start=1):
         fact = f' {facts[i - 1]}' if facts else ''
@@ -138,7 +146,7 @@ def build_request(model, jpegs, facts=None):
 
 
 def lidar_sentence(ranges, angle_min, angle_increment):
-    """The lidar's distance each way, in words, for the prompt."""
+    """Describe the lidar's distance each way, in words, for the prompt."""
     parts = []
     for name, bearing in (('forward', 0.0), ('left', math.pi / 2), ('right', -math.pi / 2),
                           ('behind', math.pi)):
@@ -166,8 +174,11 @@ def build_describe_request(model, jpeg, lidar='The lidar is not available now.')
 
 
 def parse_suggestion(text):
-    """(description, move, reason) from the model's reply. move is None if it
-    gave no known move; then description is whatever it said."""
+    """
+    Read (description, move, reason) from the model's reply.
+
+    move is None if it gave no known move; then description is whatever it said.
+    """
     match = re.search(r'\{.*\}', text or '', re.DOTALL)
     try:
         data = json.loads(match.group(0))
@@ -180,8 +191,12 @@ def parse_suggestion(text):
 
 
 def clear_distance(ranges, angle_min, angle_increment, bearing, cone=MOVE_CONE_RAD):
-    """Nearest lidar reading within cone of bearing (radians, 0 ahead), or None
-    if the scan has no valid reading there."""
+    """
+    Return the nearest lidar reading within cone of bearing.
+
+    Nearest lidar reading within cone of bearing (radians, 0 ahead), or None if the scan has no
+    valid reading there.
+    """
     nearest = None
     for i, reading in enumerate(ranges):
         if not math.isfinite(reading) or reading <= 0.0:
@@ -206,8 +221,12 @@ def describe_move(move, nearest, have_scan):
 
 
 def suggestion_message(move, heading, nearest, now):
-    """The /vlm/suggestion JSON. heading is the map-frame direction to walk (None
-    if unknown); clear only when the lidar saw room that way."""
+    """
+    Build the /vlm/suggestion JSON.
+
+    heading is the map-frame direction to walk (None if unknown); clear only when the lidar saw
+    room that way.
+    """
     return json.dumps({
         'move': move,
         'heading': heading,
@@ -217,8 +236,12 @@ def suggestion_message(move, heading, nearest, now):
 
 
 def usable_heading(text, now, max_age=SUGGESTION_MAX_AGE_SEC):
-    """The map-frame heading from a /vlm/suggestion message, or None unless it
-    is recent, has a direction, and the lidar saw room that way."""
+    """
+    Return the heading of a usable /vlm/suggestion message.
+
+    The map-frame heading from a /vlm/suggestion message, or None unless it is recent, has a
+    direction, and the lidar saw room that way.
+    """
     try:
         data = json.loads(text)
         if now - float(data['time']) > max_age or data.get('clear') is not True:
@@ -234,7 +257,8 @@ def suggestion_bonus(goal_bearing, heading, weight, cone=SUGGESTION_CONE_RAD):
 
 
 def parse_reply(text, count):
-    """(scores, reason) from the model's reply, or (None, why) if unusable.
+    """
+    (scores, reason) from the model's reply, or (None, why) if unusable.
 
     Models often wrap JSON in prose or a code fence, so the first {...}
     block is read. Scores are clamped to 0..1, and there must be exactly
@@ -254,20 +278,29 @@ def parse_reply(text, count):
 
 
 def merge_scores(has_view, scores):
-    """One score per candidate: the model's, in order, for those with a
-    view, and NEUTRAL_SCORE for those without (the model never saw them)."""
+    """
+    Return one score per candidate, neutral where unseen.
+
+    One score per candidate: the model's, in order, for those with a view, and NEUTRAL_SCORE for
+    those without (the model never saw them).
+    """
     model_scores = iter(scores)
     return [next(model_scores) if seen else NEUTRAL_SCORE for seen in has_view]
 
 
 def vlm_bonus(score, weight):
-    """Cells of information gain a VLM score is worth: +weight/2 for a
-    sure yes, -weight/2 for a sure no, 0 for a shrug."""
+    """
+    Return the information-gain cells a VLM score is worth.
+
+    Cells of information gain a VLM score is worth: +weight/2 for a sure yes, -weight/2 for a sure
+    no, 0 for a shrug.
+    """
     return weight * (score - NEUTRAL_SCORE)
 
 
 def match_score(ranking, x, y, radius):
-    """The ranking's score for the goal within `radius` of (x, y), or None.
+    """
+    Return the ranking's score for the goal within `radius` of (x, y), or None.
 
     Goals move a little each time SLAM updates the map, so they are
     matched by distance rather than exactly.
@@ -296,9 +329,13 @@ def post_chat(url, payload, timeout, api_key=None):
 
 
 class VlmClient:
-    """Sends one request at a time on a background thread, so the
-    explorer's timer (which also watches for obstacles) never waits on the
-    network. The explorer polls take_result() on its next loop.
+    """
+    Send one VLM request at a time on a background thread.
+
+    Sends one request at a time on a background thread, so the explorer's timer (which also watches
+    for obstacles) never waits on the network.
+
+    The explorer polls take_result() on its next loop.
     """
 
     def __init__(self, url, model, timeout, encode, api_key=None, post=post_chat):
@@ -316,8 +353,12 @@ class VlmClient:
         return self.thread is not None and self.thread.is_alive()
 
     def submit(self, goals, frames, facts=None):
-        """Ask about `goals` [(x, y)], with a camera frame (or None) each, and
-        optionally one line of what the map says about each."""
+        """
+        Ask about goals, each with a camera frame or None.
+
+        Ask about `goals` [(x, y)], with a camera frame (or None) each, and optionally one line of
+        what the map says about each.
+        """
         if self.busy():
             return False
         self.thread = threading.Thread(
@@ -327,7 +368,7 @@ class VlmClient:
         return True
 
     def take_result(self):
-        """The finished Ranking, once; None while waiting or if taken."""
+        """Return the finished Ranking once; None while waiting or if taken."""
         with self.lock:
             result, self.result = self.result, None
         return result

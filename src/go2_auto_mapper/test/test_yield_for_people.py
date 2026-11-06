@@ -1,5 +1,4 @@
-"""ROS-dependent tests of the explorer waiting for people; run inside the
-Humble container."""
+"""ROS-dependent tests of the explorer waiting for people; run in the container."""
 
 from types import SimpleNamespace
 
@@ -10,7 +9,7 @@ from go2_auto_mapper.social_space import social_zones
 def explorer_stub(people, goal_active=True):
     node = SimpleNamespace(
         yield_to_people=True, goal_active=goal_active, yield_since=None,
-        yield_spent=False, stops=[],
+        yield_spent=False, stops=[], map_frame='map',
     )
     node.get_robot_pose = lambda frame: (0.0, 0.0, 0.0)   # facing +x
     node.people_zones = lambda: social_zones(people)

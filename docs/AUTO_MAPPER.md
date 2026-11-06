@@ -172,16 +172,7 @@ The escape is an ordinary `navigate_to_pose` goal, followed by a scan. Escapes a
 
 These aren't in `go2_auto_mapper`, but the explorer depends on them:
 
-- **Lower exploration thresholds:**
-
-  | Parameter | Old | New |
-  | --- | --- | --- |
-  | `min_frontier_size` | 5 | 3 |
-  | `wall_clearance` | 0.5 | 0.35 |
-  | `obstacle_stop_distance` | 0.3 | 0.15 |
-  | `open_space_clearance` | 0.8 | 0.6 |
-
-  With these, it explores tighter rooms instead of stopping at "No usable goal".
+- **Exploration thresholds:** `min_frontier_size` 5, `wall_clearance` 0.5 m, `obstacle_stop_distance` 0.3 m, `open_space_clearance` 0.8 m. Lower values (3, 0.35, 0.15, 0.6) were tried to explore tighter rooms, and were put back until a simulator trial with a collision count shows they are safe.
 - **Driver stream watch** (`connection_health.StreamWatch`): it nudges the robot when the lidar or camera goes quiet while other data still arrives, and reconnects if the lidar stays quiet. Without lidar there is no `/scan`, so the explorer's sensing gate would stay closed.
 - **3D map follows the environment** (`lidar_processor/point_map.py`): the accumulated cloud replaces the points in each 0.25 m cell the lidar sees again, instead of only adding to them. Moved or removed objects disappear from the 3D map.
 - **RViz view follows the robot:** the layout's target frame is `base_link`.
