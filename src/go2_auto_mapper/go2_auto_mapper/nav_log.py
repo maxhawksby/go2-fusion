@@ -31,7 +31,7 @@ class NavLog:
 
     def goal_sent(self, robot, target, known_cells, frontier_size, score, jpeg=None):
         """
-        A new goal went to Nav2.
+        Record a new goal sent to Nav2.
 
         It also finishes the goal before it: the map has now had its scan at that goal, so what it
         revealed can be counted.

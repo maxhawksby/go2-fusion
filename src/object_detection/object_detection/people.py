@@ -136,7 +136,9 @@ def forecast(x, y, vx, vy, steps, step_sec):
 
 def find_groups(points, eps, min_people):
     """
-    DBSCAN on a handful of points: a group number per point, or None for a person standing alone.
+    Group a handful of points with DBSCAN.
+
+    Returns a group number per point, or None for a person standing alone.
     """
     neighbors = [
         [j for j, q in enumerate(points) if math.hypot(p[0] - q[0], p[1] - q[1]) <= eps]
@@ -163,13 +165,13 @@ def find_groups(points, eps, min_people):
 
 
 def to_odom(x, y, robot_x, robot_y, robot_yaw):
-    """A base_link point in the odom frame, given the robot's odom pose."""
+    """Move a base_link point into the odom frame, given the robot's odom pose."""
     c, s = math.cos(robot_yaw), math.sin(robot_yaw)
     return robot_x + c * x - s * y, robot_y + s * x + c * y
 
 
 def people_dict(people):
-    """The JSON published on /people, rounded to centimeters."""
+    """Build the JSON published on /people, rounded to centimeters."""
     return {
         f'person_{p.id}': {
             'x': round(p.x, 2), 'y': round(p.y, 2),

@@ -1,6 +1,4 @@
-"""
-ROS-dependent tests of the explorer's VLM ranking; run inside the Humble container.
-"""
+"""ROS-dependent tests of the explorer's VLM ranking; run in the Humble container."""
 
 import time
 from types import SimpleNamespace

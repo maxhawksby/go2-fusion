@@ -83,7 +83,7 @@ class VlmView(Node):
         self.scan_time = time.monotonic()
 
     def map_yaw(self):
-        """The robot's heading on the map, or None if TF can't tell."""
+        """Return the robot's heading on the map, or None if TF can't tell."""
         try:
             q = self.tf_buffer.lookup_transform(
                 MAP_FRAME, ROBOT_FRAME, rclpy.time.Time()).transform.rotation
@@ -93,7 +93,7 @@ class VlmView(Node):
 
     def suggestion_text(self, reply, frame_yaw):
         """
-        The panel's text: the move, what the lidar thinks of it, the description.
+        Build the panel's text: the move, what the lidar thinks of it, the description.
 
         Also publishes the suggestion for the explorer.
         """

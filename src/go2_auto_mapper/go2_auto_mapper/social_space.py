@@ -34,7 +34,9 @@ Zone = namedtuple('Zone', 'x y radius kind')
 
 def parse_people(text):
     """
-    The /people JSON as a list of (x, y, path, group); bad entries are skipped instead of raising.
+    Parse the /people JSON into a list of (x, y, path, group).
+
+    Bad entries are skipped instead of raising.
     """
     try:
         data = json.loads(text)
@@ -55,7 +57,7 @@ def parse_people(text):
 
 
 def transform(x, y, tx, ty, yaw):
-    """Point (x, y) moved by a 2D transform (tx, ty, yaw)."""
+    """Shift and turn point (x, y) by (tx, ty, yaw)."""
     c, s = math.cos(yaw), math.sin(yaw)
     return tx + c * x - s * y, ty + s * x + c * y
 
@@ -81,7 +83,7 @@ def social_zones(people, tx=0.0, ty=0.0, yaw=0.0, personal=PERSONAL_SPACE_M,
 
 
 def zone_at(x, y, zones):
-    """The first zone containing (x, y), or None."""
+    """Return the first zone containing (x, y), or None."""
     return next((z for z in zones if math.hypot(x - z.x, y - z.y) < z.radius), None)
 
 

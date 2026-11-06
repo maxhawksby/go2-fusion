@@ -102,7 +102,7 @@ class ViewMemory:
 
     def view_toward(self, x, y, bearing, now, max_offset_m, max_angle, max_age):
         """
-        The frame best facing `bearing` from near (x, y), or None.
+        Return the frame best facing `bearing` from near (x, y), or None.
 
         A view only counts if it was taken within `max_offset_m` of (x, y),
         at most `max_age` seconds ago, and within `max_angle` radians of
@@ -146,7 +146,7 @@ def build_request(model, jpegs, facts=None):
 
 
 def lidar_sentence(ranges, angle_min, angle_increment):
-    """The lidar's distance each way, in words, for the prompt."""
+    """Describe the lidar's distance each way, in words, for the prompt."""
     parts = []
     for name, bearing in (('forward', 0.0), ('left', math.pi / 2), ('right', -math.pi / 2),
                           ('behind', math.pi)):
@@ -175,7 +175,7 @@ def build_describe_request(model, jpeg, lidar='The lidar is not available now.')
 
 def parse_suggestion(text):
     """
-    (description, move, reason) from the model's reply.
+    Read (description, move, reason) from the model's reply.
 
     move is None if it gave no known move; then description is whatever it said.
     """
@@ -222,7 +222,7 @@ def describe_move(move, nearest, have_scan):
 
 def suggestion_message(move, heading, nearest, now):
     """
-    The /vlm/suggestion JSON.
+    Build the /vlm/suggestion JSON.
 
     heading is the map-frame direction to walk (None if unknown); clear only when the lidar saw
     room that way.
@@ -300,7 +300,7 @@ def vlm_bonus(score, weight):
 
 def match_score(ranking, x, y, radius):
     """
-    The ranking's score for the goal within `radius` of (x, y), or None.
+    Return the ranking's score for the goal within `radius` of (x, y), or None.
 
     Goals move a little each time SLAM updates the map, so they are
     matched by distance rather than exactly.
@@ -368,7 +368,7 @@ class VlmClient:
         return True
 
     def take_result(self):
-        """The finished Ranking, once; None while waiting or if taken."""
+        """Return the finished Ranking once; None while waiting or if taken."""
         with self.lock:
             result, self.result = self.result, None
         return result

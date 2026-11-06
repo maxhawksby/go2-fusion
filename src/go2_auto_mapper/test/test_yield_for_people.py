@@ -1,6 +1,4 @@
-"""
-ROS-dependent tests of the explorer waiting for people; run inside the Humble container.
-"""
+"""ROS-dependent tests of the explorer waiting for people; run in the container."""
 
 from types import SimpleNamespace
 

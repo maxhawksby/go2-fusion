@@ -43,7 +43,7 @@ class History:
 
 
 def to_robot(x, y, robot_x, robot_y, robot_yaw):
-    """A map point as [right, forward] meters from the robot."""
+    """Express a map point as [right, forward] meters from the robot."""
     dx, dy = x - robot_x, y - robot_y
     c, s = math.cos(robot_yaw), math.sin(robot_yaw)
     forward = c * dx + s * dy
@@ -52,7 +52,7 @@ def to_robot(x, y, robot_x, robot_y, robot_yaw):
 
 
 def to_map(right, forward, robot_x, robot_y, robot_yaw):
-    """A [right, forward] point from the robot back to the map."""
+    """Turn a [right, forward] point from the robot back into the map frame."""
     c, s = math.cos(robot_yaw), math.sin(robot_yaw)
     left = -right
     return robot_x + c * forward - s * left, robot_y + s * forward + c * left
@@ -67,7 +67,7 @@ def step_scale(samples):
 
 def build_request(samples, goal_x, goal_y, encode):
     """
-    The /waypoints body from the history (newest last) and a map-frame goal.
+    Build the /waypoints body from the history (newest last) and a map-frame goal.
 
     encode turns a frame into JPEG bytes; the server takes them as base64.
     """
