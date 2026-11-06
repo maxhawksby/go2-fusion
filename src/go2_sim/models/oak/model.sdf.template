@@ -107,6 +107,8 @@
       </lidar>
     </sensor>
 
+    <!-- Front camera, only with camera_rate > 0 (world_tools.CAMERA_SENSOR). -->${camera}
+
     <sensor name="bumper_contact" type="contact">
       <topic>/sim/bumper</topic>
       <update_rate>20</update_rate>

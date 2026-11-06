@@ -30,6 +30,8 @@ setup(
     entry_points={
         'console_scripts': [
             'explorer = go2_auto_mapper.explorer:main',
+            'vlm_view = go2_auto_mapper.vlm_view:main',
+            'socialnav_view = go2_auto_mapper.socialnav_view:main',
         ],
     },
 )
