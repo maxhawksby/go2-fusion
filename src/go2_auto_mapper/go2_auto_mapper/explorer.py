@@ -496,12 +496,34 @@ class FrontierExplorer(Node):
         """Groups of free cells bordering unknown space (see
         frontier_scoring.find_frontier_clusters)."""
 
-        return find_frontier_clusters(
+        clusters = find_frontier_clusters(
             self.map.data,
             self.map.info.width,
             self.map.info.height,
             self.min_frontier_size,
         )
+        self._publish_frontiers_debug(clusters)  # LOCAL ONLY watch aid
+        return clusters
+
+    def _publish_frontiers_debug(self, clusters):  # LOCAL ONLY watch aid
+        from visualization_msgs.msg import Marker, MarkerArray
+        from geometry_msgs.msg import Point
+        if not hasattr(self, '_frontier_debug_pub'):
+            self._frontier_debug_pub = self.create_publisher(
+                MarkerArray, '/explorer/frontiers_debug', 1)
+        info = self.map.info
+        m = Marker()
+        m.header.frame_id = self.map.header.frame_id or 'map'
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.ns, m.id, m.type, m.action = 'frontiers', 0, Marker.POINTS, Marker.ADD
+        m.scale.x = m.scale.y = info.resolution * 1.5
+        m.color.r, m.color.g, m.color.b, m.color.a = 1.0, 0.5, 0.0, 1.0
+        ox, oy, r = info.origin.position.x, info.origin.position.y, info.resolution
+        for cluster in clusters:
+            for cell in cluster:
+                m.points.append(Point(x=ox + (cell[0] + 0.5) * r,
+                                      y=oy + (cell[1] + 0.5) * r, z=0.05))
+        self._frontier_debug_pub.publish(MarkerArray(markers=[m]))
 
     # ==========================================================
     # FRONTIER CENTER
