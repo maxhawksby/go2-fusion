@@ -25,7 +25,7 @@ All of it runs on the laptop, inside Docker, as part of the normal robot stack (
 1. [SLAM](slam.md) - `slam_toolbox` builds a 2D grid map of the room (`/map`) from `/scan` and odometry, and keeps correcting where Oak is on it.
 2. [Nav2](nav2.md) - plans a path to a goal on the map and steers Oak along it, publishing on `/cmd_vel` (twist_mux priority 5).
 3. [Auto mapper](auto-mapper.md) - autonomous frontier exploration: finds unexplored edges of the SLAM map and sends Nav2 goals there. It moves the robot on its own.
-4. [Map viewers](map-viewers.md) - two learning viewers of the live map: an SFML C++ window where a click sends a Nav2 goal, and a read-only Julia dashboard.
+4. [Map viewers](map-viewers.md) - a learning viewer of the live map: an SFML C++ window where a click sends a Nav2 goal.
 
 ## Three words you will meet everywhere
 
