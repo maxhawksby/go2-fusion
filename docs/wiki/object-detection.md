@@ -2,6 +2,7 @@
 title: Object detection
 parent: senses
 code: [src/object_detection/**, src/coco_detector/**]
+verified: 76d7ad300750
 ---
 
 # Object detection
@@ -21,7 +22,7 @@ Part of: [Senses](senses.md)
 
 **Remembering.** Each guess goes into a small memory, a dictionary of IDs like `chair_1` and `chair_2`. A new box within about 0.5 m of a remembered object of the same class is treated as the same object and keeps its ID; otherwise it gets the next number. Anything not seen for 20 seconds is forgotten. The memory is published as JSON text, for example `{"chair_1": {"x": 2.1, "y": -0.3}}`, where x is meters ahead and y is meters to the side.
 
-**Important today (master):** those positions are relative to the robot's body (`base_link`), not to the room. When Oak turns or walks, the same chair's x and y change, so it can get a second ID. Nothing is placed on the [SLAM](slam.md) map yet. That is exactly what Max's in-progress work fixes (see "What's next" below).
+**Important today (master):** those positions are relative to the robot's body (`base_link`), not to the room. When Oak turns or walks, the same chair's x and y change, so it can get a second ID. Nothing is placed on the [SLAM](slam.md) map yet. Max's map-memory branch fixes that, but it is not merged (see "What's next" below).
 
 **The older detector.** `coco_detector` is a second, older detector that uses a different network (MobileNet, from the torchvision library). It publishes the standard ROS message `vision_msgs/Detection2DArray` on `/detected_objects`, with a default confidence cut-off of 0.9 and no positions or memory. It is kept for now and is planned to be retired (see [Decisions](decisions.md), follow-up 3).
 
@@ -35,14 +36,14 @@ Part of: [Senses](senses.md)
 
 To change the default weights, add the file to `models/`, list it in `setup.py` `data_files`, and update the default in `detector_node.py`. It needs `ultralytics` from pip, which is in the repo's `requirements.txt`, so the Docker image has it.
 
-`coco_detector` comes from [jfrancis71/ros2_coco_detector](https://github.com/jfrancis71/ros2_coco_detector) (demo: https://www.youtube.com/watch?v=emUs0nwwde8), chosen for its simple code and standard ROS messages. Its parameters: `publish_annotated_image` (default `True`), `device` (default `cpu`; `cuda` uses a GPU if there is one), and `detection_threshold` (default 0.9, between 0.0 and 1.0; higher rejects more detections, so raise it if you get too many false ones). It puts the class name straight into the message's `class_id` (for example `dog`) instead of an ID to look up. The first run downloads the MobileNet network (`fasterrcnn_mobilenet_v3_large_320_fpn`), then it is cached.
+`coco_detector` comes from [jfrancis71/ros2_coco_detector](https://github.com/jfrancis71/ros2_coco_detector) (demo: https://www.youtube.com/watch?v=emUs0nwwde8), chosen for its simple code and standard ROS messages. Its parameters: `publish_annotated_image` (default `True`), `device` (default `auto`, which uses a GPU if one is available and else the CPU; `cpu` or `cuda` forces one, and the node logs which it runs on), `detection_rate_hz` (default 10, the most pictures per second it runs on; 0 or less means every picture), and `detection_threshold` (default 0.9, between 0.0 and 1.0; higher rejects more detections, so raise it if you get too many false ones). It puts the class name straight into the message's `class_id` (for example `dog`) instead of an ID to look up. The first run downloads the MobileNet network (`fasterrcnn_mobilenet_v3_large_320_fpn`), then it is cached.
 
 ## Connects to
 
 - [Camera](camera.md) - both detectors read `/camera/image_raw`, the driver's camera topic.
 - [Object navigation](object-navigation.md) - reads `/detected_objects_dict` and walks toward an object by ID.
 - [LLM agent](llm-agent.md) - its `look_for_object` tool is not wired to this memory yet; the agent's README says a fix would read `/detected_objects_dict`.
-- [SLAM](slam.md) and [TF and robot model](tf.md) - needed for the map-based memory in progress.
+- [SLAM](slam.md) and [TF and robot model](tf.md) - needed for the unmerged map-based memory.
 - [RViz panels](rviz-panels.md) - you can watch the boxes in RViz with an Image display.
 
 Topics (a topic is a named channel that ROS programs publish messages to and listen on):
@@ -60,7 +61,7 @@ Topics (a topic is a named channel that ROS programs publish messages to and lis
 
 - **Positions are rough.** No depth camera, no use of the camera calibration, no TF lookup (object_detection README, "Limits"). A chair half out of view looks shorter, so it looks farther away.
 - **No confidence filter on master.** It trusts every YOLO box, even weak ones. In the 2026-10-11 lab test it reported a chair at confidence 0.34 ([Test log](test-log.md)).
-- **Left and right are flipped on master.** Objects right of the picture's center get a positive y (left, in ROS's convention), so object navigation turns the wrong way. Found and fixed on the in-progress branch (commit `b078372`).
+- **Left and right are flipped on master.** Objects right of the picture's center get a positive y (left, in ROS's convention), so object navigation turns the wrong way. Fixed on the unmerged map-memory branch (commit `b078372`).
 - **ID mix-ups on master.** Matching checks whether an ID starts with the class name, so `car` can match `carrot_1`, and after an object expires a new one can reuse a live number (commit `b078372`).
 - **Speed.** About 4.5 pictures a second on CPU, 55 to 130 ms each, measured on Oak on 2026-10-11 ([Test log](test-log.md)). Results lag the camera by about one picture.
 - **First run needs internet.** `ultralytics` downloads a font the first time it draws boxes, and `coco_detector` downloads its network.
@@ -69,7 +70,7 @@ Topics (a topic is a named channel that ROS programs publish messages to and lis
 
 **Max** owns computer vision. His goal: YOLO that remembers objects in a local memory, to make mapping rooms easier.
 
-**In progress, not merged** (branch `feat/yolo-map-memory`, 3 commits on 2026-10-14):
+**Not merged** (branch `max/feat/yolo-map-memory`, 3 commits on 2026-10-14; its last pull request, #21, was closed without merging on 2026-10-26). TODO(Max): whether this work continues. What the branch does:
 
 - Each detection is moved onto the room map with TF, using where the camera was when the picture was taken. The memory lives in the `map` frame when SLAM runs, else `odom`, else `base_link`; if `map` appears later, remembered objects are moved over and keep their IDs.
 - A chair keeps its ID while Oak turns or walks, and ID numbers are never reused.

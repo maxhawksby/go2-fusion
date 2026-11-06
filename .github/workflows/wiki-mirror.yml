@@ -1,12 +1,17 @@
-# Copies the wiki from the repo into the GitHub Wiki tab after every merge.
-# The repo is the source of truth; the Wiki tab is a read-only mirror, and each
-# mirrored page ends with "Edit this page in the repo: <link>".
+# Made by Hypatia 0.4.0 (#b8f7f243). Run "hypatia upgrade" to update it.
+# Copies the wiki into the repo's GitHub Wiki tab after every merge. The repo
+# stays the source of truth; the Wiki tab is a read-only copy, and each page
+# ends with "Edit this page in the repo: <link>". Private pages are never
+# copied, and nothing is copied while the privacy guard finds something.
 #
-# ONE-TIME SETUP (by a repo admin, before this can work):
+# One-time setup, by a repo admin:
 #   1. Settings > General > Features: tick "Wikis".
-#   2. Open the Wiki tab and create any first page by hand (GitHub only
-#      creates the <repo>.wiki.git repository once a page exists).
-# After that this job overwrites every page on each run.
+#   2. Open the Wiki tab and create any first page by hand (GitHub creates
+#      the <repo>.wiki.git repository only once a page exists).
+# After that this job replaces every page on each run. It mirrors only the
+# default branch: a manual run started on another branch is skipped.
+#
+# GitHub expressions reach the shell only through env, never inside run:.
 name: Wiki mirror
 
 on:
@@ -15,11 +20,11 @@ on:
     paths:
       - README.md
       - docs/wiki/**
-      - scripts/wiki/mirror_to_wiki.py
+      - .github/workflows/wiki-mirror.yml
   workflow_dispatch:
 
 permissions:
-  contents: write  # lets the built-in GITHUB_TOKEN push to <repo>.wiki.git
+  contents: write  # lets the built-in token push to <repo>.wiki.git
 
 concurrency:
   group: wiki-mirror
@@ -27,27 +32,30 @@ concurrency:
 
 jobs:
   mirror:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Clone the wiki
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: Clone the Wiki tab
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: git clone "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.wiki.git" wiki-out
-
-      - name: Build the wiki pages
-        run: python3 scripts/wiki/mirror_to_wiki.py --out wiki-out --repo "${{ github.repository }}" --branch "${{ github.ref_name }}"
-
-      - name: Push to the wiki
+        run: git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" wiki-out
+      - name: Write the pages
+        env:
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: npx hypatia@0.4.0 mirror --out wiki-out --branch "$BRANCH"
+      - name: Push to the Wiki tab
         working-directory: wiki-out
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --cached --quiet; then
-            echo "Wiki already up to date."
+            echo "The Wiki tab is already up to date."
             exit 0
           fi
-          git commit -m "Mirror wiki from ${{ github.repository }}@${GITHUB_SHA::7}"
+          git commit -m "Mirror the wiki from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
           git push

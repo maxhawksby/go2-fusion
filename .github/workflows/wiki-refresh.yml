@@ -1,6 +1,7 @@
+# Made by Hypatia 0.4.0 (#998c3d9e). Run "hypatia upgrade" to update it.
 # Keep the wiki's "working on now" current when someone pushes to their own
-# branch. Pages only deploys from master, so this just asks the Wiki site
-# workflow to rebuild from master with fresh GitHub data.
+# branch. Pages only deploys from master, so this just asks the
+# Wiki site workflow to rebuild from it with fresh GitHub data.
 name: Wiki refresh
 
 on:
@@ -21,10 +22,11 @@ jobs:
       - name: Rebuild the wiki site from master
         env:
           GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          # Before the wiki lands on master there is nothing to rebuild yet.
+          # Before the wiki lands on the default branch there is nothing to rebuild yet.
           if ! gh workflow view wiki-site.yml --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "The wiki site workflow isn't on master yet; nothing to refresh."
             exit 0
           fi
-          gh workflow run wiki-site.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}"
+          gh workflow run wiki-site.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH"
