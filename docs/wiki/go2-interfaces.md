@@ -2,7 +2,7 @@
 title: Go2 interfaces
 parent: driver
 code: [src/go2_interfaces/**]
-verified: 8a9a7118a6d4
+verified: e4fa2f427a66
 ---
 
 # Go2 interfaces

@@ -13,6 +13,13 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
+    # Declaring pytest makes colcon run the tests with pytest; without it
+    # colcon falls back to unittest and finds 0 tests.
+    extras_require={
+        'test': [
+            'pytest',
+        ],
+    },
     description='Live and replayable scorecards for Oak mapping missions',
     license='BSD-3-Clause',
     entry_points={

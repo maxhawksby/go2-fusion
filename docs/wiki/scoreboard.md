@@ -2,6 +2,7 @@
 title: Scoreboard
 parent: maps-nav
 code: [src/go2_scoreboard/**]
+verified: cdafdbe2e8c5
 ---
 
 # Scoreboard
