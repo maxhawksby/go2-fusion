@@ -9,17 +9,30 @@ Times are local (EST). Branches named max/automapper-sim* are local experiment b
 - The #1 killer is the latch: after backing off a wall, the explorer says "no safe direction: rear and both sides lack clearance" and holds still. It only re-checks on a new scan, and a still robot sees the same scan, so it never clears. That ended 8 of 10 baseline runs.
 - Giving up a goal the instant a wall is within 0.3 m (blocked_timeout 0.0) feeds the latch. Waiting 2 s raised the 2-run average from 65.8 % to 91.5 % (step 1), but both runs still ended in the latch.
 - Releasing the latch does not help: Oak is wedged with its nose 0.05-0.10 m from a wall, so it re-latches at once (step 2, 16 releases per run, 0 escapes).
+- Padding Nav2's footprint 0.10 m does not stop the latch, and makes the last frontiers unreachable (step 3).
+- SLAM can freeze right after the startup scan; the explorer then waits forever (step 3, first run 1). A recovery case for #29.
 - Runs can map 99 % and still not "finish": the latch stops Oak before the explorer declares the room complete.
 - Collisions have been 0 in every run so far. The sim has no people and no narrow doors, so that grade is untested here.
 - Noah's scoreboard (#47) runs in the sim and agrees with the old scorer (parity pass on every run so far).
+
+## 2026-11-06 12:40 - Step 4: measure why every escape is refused
+- Branch: max/automapper-sim-v2-diag (local) = v2 + logging only. Compared against: nothing; this measures, it changes no behavior.
+- Hypothesis: at the latch, backing up is refused by the scan-coverage rule (a lidar ray with no reading toward the move counts as unsafe), not by walls on the map.
+- Change: none to behavior. At each latch, log which check (map clearance or scan coverage) rejects the rear, left and right moves, and what the scan reads behind and ahead.
+- Runs: running.
+- Verdict: pending.
+- Next: pending.
 
 ## 2026-11-06 12:10 - Step 3: pad Oak's footprint 0.10 m in Nav2
 - Branch: max/automapper-sim-v4 (local) = v2 + one change. Compared against: v2 (step 1).
 - Hypothesis: Nav2 drives Oak's nose to 0.05-0.10 m of walls (its controller barely weighs obstacle distance and the footprint has no padding). There the auto mapper finds no safe way out and latches. Keeping Oak 0.10 m off walls should stop it getting wedged.
 - Change: footprint_padding 0.10 in both Nav2 costmaps (nav2_params.yaml).
-- Runs: running.
-- Verdict: pending.
-- Next: pending.
+- Runs:
+  - Run 1 (first try): 4.9 %, 0 m moved. Voided: SLAM's map stopped updating right after the startup scan ("timed out waiting for fresh slam_map"), unrelated to Nav2 padding. Rerun below.
+  - Run 1 (rerun): 49.1 %, not finished, 0 collisions, 213 s, 4.0 m. Quit: gave up a goal, then the same "no safe direction" latch.
+  - Run 2: 99.2 %, not finished, 0 collisions, 900 s (timeout), 27.4 m. No latch at all, but the last frontiers became "no usable goal" (the padded body could not reach them), so it never declared the room complete.
+- Verdict: denied. Mean 74.2 % vs 91.5 % for v2; the latch still happens, and padding adds a new failure (unreachable last frontiers). Dropped; v2 stays the base.
+- Next: stop guessing; measure which check refuses every escape at the latch (step 4).
 
 ## 2026-11-06 11:50 - Step 2: release the latch after 20 s
 - Branch: max/automapper-sim-v3 (local) = v2 + one change. Compared against: v2 (step 1).
