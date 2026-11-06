@@ -2,7 +2,7 @@
 title: Robot link
 parent: driver
 code: [src/go2_robot_sdk/go2_robot_sdk/infrastructure/webrtc/**, src/go2_robot_sdk/external_lib/**]
-verified: 72865ece908b
+verified: 381cf57de7f4
 ---
 
 # Robot link
