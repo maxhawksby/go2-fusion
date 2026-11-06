@@ -149,4 +149,6 @@ Unit tests (no Gazebo needed):
 docker compose run --rm unitree_ros bash -c 'python3 -m pytest /ros2_ws/src/go2_sim/test'
 ```
 
+The robot build check on GitHub also runs these tests on every pull request (style checks are skipped there for now).
+
 <!-- sources: src/go2_sim/** (this branch), src/go2_robot_sdk/launch/robot.launch.py (driver arg), go2_driver_node.py and ros2_publisher.py (topics, odom frame), urdf/go2.urdf (radar_joint), config/nav2_params.yaml (footprint), config/twist_mux.yaml, docs/wiki/driver.md and test-log.md (lidar rates), docs/wiki/auto-mapper.md ("Exploration complete") -->
