@@ -2,7 +2,7 @@
 title: Lidar
 parent: senses
 code: [src/lidar_processor/**, src/lidar_processor_cpp/**, src/go2_robot_sdk/go2_robot_sdk/infrastructure/sensors/lidar_decoder.py]
-verified: 72918ddfe836
+verified: 60d9fd799956
 ---
 
 # Lidar
