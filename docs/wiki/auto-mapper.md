@@ -115,4 +115,6 @@ Tests, no robot needed:
 docker compose run --rm unitree_ros bash -c 'python3 -m pytest /ros2_ws/src/go2_auto_mapper/test'
 ```
 
+The robot build check on GitHub also runs these tests on every pull request (style checks are skipped there for now).
+
 <!-- sources: src/go2_auto_mapper/README.md, go2_auto_mapper/explorer.py (subscriptions, action clients, /cmd_vel_mapper), obstacle_sensing.py, frontier_scoring.py, src/go2_robot_sdk/config/twist_mux.yaml, src/go2_rviz_plugins/src/auto_mapper_panel.cpp, docs/USEFUL_COMMANDS.md, AGENTS.md, docs/FUSION.md, git log Oct 14-19 (commits 7ebad74, 6bf385f, 1973d50, 7b3a8e7, 9b9e25b, 264939b, a51627d), contract team updates (Luis) -->

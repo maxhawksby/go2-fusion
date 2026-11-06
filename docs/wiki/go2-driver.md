@@ -67,4 +67,6 @@ Success: `Robot 0 validated and ready` in the logs. Run the package's tests in a
 cd /ros2_ws && colcon test --packages-select go2_robot_sdk && colcon test-result --verbose
 ```
 
+`test/` holds the driver tests; the robot build check on GitHub runs them on every pull request.
+
 <!-- sources: src/go2_robot_sdk/go2_robot_sdk/main.py; presentation/go2_driver_node.py (env vars, params, topics, video error limit); application/services/robot_control_service.py (explicit stop); infrastructure/webrtc/connection_health.py; launch/robot.launch.py (nodes, launch args); launch/webrtc_web.launch.py; docker/Dockerfile CMD; docs/TEST_LOG.md 2026-10-11; docs/WINDOWS_SETUP.md troubleshooting; docs/FUSION.md row 15 and follow-up 6; git log origin/fix/nav-obstacle-safety (6b42eac); test/test_connection_health.py; colcon test command is standard colcon usage, TODO(owner) confirm it passes in Docker -->
