@@ -2,6 +2,7 @@
 title: Object navigation
 parent: brains
 code: [src/object_navigation/**]
+verified: a8d2f1f50297
 ---
 
 # Object navigation
@@ -45,7 +46,7 @@ When you publish an ID on `/navigate_to_object`, this node locks onto that objec
 
 ## Who's on it and what's next
 
-Written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav). Nobody is working on it this week. Max's open YOLO memory work (pull request #11, objects remembered on the map) touches this node for small style fixes. TODO(Max): who owns object navigation next, and whether it should go through Nav2 for obstacle avoidance.
+Written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav). Nobody is working on it this week. Max's YOLO map-memory branch (`max/feat/yolo-map-memory`, objects remembered on the map) touches this node for small style fixes; its pull request was closed without merging on 2026-10-26. TODO(Max): who owns object navigation next, and whether it should go through Nav2 for obstacle avoidance.
 
 ## The code
 

@@ -2,6 +2,7 @@
 title: Map viewers
 parent: maps-nav
 code: [src/go2_map_viewer_cpp/**]
+verified: b748b859f5c2
 ---
 
 # Map viewers

@@ -2,6 +2,7 @@
 title: Object detection
 parent: senses
 code: [src/object_detection/**, src/coco_detector/**]
+verified: 76d7ad300750
 ---
 
 # Object detection
@@ -43,7 +44,7 @@ Part of: [Senses](senses.md)
 
 To change the default weights, add the file to `models/`, list it in `setup.py` `data_files`, and update the default in `detector_node.py`. It needs `ultralytics` from pip, which is in the repo's `requirements.txt`, so the Docker image has it.
 
-`coco_detector` comes from [jfrancis71/ros2_coco_detector](https://github.com/jfrancis71/ros2_coco_detector) (demo: https://www.youtube.com/watch?v=emUs0nwwde8), chosen for its simple code and standard ROS messages. Its parameters: `publish_annotated_image` (default `True`), `device` (default `cpu`; `cuda` uses a GPU if there is one), and `detection_threshold` (default 0.9, between 0.0 and 1.0; higher rejects more detections, so raise it if you get too many false ones). It puts the class name straight into the message's `class_id` (for example `dog`) instead of an ID to look up. The first run downloads the MobileNet network (`fasterrcnn_mobilenet_v3_large_320_fpn`), then it is cached.
+`coco_detector` comes from [jfrancis71/ros2_coco_detector](https://github.com/jfrancis71/ros2_coco_detector) (demo: https://www.youtube.com/watch?v=emUs0nwwde8), chosen for its simple code and standard ROS messages. Its parameters: `publish_annotated_image` (default `True`), `device` (default `auto`, which uses a GPU if one is available and else the CPU; `cpu` or `cuda` forces one, and the node logs which it runs on), `detection_rate_hz` (default 10, the most pictures per second it runs on; 0 or less means every picture), and `detection_threshold` (default 0.9, between 0.0 and 1.0; higher rejects more detections, so raise it if you get too many false ones). It puts the class name straight into the message's `class_id` (for example `dog`) instead of an ID to look up. The first run downloads the MobileNet network (`fasterrcnn_mobilenet_v3_large_320_fpn`), then it is cached.
 
 ## Connects to
 
@@ -51,7 +52,7 @@ To change the default weights, add the file to `models/`, list it in `setup.py` 
 - [Auto mapper](auto-mapper.md) - reads `/people` to keep goals out of people's way and wait for them.
 - [Object navigation](object-navigation.md) - reads `/detected_objects_dict` and walks toward an object by ID.
 - [LLM agent](llm-agent.md) - its `look_for_object` tool is not wired to this memory yet; the agent's README says a fix would read `/detected_objects_dict`.
-- [SLAM](slam.md) and [TF and robot model](tf.md) - needed for the map-based memory in progress.
+- [SLAM](slam.md) and [TF and robot model](tf.md) - needed for the unmerged map-based memory.
 - [RViz panels](rviz-panels.md) - you can watch the boxes in RViz with an Image display.
 
 Topics (a topic is a named channel that ROS programs publish messages to and listen on):

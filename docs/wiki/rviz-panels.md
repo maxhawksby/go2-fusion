@@ -2,6 +2,7 @@
 title: RViz panels
 parent: driving
 code: [src/go2_rviz_plugins/**]
+verified: af22d52c9ad5
 ---
 
 # RViz panels
