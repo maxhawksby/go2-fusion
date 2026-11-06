@@ -1,6 +1,13 @@
-# Oak experiments journal
+---
+title: Experiments
+parent: lab-setup
+---
+
+# Experiments journal
 
 A lab notebook for every simulator run of the auto mapper. One entry per experiment, newest first.
+
+Part of: [Lab setup](lab-setup.md). Related: [Simulator](simulator.md), [Test log](test-log.md) (real-Oak sessions).
 World: placeholder_rooms, headless Gazebo, seed 1 (same start spots every time), stall rule: stuck if Oak moves < 0.25 m in 180 s.
 Times are local (EST). Branches named max/automapper-sim* are local experiment branches; a step reaches master only through a PR after a 5-run check.
 

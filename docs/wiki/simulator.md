@@ -118,7 +118,7 @@ The first 10-run batch in the placeholder world, default dials, real-time factor
 
 Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the first version of those fixes, before the unstuck move learned to check Oak's whole body through its allowed drift. With the final version, one 8-minute run (seed 1, 2026-10-31) mapped 48.3 %, with 0 costmap timeouts and 0 collisions, but latched stopped next to the 1.2 m doorway after 44 s ("no safe direction: rear and both sides lack clearance") and never moved again. Master without the fixes maps 5.0 % in the same run. TODO(Max): re-run the 10-run batch with the final fixes.
 
-Every simulator experiment since 2026-11-06 (hypothesis, change, runs, why each run quit, verdict) is logged in the [experiments journal](../experiments.md).
+Every simulator experiment since 2026-11-06 (hypothesis, change, runs, why each run quit, verdict) is logged in the [experiments journal](experiments.md).
 
 ## What it found so far
 
