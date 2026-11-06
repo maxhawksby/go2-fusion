@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Read-only mission results for Oak autonomous mapping runs.">
+    <title>Oak Mission Scoreboard</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#main" aria-label="Oak Mission Scoreboard home">
+        <span class="brand-mark" aria-hidden="true">O</span>
+        <span>
+          <strong>Oak Mission Scoreboard</strong>
+          <small>UConn Senior Design · Team 48</small>
+        </span>
+      </a>
+      <div class="connection" aria-live="polite">
+        <span class="connection-dot" id="connection-dot"></span>
+        <span id="connection-label">Connecting</span>
+      </div>
+    </header>
+
+    <div class="shell">
+      <aside class="run-rail" aria-label="Mapping run history">
+        <div class="rail-heading">
+          <div>
+            <p class="eyebrow">Mission archive</p>
+            <h2>Runs</h2>
+          </div>
+          <button class="icon-button" id="refresh-button" type="button" aria-label="Refresh runs">↻</button>
+        </div>
+        <label class="sort-control" for="run-sort">
+          <span>Sort runs</span>
+          <select id="run-sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="coverage-high">Highest coverage</option>
+            <option value="coverage-low">Lowest coverage</option>
+            <option value="duration-long">Longest duration</option>
+            <option value="duration-short">Shortest duration</option>
+            <option value="name">Run name</option>
+          </select>
+        </label>
+        <div class="run-list" id="run-list" aria-live="polite"></div>
+      </aside>
+
+      <main id="main">
+        <section class="empty-state" id="empty-state">
+          <div class="empty-icon" aria-hidden="true">◎</div>
+          <p class="eyebrow">Waiting for evidence</p>
+          <h1>No scoreboard runs found</h1>
+          <p>Start a Gazebo or Oak mapping mission with the scoreboard enabled. This page will discover it automatically.</p>
+        </section>
+
+        <div id="dashboard" hidden>
+          <section class="mission-heading">
+            <div>
+              <div class="heading-line">
+                <span class="state-badge" id="state-badge">Waiting</span>
+                <span class="source-badge" id="source-badge">Simulation</span>
+              </div>
+              <p class="eyebrow">Autonomous mapping mission</p>
+              <h1 id="run-title">Mapping run</h1>
+              <p class="mission-subtitle" id="mission-subtitle">Loading mission details…</p>
+            </div>
+            <div class="updated-block">
+              <span>Last checkpoint</span>
+              <strong id="updated-at">—</strong>
+            </div>
+          </section>
+
+          <section class="hero-grid" aria-label="Mission summary">
+            <article class="card progress-card">
+              <div class="progress-ring" id="progress-ring" role="img" aria-label="Mapping completeness">
+                <div>
+                  <strong id="completeness-value">—</strong>
+                  <span>mapped</span>
+                </div>
+              </div>
+              <div class="progress-copy">
+                <p class="eyebrow">Coverage</p>
+                <h2 id="coverage-heading">Map completeness</h2>
+                <p id="coverage-detail">Waiting for a measured answer key.</p>
+                <div class="known-area">
+                  <span>Known floor area</span>
+                  <strong id="known-area">—</strong>
+                </div>
+              </div>
+            </article>
+
+            <article class="card map-card">
+              <div class="card-heading">
+                <div>
+                  <p class="eyebrow">Occupancy map</p>
+                  <h2>What Oak has seen</h2>
+                </div>
+                <span class="map-legend"><i></i> Known space</span>
+              </div>
+              <div class="map-stage" id="map-stage">
+                <canvas id="map-canvas" aria-label="Final occupancy map"></canvas>
+                <p id="map-placeholder">The map appears after the first scoreboard checkpoint.</p>
+              </div>
+            </article>
+          </section>
+
+          <section class="metric-grid" aria-label="Mission metrics">
+            <article class="metric-card"><span>Elapsed</span><strong id="duration-value">—</strong><small>mission time</small></article>
+            <article class="metric-card"><span>Distance</span><strong id="distance-value">—</strong><small>odometry travel</small></article>
+            <article class="metric-card"><span>Goals</span><strong id="goals-value">—</strong><small id="goals-detail">reached / sent</small></article>
+            <article class="metric-card"><span>Recoveries</span><strong id="recoveries-value">—</strong><small>attempted</small></article>
+            <article class="metric-card safety"><span>Collisions</span><strong id="collisions-value">—</strong><small>target: zero</small></article>
+            <article class="metric-card"><span>Human touches</span><strong id="touches-value">—</strong><small>target: zero</small></article>
+          </section>
+
+          <section class="detail-grid">
+            <article class="card chart-card">
+              <div class="card-heading">
+                <div>
+                  <p class="eyebrow">Mission trace</p>
+                  <h2>Coverage over time</h2>
+                </div>
+                <span class="chart-label" id="chart-label">—</span>
+              </div>
+              <div class="chart-stage">
+                <canvas id="timeline-chart" aria-label="Coverage over mission time"></canvas>
+                <span class="chart-hover-marker" id="chart-hover-marker" hidden></span>
+                <span class="chart-tooltip" id="chart-tooltip" role="status" hidden></span>
+              </div>
+            </article>
+
+            <article class="card health-card">
+              <div class="card-heading">
+                <div>
+                  <p class="eyebrow">System health</p>
+                  <h2>Peak computer load</h2>
+                </div>
+              </div>
+              <div class="health-metrics">
+                <div><span>CPU</span><strong id="cpu-value">—</strong></div>
+                <div><span>Memory</span><strong id="memory-value">—</strong></div>
+                <div><span>Safety stops</span><strong id="safety-value">—</strong></div>
+              </div>
+              <div class="warning-box" id="warning-box">
+                <strong id="warning-heading">No warnings</strong>
+                <ul id="warning-list"></ul>
+              </div>
+            </article>
+          </section>
+
+          <section class="detail-grid lower-grid">
+            <article class="card event-card">
+              <div class="card-heading">
+                <div>
+                  <p class="eyebrow">Recent activity</p>
+                  <h2>Mission events</h2>
+                </div>
+              </div>
+              <ol class="event-list" id="event-list"></ol>
+            </article>
+
+            <article class="card evidence-card">
+              <div class="card-heading">
+                <div>
+                  <p class="eyebrow">Evidence package</p>
+                  <h2>Run details</h2>
+                </div>
+              </div>
+              <dl class="run-details">
+                <div><dt>Ended because</dt><dd id="end-reason">—</dd></div>
+                <div><dt>Algorithm</dt><dd id="algorithm-value">—</dd></div>
+                <div><dt>Code version</dt><dd id="code-version">—</dd></div>
+                <div><dt>Source fingerprint</dt><dd id="source-hash">—</dd></div>
+              </dl>
+              <div class="download-row" id="download-row"></div>
+            </article>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <footer>
+      <span>Read-only mission evidence</span>
+      <span>Oak · Unitree Go2 · ROS 2 Humble</span>
+    </footer>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
