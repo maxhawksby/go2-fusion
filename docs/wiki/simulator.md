@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: b4115b628e04
+verified: d4f76d4cc8c0
 ---
 
 # Simulator
