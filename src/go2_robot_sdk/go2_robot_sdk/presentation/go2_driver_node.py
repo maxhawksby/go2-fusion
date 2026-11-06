@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import os
+import time
 from typing import Dict, Any
 
 from aiortc import MediaStreamTrack
@@ -18,17 +19,26 @@ from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import Twist, PoseStamped
 from go2_interfaces.msg import Go2State, IMU
 from go2_interfaces.msg import LowState, VoxelMapCompressed, WebRtcReq
-from sensor_msgs.msg import PointCloud2, JointState, Joy, Image, CameraInfo
+from sensor_msgs.msg import PointCloud2, JointState, Joy, Image, CameraInfo, LaserScan
 from nav_msgs.msg import Odometry
+from diagnostic_msgs.msg import DiagnosticStatus, KeyValue
 
 from ..domain.entities import RobotConfig, RobotData, CameraData
 from ..application.services import RobotDataService, RobotControlService
 from ..infrastructure.ros2 import ROS2Publisher
 from ..infrastructure.webrtc import WebRTCAdapter
+from ..domain.constants import RTC_TOPIC
+from ..domain.sensor_watchdog import STALE, SensorWatchdog
 
 logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Robot data-channel topics the motion watchdog requires to be fresh.
+SENSOR_TOPICS = {
+    RTC_TOPIC['ROBOTODOM']: 'odom',
+    RTC_TOPIC['ULIDAR_ARRAY']: 'lidar',
+}
 
 
 class Go2DriverNode(Node):
@@ -73,6 +83,35 @@ class Go2DriverNode(Node):
         
         # State
         self.joy_state = Joy()
+
+        # Motion watchdog: the WebRTC data channel can stall (lidar and odom
+        # stop while the connection and camera stay up). Nav2 and the auto
+        # mapper then keep driving on a stale map and walk into walls, so
+        # motion is only forwarded while lidar and odom are fresh. /scan (what
+        # Nav2's costmap sees) is required too in single-robot mode: Humble's
+        # controller only warns when the costmap goes stale and keeps driving.
+        # This is separate from the WebRTC adapter's stream watch, which
+        # reconnects a dead stream; this one only holds Oak still meanwhile.
+        # Each stop and resume is reported on /safety/events.
+        self.sensor_timeout_sec = self.declare_parameter(
+            'sensor_timeout_sec', 1.0).value
+        self.sensor_watch_scan = self.declare_parameter(
+            'sensor_watch_scan', True).value
+        self._watchdogs: Dict[str, SensorWatchdog] = {
+            str(i): SensorWatchdog()
+            for i in range(len(self.config.robot_ip_list))}
+        self._moving: Dict[str, bool] = {}
+        self._safety_events = self.create_publisher(
+            DiagnosticStatus, '/safety/events', QoSProfile(depth=20))
+        self._scan_available = (self.config.conn_type == 'webrtc'
+                                and self.config.conn_mode == 'single')
+        if self._scan_available:
+            self.create_subscription(
+                LaserScan, 'scan', self._on_scan,
+                QoSProfile(depth=1,
+                           reliability=QoSReliabilityPolicy.BEST_EFFORT))
+        if self.config.conn_type == 'webrtc':
+            self.create_timer(0.2, self._check_sensor_watchdog)
 
     def _setup_configuration(self) -> RobotConfig:
         """Configuration setup"""
@@ -264,6 +303,10 @@ class Go2DriverNode(Node):
 
                     result.successful = True
                     result.reason = 'Updated obstacle_avoidance'
+                elif p.name == 'sensor_timeout_sec':
+                    self.sensor_timeout_sec = p.value
+                elif p.name == 'sensor_watch_scan':
+                    self.sensor_watch_scan = p.value
                 elif p.name in self._CONSTRUCTION_TIME_ONLY_PARAMS:
                     # Reporting success here without actually reconnecting/
                     # re-setting-up would let self.config and the live
@@ -287,9 +330,77 @@ class Go2DriverNode(Node):
 
     def _on_cmd_vel(self, msg: Twist, robot_id: str) -> None:
         """Callback for movement commands"""
-        self.robot_control_service.handle_cmd_vel(
-            msg.linear.x, msg.linear.y, msg.angular.z, robot_id
-        )
+        x, y, z = msg.linear.x, msg.linear.y, msg.angular.z
+        moving = abs(x) + abs(y) + abs(z) > 1e-3
+        stale = self._stale_sensors(robot_id) if moving else []
+        if stale:
+            self.get_logger().error(
+                f"Not moving robot {robot_id}: no fresh "
+                f"{' or '.join(s for s, _ in stale)} for "
+                f"{self.sensor_timeout_sec:.1f} s. Sending stop instead.",
+                throttle_duration_sec=2.0)
+            x = y = z = 0.0
+            moving = False
+        self._moving[robot_id] = moving
+        self.robot_control_service.handle_cmd_vel(x, y, z, robot_id)
+
+    def _required_sensors(self) -> list:
+        """The sensors Nav2 depends on, which must be fresh to move."""
+        if self.config.conn_type != 'webrtc':
+            return []
+        required = ['odom']
+        if self.config.decode_lidar:
+            required.append('lidar')
+            if self._scan_available and self.sensor_watch_scan:
+                required.append('scan')
+        return required
+
+    def _stale_sensors(self, robot_id: str) -> list:
+        """(sensor, age) for each required sensor that has gone quiet."""
+        watchdog = self._watchdogs.get(robot_id)
+        if watchdog is None:
+            return []
+        return watchdog.stale(self._required_sensors(), time.monotonic(),
+                              self.sensor_timeout_sec)
+
+    def _on_scan(self, msg: LaserScan) -> None:
+        self._watchdogs['0'].seen('scan', time.monotonic())
+
+    def _check_sensor_watchdog(self) -> None:
+        """Report stops and resumes, and stop a moving robot as soon as its
+        sensors go quiet, even if no new cmd_vel arrives (twist_mux keeps
+        the last command alive)."""
+        now = time.monotonic()
+        for robot_id, watchdog in self._watchdogs.items():
+            event = watchdog.update(self._required_sensors(), now,
+                                    self.sensor_timeout_sec)
+            if event is not None:
+                self._publish_watchdog_event(event, robot_id)
+            if self._moving.get(robot_id) and self._stale_sensors(robot_id):
+                self._on_cmd_vel(Twist(), robot_id)
+                self.get_logger().error(
+                    f"Sensors from robot {robot_id} went quiet while moving: "
+                    f"stopped it.")
+
+    def _publish_watchdog_event(self, event, robot_id: str) -> None:
+        sensors = ', '.join(event.sensors)
+        age = 'never' if event.age_s is None else f'{event.age_s:.2f}'
+        status = DiagnosticStatus(name=event.name, hardware_id=robot_id)
+        status.values = [KeyValue(key='sensor', value=','.join(event.sensors)),
+                         KeyValue(key='age_s', value=age)]
+        if event.name == STALE:
+            status.level = DiagnosticStatus.WARN
+            status.message = (f"Motion stopped: no fresh {sensors} for "
+                              f"{age} s (limit {self.sensor_timeout_sec:.1f} s)")
+            self.get_logger().warn(status.message)
+        else:
+            status.level = DiagnosticStatus.OK
+            status.values.append(
+                KeyValue(key='stopped_s', value=f'{event.stopped_s:.2f}'))
+            status.message = (f"Motion allowed again: {sensors} fresh after "
+                              f"{event.stopped_s:.1f} s stopped")
+            self.get_logger().info(status.message)
+        self._safety_events.publish(status)
 
     def _on_webrtc_req(self, msg: WebRtcReq, robot_id: str) -> None:
         """Callback for WebRTC requests"""
@@ -307,6 +418,10 @@ class Go2DriverNode(Node):
 
     def _on_robot_data_received(self, msg: Dict[str, Any], robot_id: str) -> None:
         """Callback for receiving data from robot"""
+        sensor = SENSOR_TOPICS.get(msg.get('topic'))
+        watchdog = self._watchdogs.get(robot_id)
+        if sensor and watchdog is not None:
+            watchdog.seen(sensor, time.monotonic())
         self.robot_data_service.process_webrtc_message(msg, robot_id)
 
     async def _on_video_frame(self, track: MediaStreamTrack, robot_id: str) -> None:
