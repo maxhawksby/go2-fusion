@@ -89,6 +89,22 @@ A new drive source should get its own row here rather than sharing a topic.
 5. **Gamepad: LB deadman test no longer required.** The team no longer drives with an Xbox gamepad; it uses the Oak ROS2 pad, which sends signals differently. The code is unchanged: a pad on `/joy` still drives through `teleop_twist_joy` on `/cmd_vel_joy` (priority 10) only while LB (button 4) is held, which was verified with simulated input in Docker. The Oak ROS2 pad talks straight to Oak and skips ROS (Max, 2026-10-22).
 6. **`webrtc_web.launch.py` skips twist_mux.** That launch file connects the driver straight to `/cmd_vel`, so the keyboard, agent and object-navigation topics do nothing there. Only `robot.launch.py` / `robot_cpp.launch.py` use the priority table.
 
+## External reuse review
+
+External projects are references, not alternate robot stacks. We keep one Go2
+driver and port only a capability after checking its license and fitting it to
+Oak's topics and safety path.
+
+| Project | License checked | Relevant capability | Decision |
+| --- | --- | --- | --- |
+| [m-explore-ros2](https://github.com/robo-friends/m-explore-ros2) | BSD | Frontier-exploration controls | Benchmark first; later adapt pause/resume/status/return-home patterns, not the whole stack |
+| [slam_toolbox](https://github.com/SteveMacenski/slam_toolbox) | LGPL-2.1 repository license; individual files may differ | Save and reload pose graphs | Use its installed services in recovery work; do not copy source into Oak |
+| [Navigation2](https://github.com/ros-navigation/navigation2) | Mixed by package/file; unmarked files Apache-2.0 | Collision Monitor and navigation | Configure the installed Humble packages and verify each copied file's license |
+| [Autonomous Go2 Inspection](https://github.com/Manas-arumalla/autonomous-go2-inspection) | MIT, with separately licensed vendored packages | Mission reports and benchmark ideas | Reuse reporting concepts with attribution; its Jazzy/Harmonic stack is not a drop-in replacement |
+| PawAI | No license found during review | Voice, intent and operator-console ideas | Ideas only; do not copy code |
+
+No code from these projects is included in the first scoreboard change.
+
 ## Add a decision
 
 When the team decides something that changes how code works, add it under "Decided since" with the date, what was chosen, and why.

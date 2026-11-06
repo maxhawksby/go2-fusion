@@ -15,6 +15,7 @@ from nav_msgs.msg import OccupancyGrid
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Twist
 from sensor_msgs.msg import LaserScan, PointCloud2
+from go2_interfaces.msg import AutoMapperEvent
 from go2_auto_mapper.recovery import (
     DRIFT_ACROSS_M,
     DRIFT_YAW_RAD,
@@ -174,6 +175,20 @@ class FrontierExplorer(Node):
         self.fault_checked_stamp = None
         # Own twist_mux input (priority 6): above Nav2, below keyboard and joystick.
         self.recovery_pub = self.create_publisher(Twist, '/cmd_vel_mapper', 10)
+        # Measurement-only event stream used by the scoreboard. It does not
+        # carry commands and has no effect on exploration decisions.
+        event_qos = QoSProfile(
+            depth=100,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+        )
+        self.event_pub = self.create_publisher(
+            AutoMapperEvent, '/auto_mapper/events', event_qos)
+        self.goal_sequence = 0
+        self.active_goal_sequence = 0
+        self.goal_outcome_emitted = True
+        self.exploration_terminal_emitted = False
         sensor_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', lambda msg: self.observe('scan', msg), sensor_qos)
@@ -327,6 +342,36 @@ class FrontierExplorer(Node):
         self.get_logger().info(
             'Go2 Frontier Explorer started.'
         )
+        self.emit_event('exploration_started', detail='frontier explorer started')
+
+    def emit_event(self, event_type, detail='', x=math.nan, y=math.nan,
+                   goal_sequence=None):
+        """Publish a structured observation without changing robot state."""
+        try:
+            event = AutoMapperEvent()
+            event.stamp = self.get_clock().now().to_msg()
+            event.event_type = event_type
+            event.goal_sequence = int(
+                self.active_goal_sequence if goal_sequence is None else goal_sequence)
+            event.target_x = float(x)
+            event.target_y = float(y)
+            event.detail = str(detail)
+            self.event_pub.publish(event)
+        except Exception as error:
+            # Scoring is optional. A reporting failure must never change the
+            # explorer's goal, recovery, or stop behavior.
+            self.get_logger().warn(
+                f'Could not publish automapper event {event_type}: {error}',
+                throttle_duration_sec=10.0,
+            )
+
+    def emit_goal_outcome(self, event_type, detail=''):
+        """Emit at most one terminal outcome for the active goal."""
+        if self.goal_outcome_emitted or self.active_goal_sequence == 0:
+            return
+        x, y = self.current_goal if self.current_goal is not None else (math.nan, math.nan)
+        self.emit_event(event_type, detail, x, y)
+        self.goal_outcome_emitted = True
 
     # ==========================================================
     # MAP CALLBACK
@@ -835,10 +880,17 @@ class FrontierExplorer(Node):
 
         self.goal_active = True
         self.goal_is_escape = is_escape
+        self.goal_sequence += 1
+        self.active_goal_sequence = self.goal_sequence
+        self.goal_outcome_emitted = False
         # Set by the caller for frontier goals once this returns True.
         self.goal_frontier = None
         self.current_goal = (x, y)
         self.goal_sent_time = time.monotonic()
+        self.emit_event(
+            'goal_sent', 'escape goal' if is_escape else 'exploration goal', x, y)
+        if is_escape:
+            self.emit_event('recovery_started', 'navigation to open space', x, y)
 
         future = self.nav_client.send_goal_async(
             goal
@@ -866,7 +918,7 @@ class FrontierExplorer(Node):
                 f'Navigation goal failed: {e}'
             )
 
-            self.record_goal_failure()
+            self.record_goal_failure(f'goal response error: {e}')
             self.goal_active = False
             self.goal_sent_time = None
             return
@@ -877,7 +929,7 @@ class FrontierExplorer(Node):
                 'Nav2 rejected the exploration goal.'
             )
 
-            self.record_goal_failure()
+            self.record_goal_failure('Nav2 rejected goal')
             self.goal_active = False
             self.goal_sent_time = None
             return
@@ -887,6 +939,8 @@ class FrontierExplorer(Node):
         self.get_logger().info(
             'Exploration goal accepted.'
         )
+        x, y = self.current_goal if self.current_goal is not None else (math.nan, math.nan)
+        self.emit_event('goal_accepted', 'Nav2 accepted goal', x, y)
 
         result_future = goal_handle.get_result_async()
 
@@ -899,10 +953,11 @@ class FrontierExplorer(Node):
             x, y = self.current_goal
             self.failed_goals.append((x, y, time.monotonic()))
 
-    def record_goal_failure(self):
+    def record_goal_failure(self, detail='navigation failed'):
         """A goal was rejected, failed or stalled: avoid that spot for a
         while, and treat several failures in a row as being stuck."""
 
+        self.emit_goal_outcome('goal_failed', detail)
         self.blacklist_current_goal()
         # Never reached, so there's no visit to judge the frontier by.
         self.goal_frontier = None
@@ -941,6 +996,9 @@ class FrontierExplorer(Node):
                     else 'Reached exploration goal.'
                 )
                 self.consecutive_failures = 0
+                self.emit_goal_outcome('goal_reached', 'Nav2 reached goal')
+                if self.goal_is_escape:
+                    self.emit_event('recovery_finished', 'reached open space')
 
                 if self.scan_after_goal or self.goal_is_escape:
                     self.scan_pending = True
@@ -956,6 +1014,7 @@ class FrontierExplorer(Node):
 
                 # Interrupted for a requested scan: not the goal's fault.
                 self.get_logger().info('Goal paused for the requested scan.')
+                self.emit_goal_outcome('goal_cancelled', 'paused for requested scan')
 
             else:
 
@@ -963,7 +1022,7 @@ class FrontierExplorer(Node):
                     f'Navigation ended with status {status}'
                 )
 
-                self.record_goal_failure()
+                self.record_goal_failure(f'Nav2 result status {status}')
 
         except Exception as e:
 
@@ -971,7 +1030,7 @@ class FrontierExplorer(Node):
                 f'Navigation result error: {e}'
             )
 
-            self.record_goal_failure()
+            self.record_goal_failure(f'navigation result error: {e}')
 
         self.current_goal_handle = None
         self.goal_active = False
@@ -1086,6 +1145,9 @@ class FrontierExplorer(Node):
         # publishes on the same mux input and would overwrite the zero.
         self.recovery_move = None
         self._hold_stop()
+        if ((refresh is not None or 'stale' in reason or 'missing' in reason)
+                and hasattr(self, 'emit_event')):
+            self.emit_event('sensor_stale', reason)
         self.get_logger().error(
             f'Recovery stopped: {reason} '
             'A later fresh scan can clear this; Scan clears it now.'
@@ -1163,6 +1225,10 @@ class FrontierExplorer(Node):
         grid, x, y, yaw, _ = view
         self.recovery_move = (
             x, y, yaw, move, grid.header.frame_id, time.monotonic()
+        )
+        self.emit_event(
+            'recovery_started',
+            f'latched recovery translation x={move[0]:.2f}, y={move[1]:.2f}',
         )
         self.get_logger().info(
             f'Fresh scan opened a way out: x={move[0]:.2f}, y={move[1]:.2f} m '
@@ -1269,6 +1335,10 @@ class FrontierExplorer(Node):
             return
         grid, x, y, yaw, _ = view
         self.recovery_move = (x, y, yaw, move, grid.header.frame_id, time.monotonic())
+        self.emit_event(
+            'recovery_started',
+            f'recovery translation x={move[0]:.2f}, y={move[1]:.2f}',
+        )
         self.get_logger().info(
             f'Recovery translation: x={move[0]:.2f}, y={move[1]:.2f} m.'
         )
@@ -1320,6 +1390,7 @@ class FrontierExplorer(Node):
 
         self._hold_stop()
         self.recovery_move = None
+        self.emit_event('recovery_finished', f'translated {moved:.3f} m')
         need_map = moved >= SLAM_MIN_TRAVEL_M
         self.refresh_after = (
             self.get_clock().now().nanoseconds * 1e-9,
@@ -1886,6 +1957,12 @@ class FrontierExplorer(Node):
                     'No frontiers found. Exploration complete.'
                 )
                 self.exploration_complete_logged = True
+                if not self.exploration_terminal_emitted:
+                    self.emit_event(
+                        'exploration_completed',
+                        'No frontiers found. Exploration complete.',
+                    )
+                    self.exploration_terminal_emitted = True
 
             return
 
@@ -1932,6 +2009,10 @@ class FrontierExplorer(Node):
 
     def stop(self):
         self.recovery_pub.publish(Twist())
+        if not self.exploration_terminal_emitted:
+            self.emit_goal_outcome('goal_cancelled', 'explorer stopped')
+            self.emit_event('exploration_stopped', 'explorer stopped')
+            self.exploration_terminal_emitted = True
         # Cancel whatever Nav2 goal is in flight so the robot doesn't
         # keep walking toward it after we've stopped sending new ones.
         # rclpy.spin() has already returned by the time this runs, so we
@@ -2023,7 +2104,8 @@ def main(args=None):
 
     # Keep the ROS context alive while Ctrl+C runs stop(). The default rclpy
     # signal handler shuts the context down first, which prevents the final
-    # zero velocity and active Nav2 goal cancellation from being published.
+    # zero velocity, active Nav2 goal cancellation, and exploration_stopped
+    # event from being published.
     from rclpy.signals import SignalHandlerOptions
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
 

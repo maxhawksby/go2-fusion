@@ -21,7 +21,29 @@ Times are local (EST). Branches named max/automapper-sim* are local experiment b
 - SLAM can freeze right after the startup scan; the explorer then waits forever (step 3, first run 1). A recovery case for #29.
 - Runs can map 99 % and still not "finish": the latch stops Oak before the explorer declares the room complete.
 - Collisions have been 0 in every run so far. The sim has no people and no narrow doors, so that grade is untested here.
-- Noah's scoreboard (#47) runs in the sim and agrees with the old scorer (parity pass on every run so far).
+- Noah's scoreboard (#47) runs in the sim and agrees with the old scorer after
+  the 2026-11-06 measurement-boundary fix below. A trial now stops the explorer
+  before either scorer finalizes, and both distance paths reject reset jumps.
+
+## 2026-11-06 15:56 - Scoreboard measurement-boundary validation
+- Branch: `noah/feat/scoreboard` (#47), updated onto master `7572866`.
+- Hypothesis: the three-run batch's parity failures came from the two scorers
+  measuring different endpoints and from the legacy distance counter including
+  simulator reset jumps, not from the scoreboard changing exploration.
+- Evidence before the fix: a three-run batch mapped 92.0 %, 85.2 % and 16.6 %
+  according to the legacy scorer (0 collisions). The scoreboard agreed on the
+  first two maps but rejected large odometry jumps; on run 3 it received map
+  growth while the explorer was still active and reported 35.1 %.
+- Change: stop the explorer at the trial boundary before finalizing either
+  scorer; reject truth-odometry steps over 1 m; preserve unknown cells when
+  saving simulator maps (`free_thresh: 0.196`). No exploration behavior changed.
+- Validation run: seed 27 mapped 48.6 %, stopped after the 60 s no-progress
+  rule, and had 0 collisions. Legacy measured 3.3 m and 48.6 %; scoreboard
+  measured 3.119 m and 48.638 %. Parity passed for distance, completeness and
+  collisions.
+- Verdict: confirmed on the deterministic validation run. Re-run a multi-run
+  batch after #47 review for broader parity evidence; this result does not fix
+  the automapper's variable coverage or latch behavior.
 
 ## 2026-11-06 12:40 - Step 4: measure why every escape is refused
 - Branch: max/automapper-sim-v2-diag (local) = v2 + logging only. Compared against: nothing; this measures, it changes no behavior.
