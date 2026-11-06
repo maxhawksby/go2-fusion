@@ -2,7 +2,7 @@
 title: People
 parent: team
 code: [CONTRIBUTING.md, AGENTS.md]
-verified: 6953522fa55d
+verified: 735f3b0b51cf
 ---
 
 # People
