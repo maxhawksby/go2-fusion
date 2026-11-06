@@ -64,6 +64,7 @@ You are set up. From here, the [Docker](docker.md) page explains the daily edit 
 5. [Lab checklist](lab-checklist.md) - what to do before and at the lab to connect to the real Oak.
 6. [Test log](test-log.md) - what we tested on Oak, what passed, and what is still open.
 7. [Simulator](simulator.md) - a pretend Oak in Gazebo: watch the auto mapper with no robot, or run it 10 times and get a score table.
+8. [Experiments](experiments.md) - the lab notebook of every simulator experiment: what we changed, the numbers, why runs quit, and what we learned.
 
 ## Going to the lab
 
