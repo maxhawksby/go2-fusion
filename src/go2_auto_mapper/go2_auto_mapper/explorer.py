@@ -15,7 +15,6 @@ from nav_msgs.msg import OccupancyGrid
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Twist
 from sensor_msgs.msg import LaserScan, PointCloud2
-from diagnostic_msgs.msg import DiagnosticStatus, KeyValue
 from go2_auto_mapper.recovery import (
     DRIFT_ACROSS_M,
     DRIFT_YAW_RAD,
@@ -175,13 +174,6 @@ class FrontierExplorer(Node):
         self.fault_checked_stamp = None
         # Own twist_mux input (priority 6): above Nav2, below keyboard and joystick.
         self.recovery_pub = self.create_publisher(Twist, '/cmd_vel_mapper', 10)
-        # Scoreboard events (#27/#29): recovery_start / recovery_finish on
-        # /safety/events, next to the driver's sensor_stale / sensor_fresh.
-        # Reporting only; no recovery decision reads it. recovery_kind is the
-        # kind of the recovery in progress, None when there is none.
-        self.recovery_kind = None
-        self.safety_events_pub = self.create_publisher(
-            DiagnosticStatus, '/safety/events', 20)
         sensor_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', lambda msg: self.observe('scan', msg), sensor_qos)
@@ -1087,8 +1079,6 @@ class FrontierExplorer(Node):
         the cause was sensing that stopped updating; the latch then also
         waits for that sensing, not just for a clear way ahead."""
 
-        if getattr(self, 'recovery_kind', None):
-            self._recovery_finished('stopped', reason)
         self.recovery_fault = reason
         self.fault_refresh = refresh
         self.fault_checked_stamp = self._ros_stamp('scan')
@@ -1174,7 +1164,6 @@ class FrontierExplorer(Node):
         self.recovery_move = (
             x, y, yaw, move, grid.header.frame_id, time.monotonic()
         )
-        self._recovery_started('latch_escape', f'was stopped: {reason}')
         self.get_logger().info(
             f'Fresh scan opened a way out: x={move[0]:.2f}, y={move[1]:.2f} m '
             f'(was: {reason}).'
@@ -1261,7 +1250,6 @@ class FrontierExplorer(Node):
         self.backup_pending = False
         self.last_backup_time = time.monotonic()
         self._hold_stop()
-        self._recovery_started('backup', 'obstacle ahead')
         view = self.local_view()
         scan = self.latest_scan
         if view is None or scan is None:
@@ -1332,7 +1320,6 @@ class FrontierExplorer(Node):
 
         self._hold_stop()
         self.recovery_move = None
-        self._recovery_finished('moved', f'{moved:.2f} m')
         need_map = moved >= SLAM_MIN_TRAVEL_M
         self.refresh_after = (
             self.get_clock().now().nanoseconds * 1e-9,
@@ -1345,26 +1332,6 @@ class FrontierExplorer(Node):
             + (' and a new SLAM map.' if need_map else
                ' (move was under SLAM\'s minimum travel, so /map is not required).')
         )
-
-    def _recovery_started(self, kind, detail):
-        if self.recovery_kind:
-            self._recovery_finished('replaced', f'a new {kind} started')
-        self.recovery_kind = kind
-        self._publish_safety_event(
-            'recovery_start', DiagnosticStatus.OK,
-            f'Recovery {kind} started: {detail}', kind=kind, detail=detail)
-
-    def _recovery_finished(self, result, detail):
-        kind, self.recovery_kind = self.recovery_kind, None
-        level = DiagnosticStatus.OK if result == 'moved' else DiagnosticStatus.WARN
-        self._publish_safety_event(
-            'recovery_finish', level, f'Recovery {kind} {result}: {detail}',
-            kind=kind, result=result, detail=detail)
-
-    def _publish_safety_event(self, name, level, message, **values):
-        status = DiagnosticStatus(name=name, level=level, message=message)
-        status.values = [KeyValue(key=k, value=str(v)) for k, v in values.items()]
-        self.safety_events_pub.publish(status)
 
     def tick_recovery(self):
         x, y, yaw, move, frame, started = self.recovery_move
@@ -1625,9 +1592,6 @@ class FrontierExplorer(Node):
             # A latched stop, or a Nav2 action not yet confirmed ended, takes
             # precedence over a recovery translation.
             if self.recovery_fault or self.orphans or self.maneuver_stopping:
-                if self.recovery_kind:
-                    self._recovery_finished(
-                        'cancelled', 'a Nav2 turn or back-up is still ending')
                 self.recovery_move = None
                 self._consider_clearing_fault()
                 return
