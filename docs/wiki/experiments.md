@@ -26,6 +26,16 @@ Times are local (EST). Branches named max/automapper-sim* are local experiment b
   before either scorer finalizes. Physical Gazebo travel and reported `/odom`
   are kept separately so parity compares the same public signal.
 
+## 2026-11-07 16:27 - Step 5: try shorter checked recovery moves
+- Branch: `noah/feat/recovery-steps` (`ef1fac3`), based on master after step 4. Compared against: the step-4 diagnosis; this was a two-run smoke test, not a statistical comparison.
+- Hypothesis: when the normal 0.30 m recovery does not fit, a 0.15 m or 0.08 m move can safely get Oak out of the doorway latch.
+- Change: try 0.30, 0.15 and 0.08 m in that order. Every candidate keeps the same full-body costmap, live-scan, stale-sensor and drift checks.
+- Runs:
+  - Run 1: 50.2 %, not finished, 0 collisions, 230 s, 4.6 m. All three distances were unsafe and the latch remained for 180 s.
+  - Run 2: 34.5 %, not finished, 0 collisions, 218 s, 1.3 m. The first latch briefly cleared when the forward scan changed, but its escape goal failed; the next stop reported stale or missing scan, costmap or transform data and then no safe direction.
+- Verdict: denied. The fallback executed and checked all three distances, but neither run found a safe shorter translation. Do not merge or test this version on Oak.
+- Next: use the simulator runner's temporary `--explorer-param` support to compare the current default with `blocked_timeout:=2.0` on identical seeds. This tests the already documented step-1 result without changing the automapper or competing with its owner.
+
 ## 2026-11-06 - Ten-run scoreboard baseline after #41
 - Branch: `noah/feat/scoreboard` (#47), master with #41's recovery fixes.
 - Hypothesis: a larger batch should prove the score pipeline is repeatable and
