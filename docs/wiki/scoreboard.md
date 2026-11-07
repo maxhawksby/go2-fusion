@@ -107,6 +107,11 @@ replay measured 0.4726 m, 25.0432% and 0 collisions with no missing-start
 warning. The 1.8 cm distance difference is final ROS callback ordering and is
 inside the simulator parity tolerance; repeated replay itself is deterministic.
 The next steps are to diagnose the remaining automapper stall and complete one
-supervised Oak recording. No Oak scorecard has been claimed yet.
+supervised Oak recording. A later 10-run batch reached 33.7% to 99.4%
+completeness (64.3% mean), with 0 collisions but 0 formal completions: five
+runs stalled and five timed out. It also showed that simulator ground-truth
+travel and Oak's noisy reported `/odom` are different measurements. The trial
+runner now preserves both and validates the scoreboard against an independent
+`/odom` accumulator. No Oak scorecard has been claimed yet.
 
 <!-- sources: src/go2_scoreboard/**, src/go2_auto_mapper/go2_auto_mapper/explorer.py structured event publisher, src/go2_sim/go2_sim/trials.py -->

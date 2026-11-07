@@ -23,7 +23,30 @@ Times are local (EST). Branches named max/automapper-sim* are local experiment b
 - Collisions have been 0 in every run so far. The sim has no people and no narrow doors, so that grade is untested here.
 - Noah's scoreboard (#47) runs in the sim and agrees with the old scorer after
   the 2026-11-06 measurement-boundary fix below. A trial now stops the explorer
-  before either scorer finalizes, and both distance paths reject reset jumps.
+  before either scorer finalizes. Physical Gazebo travel and reported `/odom`
+  are kept separately so parity compares the same public signal.
+
+## 2026-11-06 - Ten-run scoreboard baseline after #41
+- Branch: `noah/feat/scoreboard` (#47), master with #41's recovery fixes.
+- Hypothesis: a larger batch should prove the score pipeline is repeatable and
+  reveal whether the remaining stops are isolated or systematic.
+- Runs: 10 starts, 33.7% to 99.4% completeness, 64.3% mean and 49.8% median.
+  Three reached at least 98.5%, but none emitted `exploration_completed`.
+  Five hit the 300 s timeout and five stopped after making less than 0.25 m of
+  progress for 180 s. All 10 recorded zero collisions.
+- Artifacts: every run wrote its JSON, CSV, Markdown report, map and explorer
+  log. The weak runs repeatedly logged `Still stopped: no safe direction on
+  the latest scan`; the high-coverage runs could reach the same latch near the
+  end.
+- Measurement finding: completeness and collision counts agreed, but five
+  distance parity checks compared Gazebo's hidden ground-truth travel with the
+  scoreboard's noisy `/odom`. Those numbers answer different questions.
+- Change after review: keep physical `distance_m`, add `odom_distance_m` plus
+  signed odometry error, and compare the scoreboard only with the independent
+  `/odom` accumulator. This changes scoring output, not exploration behavior.
+- Verdict: the scoreboard produced complete evidence, while the automapper is
+  capable but not reliable. Re-run a short validation for the corrected
+  distance columns, then compare any recovery change against these same seeds.
 
 ## 2026-11-06 15:56 - Scoreboard measurement-boundary validation
 - Branch: `noah/feat/scoreboard` (#47), updated onto master `7572866`.
