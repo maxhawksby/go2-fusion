@@ -100,6 +100,8 @@ def make_monitor(context):
             self.last_contact = None
             self.distance = 0.0
             self.prev_xy = None
+            self.odom_distance = 0.0
+            self.prev_odom_xy = None
             self.true_xy = None
             self.cloud_seen = False
             self.clock_first = None
@@ -108,6 +110,7 @@ def make_monitor(context):
             self.create_subscription(OccupancyGrid, '/map', self.on_map, latched)
             self.create_subscription(Contacts, '/sim/bumper', self.on_contacts, 50)
             self.create_subscription(Odometry, '/sim/ground_truth/odom', self.on_truth, 50)
+            self.create_subscription(Odometry, '/odom', self.on_odom, 100)
             self.create_subscription(PointCloud2, '/point_cloud2', self.on_cloud,
                                      qos_profile_sensor_data)
             self.create_subscription(Clock, '/clock', self.on_clock, 10)
@@ -133,6 +136,12 @@ def make_monitor(context):
             self.distance += distance_increment(self.prev_xy, current)
             self.prev_xy = current
             self.true_xy = current
+
+        def on_odom(self, msg):
+            p = msg.pose.pose.position
+            current = (p.x, p.y)
+            self.odom_distance += distance_increment(self.prev_odom_xy, current)
+            self.prev_odom_xy = current
 
         def on_cloud(self, _msg):
             self.cloud_seen = True
@@ -229,7 +238,10 @@ def clear_current_run():
 def scoreboard_parity(legacy, scoreboard):
     """Compare the independent scorers with explicit, reviewable tolerances."""
     try:
-        legacy_distance = float(legacy['distance_m'])
+        # The scoreboard measures Oak's reported /odom, not Gazebo's hidden
+        # ground-truth pose. Keep physical travel as a separate benchmark and
+        # compare two independent accumulators fed by the same public signal.
+        legacy_distance = float(legacy['odom_distance_m'])
         score_distance = float(scoreboard['distance_m'])
         legacy_completeness = float(legacy['completeness_pct'])
         score_completeness = float(scoreboard['completeness_pct'])
@@ -280,6 +292,7 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
                   start_yaw=round(yaw, 2), completeness_pct=0.0, time_s=0.0, collisions=0,
                   distance_m=0.0, finished='no', end_reason='', rtf=float('nan'),
                   end_x=float('nan'), end_y=float('nan'),
+                  odom_distance_m=0.0, odom_error_m=0.0, odom_error_pct='',
                   scoreboard_distance_m='', scoreboard_completeness_pct='',
                   scoreboard_collisions='', scoreboard_parity='disabled')
 
@@ -366,6 +379,7 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
         started = time.monotonic()
         node.bumps = 0   # bumps before the mapper starts are not its fault
         node.distance = 0.0
+        node.odom_distance = 0.0
         deadline = started + args.timeout
         anchor, anchor_time = node.true_xy, started   # for spotting a stuck robot
         while time.monotonic() < deadline:
@@ -404,6 +418,11 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
 
         result['collisions'] = node.bumps
         result['distance_m'] = round(node.distance, 1)
+        result['odom_distance_m'] = round(node.odom_distance, 4)
+        result['odom_error_m'] = round(node.odom_distance - node.distance, 4)
+        if node.distance > 1e-6:
+            result['odom_error_pct'] = round(
+                100.0 * (node.odom_distance - node.distance) / node.distance, 2)
         result['rtf'] = round(node.real_time_factor(), 2)
         if node.true_xy is not None:
             result['end_x'], result['end_y'] = (round(v, 2) for v in node.true_xy)
@@ -443,7 +462,8 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
 # ---------------------------------------------------------------------------
 
 COLUMNS = ['run', 'seed', 'start_x', 'start_y', 'start_yaw', 'completeness_pct', 'time_s',
-           'collisions', 'distance_m', 'finished', 'end_reason', 'end_x', 'end_y', 'rtf']
+           'collisions', 'distance_m', 'odom_distance_m', 'odom_error_m', 'odom_error_pct',
+           'finished', 'end_reason', 'end_x', 'end_y', 'rtf']
 COLUMNS += ['scoreboard_distance_m', 'scoreboard_completeness_pct',
             'scoreboard_collisions', 'scoreboard_parity']
 

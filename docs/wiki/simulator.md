@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: cfef1495f57e
+verified: f671673ec1e9
 ---
 
 # Simulator
@@ -79,9 +79,12 @@ Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores i
 The trial runner also starts the [Scoreboard](scoreboard.md) before each auto
 mapper. Its independent artifacts are under the run's `scoreboard/` folder,
 including a rosbag by default. The legacy simulator scorer remains in place and
-the CSV reports whether distance (within 10% or 0.5 m), completeness (within one
-percentage point) and collision counts agree. Use `--no-scoreboard-bag` for a
-small development run or `--no-scoreboard` to isolate the legacy scorer.
+the CSV reports whether reported odometry distance (within 10% or 0.5 m),
+completeness (within one percentage point) and collision counts agree. It also
+keeps Gazebo's hidden physical distance and reports the odometry error separately;
+that ground truth is an answer key, not data available to Oak. Use
+`--no-scoreboard-bag` for a small development run or `--no-scoreboard` to
+isolate the legacy scorer.
 
 ## Watch the trials live
 
@@ -155,7 +158,7 @@ parity at 48.6% completeness, 3.3 m versus 3.119 m, and zero collisions. See
 the [experiments journal](experiments.md) for the evidence and limitations.
 
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
-- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. Three bugs caused it, all fixed (see [Auto mapper](auto-mapper.md)); still to confirm on Oak.
+- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits. Earlier recovery bugs were fixed (see [Auto mapper](auto-mapper.md)), but repeat runs show a remaining case where Oak is genuinely too close to fit the fixed 0.3 m escape. Shorter bounded recovery moves are the next experiment; no Oak result is claimed yet.
 - **Nav2 drives Oak to within 0.05-0.25 m of door jambs, the pillar and furniture**, then reports "No valid trajectories" or "Failed to make progress". TODO(Luis): does Oak get that close on the real floor?
 - **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. The real driver might hit the same thing at startup (see [TF and robot model](tf.md)).
 
