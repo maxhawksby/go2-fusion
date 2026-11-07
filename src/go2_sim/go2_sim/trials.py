@@ -109,11 +109,20 @@ def distance_increment(previous, current, max_step=MAX_TRUTH_STEP_M):
     return step if step <= max_step else 0.0
 
 
+def distance_update(total, previous, current, active):
+    """Observe a pose, accumulating it only inside the measurement window."""
+
+    if active:
+        total += distance_increment(previous, current)
+    return total, current
+
+
 # ---------------------------------------------------------------------------
 # ROS side: one monitor node per run, in that run's ROS domain
 # ---------------------------------------------------------------------------
 
 def make_monitor(context):
+    from go2_interfaces.msg import AutoMapperEvent
     from nav_msgs.msg import OccupancyGrid, Odometry
     from rcl_interfaces.msg import Log
     from rclpy.node import Node
@@ -130,6 +139,8 @@ def make_monitor(context):
                                  reliability=ReliabilityPolicy.RELIABLE,
                                  history=HistoryPolicy.KEEP_LAST)
             self.done = False
+            self.measurement_started = False
+            self.measurement_started_at = None
             self.latest_map = None
             self.bumps = 0
             self.last_contact = None
@@ -137,11 +148,14 @@ def make_monitor(context):
             self.prev_xy = None
             self.odom_distance = 0.0
             self.prev_odom_xy = None
+            self.odom_xy = None
             self.true_xy = None
             self.cloud_seen = False
             self.clock_first = None
             self.clock_last = None
             self.create_subscription(Log, '/rosout', self.on_log, 100)
+            self.create_subscription(
+                AutoMapperEvent, '/auto_mapper/events', self.on_event, latched)
             self.create_subscription(OccupancyGrid, '/map', self.on_map, latched)
             self.create_subscription(Contacts, '/sim/bumper', self.on_contacts, 50)
             self.create_subscription(Odometry, '/sim/ground_truth/odom', self.on_truth, 50)
@@ -154,11 +168,26 @@ def make_monitor(context):
             if msg.name == EXPLORER_NODE and COMPLETE_TEXT in msg.msg:
                 self.done = True
 
+        def on_event(self, msg):
+            if msg.event_type != 'exploration_started' or self.measurement_started:
+                return
+            # Match the scoreboard's start boundary exactly. The explorer can
+            # spend several seconds initializing before this event; counting
+            # noisy odometry during that period made parity depend on luck.
+            self.measurement_started = True
+            self.measurement_started_at = time.monotonic()
+            self.distance = 0.0
+            self.prev_xy = self.true_xy
+            self.odom_distance = 0.0
+            self.prev_odom_xy = self.odom_xy
+            self.bumps = 0
+            self.last_contact = None
+
         def on_map(self, msg):
             self.latest_map = msg
 
         def on_contacts(self, msg):
-            if not msg.contacts:
+            if not self.measurement_started or not msg.contacts:
                 return
             now = time.monotonic()
             if self.last_contact is None or now - self.last_contact > BUMP_GAP_SEC:
@@ -168,15 +197,17 @@ def make_monitor(context):
         def on_truth(self, msg):
             p = msg.pose.pose.position
             current = (p.x, p.y)
-            self.distance += distance_increment(self.prev_xy, current)
-            self.prev_xy = current
+            self.distance, self.prev_xy = distance_update(
+                self.distance, self.prev_xy, current, self.measurement_started)
             self.true_xy = current
 
         def on_odom(self, msg):
             p = msg.pose.pose.position
             current = (p.x, p.y)
-            self.odom_distance += distance_increment(self.prev_odom_xy, current)
-            self.prev_odom_xy = current
+            self.odom_distance, self.prev_odom_xy = distance_update(
+                self.odom_distance, self.prev_odom_xy, current,
+                self.measurement_started)
+            self.odom_xy = current
 
         def on_cloud(self, _msg):
             self.cloud_seen = True
@@ -413,10 +444,19 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
         explorer = subprocess.Popen(explorer_command(args.explorer_param),
                                     stdout=explorer_log, stderr=subprocess.STDOUT,
                                     env=env, start_new_session=True)
-        started = time.monotonic()
-        node.bumps = 0   # bumps before the mapper starts are not its fault
-        node.distance = 0.0
-        node.odom_distance = 0.0
+        # The scoreboard and independent scorer both begin at the structured
+        # start event, not at process creation. Wait for that shared boundary.
+        start_deadline = time.monotonic() + min(30.0, args.startup_timeout)
+        while time.monotonic() < start_deadline and not node.measurement_started:
+            executor.spin_once(timeout_sec=0.2)
+            if explorer.poll() is not None:
+                result['end_reason'] = (
+                    f'auto mapper exited before start event (code {explorer.returncode})')
+                return result
+        if not node.measurement_started:
+            result['end_reason'] = 'auto mapper start event timeout'
+            return result
+        started = node.measurement_started_at
         deadline = started + args.timeout
         anchor, anchor_time = node.true_xy, started   # for spotting a stuck robot
         while time.monotonic() < deadline:

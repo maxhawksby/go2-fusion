@@ -26,6 +26,15 @@ Times are local (EST). Branches named max/automapper-sim* are local experiment b
   before either scorer finalizes. Physical Gazebo travel and reported `/odom`
   are kept separately so parity compares the same public signal.
 
+## 2026-11-07 17:25 - A/B test: wait 2 seconds at an obstacle
+- Branch: `noah/feat/scoreboard` (`52d1536`) with no automapper source change. The trial runner temporarily set `blocked_timeout:=2.0` and labeled the result `blocked_grace_2s`.
+- Hypothesis: giving Nav2 two seconds to steer before cancelling a blocked goal should reduce entries into the no-safe-direction latch.
+- Comparison: two identical seeds and start poses, 300 s run timeout and 180 s no-progress timeout.
+  - Default: 54.9 % and 99.1 %, 77.0 % mean, 36.1 m total, 0/2 finished, 0 collisions. The first run latched; the second timed out near complete.
+  - Two-second grace: 51.7 % and 99.6 %, 75.7 % mean, 31.6 m total, 0/2 finished, 0 collisions. The first run still latched; the second timed out near complete after repeated failed goals.
+- Verdict: denied at the smoke-test level. It did not improve mean coverage, formal completion or the latch, so keep the default and do not open an automapper PR for this setting.
+- Measurement finding: both default runs exposed a start-boundary mismatch. The independent scorer counted `/odom` from process creation while the scoreboard began at `exploration_started`; startup-scan drift caused distance parity failures. The runner now waits for the same structured start event and resets physical distance, odometry and collisions there. This measurement correction still needs one short simulator confirmation.
+
 ## 2026-11-07 16:27 - Step 5: try shorter checked recovery moves
 - Branch: `noah/feat/recovery-steps` (`ef1fac3`), based on master after step 4. Compared against: the step-4 diagnosis; this was a two-run smoke test, not a statistical comparison.
 - Hypothesis: when the normal 0.30 m recovery does not fit, a 0.15 m or 0.08 m move can safely get Oak out of the doorway latch.
