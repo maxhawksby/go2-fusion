@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: 46ff2ca6cbea
+verified: ae253ea2c84e
 ---
 
 # Simulator
@@ -79,7 +79,8 @@ Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores i
 The trial runner also starts the [Scoreboard](scoreboard.md) before each auto
 mapper. Its independent artifacts are under the run's `scoreboard/` folder,
 including a rosbag by default. The legacy simulator scorer remains in place and
-the CSV reports whether reported odometry distance (within 10% or 0.5 m),
+both scorers begin at the auto mapper's structured `exploration_started` event.
+The CSV reports whether reported odometry distance (within 10% or 0.5 m),
 completeness (within one percentage point) and collision counts agree. It also
 keeps Gazebo's hidden physical distance and reports the odometry error separately;
 that ground truth is an answer key, not data available to Oak. Use

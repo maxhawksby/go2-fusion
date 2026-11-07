@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from go2_sim.trials import (distance_increment, explorer_command,
+from go2_sim.trials import (distance_increment, distance_update, explorer_command,
                             explorer_parameter, scoreboard_parity, variant_name)
 
 
@@ -11,6 +11,15 @@ def test_distance_increment_rejects_reset_or_teleport():
     assert distance_increment(None, (1.0, 2.0)) == 0.0
     assert math.isclose(distance_increment((1.0, 2.0), (1.3, 2.4)), 0.5)
     assert distance_increment((1.0, 2.0), (3.0, 2.0)) == 0.0
+
+
+def test_distance_update_ignores_motion_before_measurement_start():
+    total, previous = distance_update(0.0, (0.0, 0.0), (3.0, 0.0), False)
+    assert total == 0.0
+    assert previous == (3.0, 0.0)
+    total, previous = distance_update(total, previous, (3.3, 0.4), True)
+    assert math.isclose(total, 0.5)
+    assert previous == (3.3, 0.4)
 
 
 def test_parity_accepts_documented_tolerances():
