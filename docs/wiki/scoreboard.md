@@ -71,7 +71,9 @@ independent parity check.
 
 Experiments can pass a JSON object in `configuration_json`; it is stored with
 the code fingerprint and run label so later tables can separate algorithm
-modes, seeds and parameter sets.
+modes, seeds and parameter sets. The simulator runner records its `--variant`,
+simulator launch arguments and temporary `--explorer-param name:=value`
+overrides in that object.
 
 Replay does not launch Oak or Nav2:
 

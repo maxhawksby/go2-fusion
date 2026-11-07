@@ -1,6 +1,10 @@
+import argparse
 import math
 
-from go2_sim.trials import distance_increment, scoreboard_parity
+import pytest
+
+from go2_sim.trials import (distance_increment, explorer_command,
+                            explorer_parameter, scoreboard_parity, variant_name)
 
 
 def test_distance_increment_rejects_reset_or_teleport():
@@ -42,3 +46,22 @@ def test_parity_compares_reported_odom_not_hidden_ground_truth():
     checks, failures = scoreboard_parity(legacy, score)
     assert all(checks.values())
     assert failures == []
+
+
+def test_explorer_command_adds_only_explicit_parameter_overrides():
+    assert explorer_command([]) == [
+        'ros2', 'run', 'go2_auto_mapper', 'explorer'
+    ]
+    assert explorer_command(['blocked_timeout:=2.0', 'scan_after_goal:=false']) == [
+        'ros2', 'run', 'go2_auto_mapper', 'explorer', '--ros-args',
+        '-p', 'blocked_timeout:=2.0', '-p', 'scan_after_goal:=false',
+    ]
+
+
+def test_experiment_labels_and_parameters_reject_cli_fragments():
+    assert explorer_parameter('blocked_timeout:=2.0') == 'blocked_timeout:=2.0'
+    assert variant_name('blocked-grace_2s') == 'blocked-grace_2s'
+    with pytest.raises(argparse.ArgumentTypeError):
+        explorer_parameter('--ros-args')
+    with pytest.raises(argparse.ArgumentTypeError):
+        variant_name('../other-run')
