@@ -2,6 +2,8 @@
 
     ros2 run go2_sim trials                       # 10 headless runs
     ros2 run go2_sim trials --runs 3 --timeout 600 -- lidar_rate:=2.0
+    ros2 run go2_sim trials --runs 3 --variant blocked_grace \
+        --explorer-param blocked_timeout:=2.0
 
 Each run starts a fresh simulator and robot stack (sim.launch.py) at a random
 but seeded start pose, starts the auto mapper once Nav2 is up, and waits for
@@ -25,6 +27,7 @@ import glob
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -45,6 +48,38 @@ MAX_TRUTH_STEP_M = 1.0
 # Where the running trial's ROS domain and Gazebo partition are written, so
 # `ros2 run go2_sim watch` can attach windows to it. Removed when a run ends.
 CURRENT_RUN_FILE = '/tmp/go2_sim_current_run.json'
+_PARAMETER_OVERRIDE = re.compile(r'^[A-Za-z_][A-Za-z0-9_.]*:=.+$')
+_VARIANT_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]*$')
+
+
+def explorer_parameter(value):
+    """Argparse validator for one ROS parameter override."""
+
+    if not _PARAMETER_OVERRIDE.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            'explorer parameters must use name:=value, for example '
+            'blocked_timeout:=2.0')
+    return value
+
+
+def variant_name(value):
+    """Keep run labels readable and safe to use in artifact names."""
+
+    if not _VARIANT_NAME.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            'variant must contain only letters, numbers, underscores or hyphens')
+    return value
+
+
+def explorer_command(parameters):
+    """The explorer command with explicit, repeatable ROS parameter dials."""
+
+    command = ['ros2', 'run', 'go2_auto_mapper', 'explorer']
+    if parameters:
+        command.append('--ros-args')
+        for parameter in parameters:
+            command.extend(['-p', parameter])
+    return command
 
 
 def default_results_dir():
@@ -337,7 +372,7 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
                 'ros2', 'run', 'go2_scoreboard', 'recorder', '--ros-args',
                 '-p', 'use_sim_time:=true',
                 '-p', 'source:=sim',
-                '-p', f'run_label:=frontier_seed_{run_seed}',
+                '-p', f'run_label:={args.variant}_seed_{run_seed}',
                 '-p', f'results_root:={scoreboard_root}',
                 '-p', f'record_bag:={str(not args.no_scoreboard_bag).lower()}',
                 '-p', f'ground_truth_map:={gt_path}',
@@ -346,8 +381,10 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
                 '-p', "configuration_json:='"
                 + json.dumps({
                     'algorithm': 'frontier',
+                    'variant': args.variant,
                     'seed': run_seed,
                     'launch_args': launch_extra,
+                    'explorer_params': args.explorer_param,
                 }, separators=(',', ':')) + "'",
             ]
             scoreboard = subprocess.Popen(
@@ -373,7 +410,7 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
             node.destroy_client(ready_client)
 
         # 3. Start the auto mapper, exactly as the RViz panel does.
-        explorer = subprocess.Popen(['ros2', 'run', 'go2_auto_mapper', 'explorer'],
+        explorer = subprocess.Popen(explorer_command(args.explorer_param),
                                     stdout=explorer_log, stderr=subprocess.STDOUT,
                                     env=env, start_new_session=True)
         started = time.monotonic()
@@ -532,6 +569,11 @@ def main(argv=None):
                         help='run only the legacy simulator scorer')
     parser.add_argument('--no-scoreboard-bag', action='store_true',
                         help='score runs but skip rosbag recording')
+    parser.add_argument('--variant', type=variant_name, default='frontier',
+                        help='short experiment label stored with every run')
+    parser.add_argument('--explorer-param', action='append', default=[],
+                        type=explorer_parameter, metavar='NAME:=VALUE',
+                        help='temporary go2_auto_mapper ROS parameter; repeat as needed')
     args = parser.parse_args(argv)
 
     # Stopping the runner (Ctrl+C, SIGTERM, docker stop) unwinds through each
@@ -548,6 +590,8 @@ def main(argv=None):
         print(f'[trials] warning: {note}')
     header = (f'# Auto mapper trials\n\nWorld: `{os.path.basename(world_path)}`, '
               f'{args.runs} runs, seed {args.seed}, timeout {args.timeout:.0f} s, '
+              f'variant: `{args.variant}`, explorer parameters: '
+              f'`{" ".join(args.explorer_param) or "defaults"}`, '
               f'launch args: `{" ".join(launch_extra) or "defaults"}`. '
               f'Ground truth: `{os.path.basename(gt_path)}`.')
     print(f'[trials] {args.runs} runs in {os.path.basename(world_path)}; results in {out_dir}',
