@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: 5f5ddc20d877
+verified: 7891c714d7a3
 ---
 
 # Auto mapper
@@ -22,7 +22,7 @@ Part of: [Maps and navigation](maps-nav.md)
 3. **Pick a goal.** For each region it picks spots 0.8 m back into known space and at least 0.5 m from walls. It skips directions it was just blocked in, spots closer than 1.5 m, and spots without a clear straight line. Of the rest, it picks the one that would reveal the most: it casts 48 imaginary rays from each spot out to 4 m and counts unknown squares they would uncover, minus a cost per meter of walking.
 4. **Go.** It sends the goal to [Nav2](nav2.md) on `/navigate_to_pose`, exactly like clicking "Nav2 Goal" in RViz, so Nav2's obstacle avoidance still applies.
 5. **Learn from it.** If a visit did not shrink the frontier (the opening can't be seen into), that frontier is skipped for 2 minutes. Failed goals are also skipped for 2 minutes.
-6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap, then slides 0.05 to 0.5 m at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If nothing is safe, it stays stopped and logs why.
+6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap. It tries the configured distance first, then bounded 0.15 m and 0.08 m fallbacks when the longer move cannot fit, sliding at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If nothing is safe, it stays stopped and logs why.
 7. **Head for open space.** After 3 failed goals in a row (or similar signs of being stuck), it drives to the nearest spot with 0.8 m of room on every side, scans, and carries on.
 8. **Finish.** With no frontiers left it logs "Exploration complete" and waits, in case a door opens.
 
@@ -53,7 +53,7 @@ Part of: [Maps and navigation](maps-nav.md)
 | `info_gain_cells_per_meter` | `100.0` | Unknown cells a meter of travel must be worth (400 cells = 1 square meter at 5 cm) |
 | `obstacle_stop_distance` | `0.3` | Gap (meters) in front of the nose that counts as blocked |
 | `blocked_timeout` | `0.0` | Seconds an obstacle must stay ahead before a goal is given up (0 = at once) |
-| `backup_distance` | `0.3` | How far (meters) the unstuck move goes, clamped to 0.05-0.5 m |
+| `backup_distance` | `0.3` | Preferred unstuck distance in meters, clamped to 0.05-0.5 m; shorter 0.15 m and 0.08 m moves are tried only when needed |
 | `open_space_clearance` | `0.8` | Room (meters) on every side that counts as open space when stuck |
 | `stuck_failure_count` | `3` | Failed goals in a row that count as stuck |
 | `scan_on_start` | `true` | Turn a full circle before exploring |
@@ -78,7 +78,7 @@ From the package README and Luis's commits (Oct 14-19):
 - **"No usable goal".** Press Scan: it re-looks and retries recently failed spots.
 - **Nibbling the nearest edge.** Ranking goals by distance made it creep along the closest frontier; replaced by "most revealed per meter" on 2026-10-16.
 - **Two motions at once.** Codex reviews on 2026-10-17 found cases where a late Nav2 reply or a recovery move could override a stop; each maneuver is now tracked until Nav2 confirms it ended, and a latched stop always wins.
-- **Latched stopped next to the first close wall.** The unstuck check used to look at Oak's whole padded body, including the nose. Once something was within about 0.25 m of the nose, its inflated cost already covered the body, so backing away and both side moves all looked blocked, and Oak waited forever ("no safe direction: rear and both sides lack clearance"). It also refused moves through Nav2's inscribed band (cells where the robot's *centre* would touch) on top of the padded body, which doubled the body's width, so backing out along a wall 0.2 m away looked blocked too. And it never accepted backing up at all: straight behind Oak is the scan's last-plus-one ray, which it read as "no measurement". Found in the [Simulator](simulator.md). Now the whole body is checked through the allowed drift against walls themselves (lethal cells), only the obstacle Oak backs away from is ignored, and the scan wraps around. A first version checked only the half of the body facing the move, which a review caught: a wall beside the front half could be hit if Oak turned while backing up. These fixes reached master in pull request #41 (2026-11-05). In the simulator Oak can still latch stopped beside a 1.2 m doorway (see [Simulator](simulator.md)). Not yet confirmed on Oak.
+- **Latched stopped next to the first close wall.** The unstuck check used to look at Oak's whole padded body, including the nose. Once something was within about 0.25 m of the nose, its inflated cost already covered the body, so backing away and both side moves all looked blocked, and Oak waited forever ("no safe direction: rear and both sides lack clearance"). It also refused moves through Nav2's inscribed band (cells where the robot's *centre* would touch) on top of the padded body, which doubled the body's width, so backing out along a wall 0.2 m away looked blocked too. And it never accepted backing up at all: straight behind Oak is the scan's last-plus-one ray, which it read as "no measurement". Found in the [Simulator](simulator.md). Now the whole body is checked through the allowed drift against walls themselves (lethal cells), only the obstacle Oak backs away from is ignored, and the scan wraps around. A first version checked only the half of the body facing the move, which a review caught: a wall beside the front half could be hit if Oak turned while backing up. These fixes reached master in pull request #41 (2026-11-05). Simulator runs still found a case where the normal 0.3 m move could not fit beside a doorway; the explorer now tries shorter moves through the same safety checks. The shorter-move behavior still needs a repeatable simulator comparison and supervised Oak confirmation.
 - **Backing up is new on the real Oak.** Before pull request #41 these moves were always refused, so Oak has never actually backed up or slid sideways on its own. Now it will. The first tries on the real floor need a spotter ready to stop it (an empty Twist on `/cmd_vel_joy`, or the gamepad).
 - **Ctrl+C did not stop cleanly.** ROS shut itself down before the auto mapper's stop step ran, so the final zero speed and the Nav2 goal cancel never went out. Fixed in pull request #41: ROS now stays up until that step is done.
 - **Waits for fresh data.** After every scan or move it waits up to 12 s for newer `/scan`, `/point_cloud2`, `/map`, costmap and TF. If they don't come, exploration stays stopped until Scan is pressed.

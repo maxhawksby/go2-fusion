@@ -24,8 +24,9 @@ from go2_auto_mapper.recovery import (
     SCAN_MAX_AGE_SEC,
     SENSING_MAX_AGE_SEC,
     SLAM_MIN_TRAVEL_M,
-    assess_recovery,
+    assess_recovery_steps,
     latch_decision,
+    recovery_distances,
     refresh_status,
     scan_age,
     scan_covers_move,
@@ -1139,11 +1140,11 @@ class FrontierExplorer(Node):
         gap = free_distance_ahead(
             view[0], view[1], view[2], view[3], self.obstacle_stop_distance
         )
-        distance = min(max(float(self.backup_distance), 0.05), 0.5)
+        distances = recovery_distances(self.backup_distance)
         move = None
         if gap is not None:
-            move, _reason = assess_recovery(
-                *view[:4], distance, scan, age, SCAN_MAX_AGE_SEC
+            move, _reason = assess_recovery_steps(
+                *view[:4], distances, scan, age, SCAN_MAX_AGE_SEC
             )
         decision = latch_decision(gap is not None, move)
         if decision == 'hold':
@@ -1260,9 +1261,9 @@ class FrontierExplorer(Node):
                 f'scan frame is {scan.header.frame_id}, not {self.robot_frame}'
             )
             return
-        distance = min(max(float(self.backup_distance), 0.05), 0.5)
-        move, reason = assess_recovery(
-            *view[:4], distance, scan, self._scan_age(), SCAN_MAX_AGE_SEC
+        distances = recovery_distances(self.backup_distance)
+        move, reason = assess_recovery_steps(
+            *view[:4], distances, scan, self._scan_age(), SCAN_MAX_AGE_SEC
         )
         if move is None:
             self._stop_for(reason)
@@ -1307,7 +1308,10 @@ class FrontierExplorer(Node):
         # envelope is the one the abort limits above enforce. The scan is in
         # the robot's current frame, so it checks the rest of the move from
         # here, with the full drift allowance again (stricter).
-        scale = max(0.10, distance - progress) / distance
+        # Keep the old 10 cm minimum look-ahead for normal moves, but never
+        # check farther than a deliberately shorter fallback move can travel.
+        look_ahead = max(min(0.10, distance), distance - progress)
+        scale = look_ahead / distance
         step = (move[0] * scale, move[1] * scale)
         if not scan_covers_move(scan, *step) or not swept_clear(
             view[0], *start_pose, *move, start=max(0.0, progress)

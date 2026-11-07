@@ -34,6 +34,10 @@ REFRESH_TIMEOUT_SEC = 12.0
 # mapper_params_online_async.yaml minimum_travel_distance. A shorter move
 # does not make slam_toolbox publish a new /map.
 SLAM_MIN_TRAVEL_M = 0.2
+# A wedged Oak may have a safe corridor that is shorter than the normal
+# 0.3 m recovery. Try bounded shorter moves rather than releasing the latch
+# or weakening the footprint and sensor-clearance checks.
+RECOVERY_FALLBACK_DISTANCES_M = (0.15, 0.08)
 
 
 # How far a recovery move may wander before tick_recovery aborts it:
@@ -260,6 +264,24 @@ def choose_recovery(grid, x, y, yaw, distance, scan):
     ))
 
 
+def recovery_distances(requested, fallbacks=RECOVERY_FALLBACK_DISTANCES_M):
+    """Unique recovery distances, longest first and never above requested.
+
+    The configured distance remains the first choice. Fallbacks only make a
+    move shorter; they cannot expand the requested motion or go below the
+    existing 5 cm minimum.
+    """
+
+    maximum = min(max(float(requested), 0.05), 0.5)
+    candidates = [maximum]
+    candidates.extend(
+        min(max(float(distance), 0.05), 0.5)
+        for distance in fallbacks
+        if float(distance) < maximum
+    )
+    return tuple(dict.fromkeys(candidates))
+
+
 def scan_age(received_mono, now_mono, stamp_sec, ros_now_sec):
     """Age of a scan for safety decisions, in seconds, or None if unusable.
 
@@ -292,6 +314,30 @@ def assess_recovery(grid, x, y, yaw, distance, scan, scan_age, max_age):
             'for the footprint plus margin'
         )
     return move, ''
+
+
+def assess_recovery_steps(grid, x, y, yaw, distances, scan, scan_age, max_age):
+    """Choose the first safe move from longest to shortest distance.
+
+    Every candidate goes through the same full-body costmap and live-scan
+    checks as the original recovery. A shorter move is not permission to
+    cross an obstacle; it is only useful when the longer endpoint does not
+    fit in the measured free corridor.
+    """
+
+    if scan is None or scan_age is None or scan_age > max_age:
+        return None, 'stale or missing laser scan'
+    checked = []
+    for distance in distances:
+        checked.append(float(distance))
+        move = choose_recovery(grid, x, y, yaw, float(distance), scan)
+        if move is not None:
+            return move, ''
+    detail = ', '.join(f'{distance:.2f}' for distance in checked)
+    return None, (
+        'no safe direction: rear and both sides lack clearance '
+        f'for the footprint plus margin at {detail} m'
+    )
 
 
 def latch_decision(forward_blocked, move):
