@@ -66,6 +66,8 @@ frontier, change a threshold or send motion.
 | `backup_distance` | `0.3` | How far (meters) the unstuck move goes, clamped to 0.05-0.5 m |
 | `open_space_clearance` | `0.8` | Room (meters) on every side that counts as open space when stuck |
 | `stuck_failure_count` | `3` | Failed goals in a row that count as stuck |
+| `supervised_lab_mode` | `false` | Opt-in test mode: after one Nav2 failure, hold zero velocity and require the operator to resume; never start an automatic escape chain |
+| `lab_goal_max_distance` | `1.0` | Maximum candidate goal range (meters) while supervised lab mode is enabled; `0` disables this extra cap |
 | `scan_on_start` | `true` | Turn a full circle before exploring |
 | `scan_after_goal` | `true` | Turn a full circle after each goal it reaches |
 | `scan_yaw` | `6.283` (2 pi) | How far to turn per scan, in radians |
@@ -134,6 +136,30 @@ From the package README and Luis's commits (Oct 14-19):
 ## Who's on it and what's next
 
 **Luis** owns the auto mapper. In the week of 2026-10-18 he made exploration reliable (fixes above, Scan and Reset maps buttons, faster frontiers, Nav2 and SLAM tuning) and merged it to master. Max fixed the unstuck move after the [Simulator](simulator.md) found it latching (pull request #41), and Noah fixed the Ctrl+C cleanup in the same pull request. Next: full exploration tests on Oak, with a spotter for the first back-up moves.
+
+### Supervised lab mode
+
+Use this temporary validation mode before allowing a new behavior to roam
+around Oak. It does not replace normal exploration and is off by default. It
+limits candidate goals to `lab_goal_max_distance`; if Nav2 rejects, aborts, or
+times out one goal, it publishes zero velocity, suppresses automatic retries
+and escape goals, and waits for an operator. After visually checking Oak and
+the map, resume with:
+
+```shell
+ros2 service call /frontier_explorer/resume std_srvs/srv/Trigger '{}'
+```
+
+Start it explicitly with, for example:
+
+```shell
+ros2 run go2_auto_mapper explorer --ros-args \
+  -p supervised_lab_mode:=true -p lab_goal_max_distance:=1.0
+```
+
+This mode was added after the 2026-11-08 Oak hallway evidence captured
+repeated Nav2 controller/spin/backup failures followed by an automatic escape
+goal. See issue #57 before changing the normal recovery behavior.
 
 ## The code
 

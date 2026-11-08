@@ -151,6 +151,10 @@ class FrontierExplorer(Node):
         # side, scan there, then carry on exploring.
         self.declare_parameter('open_space_clearance', 0.8)
         self.declare_parameter('stuck_failure_count', 3)
+        # Deliberately opt-in restrictions for supervised physical tests.
+        # Normal exploration keeps its existing behavior by default.
+        self.declare_parameter('supervised_lab_mode', False)
+        self.declare_parameter('lab_goal_max_distance', 1.0)
 
         # People from object_detection's /people (ideas from SocialNav):
         # don't pick goals in someone's personal space, across where they
@@ -208,6 +212,12 @@ class FrontierExplorer(Node):
         self.avoid_people = self.get_parameter('avoid_people').value
         self.yield_to_people = self.get_parameter('yield_to_people').value
         self.personal_space = self.get_parameter('personal_space').value
+        self.supervised_lab_mode = self.get_parameter(
+            'supervised_lab_mode'
+        ).value
+        self.lab_goal_max_distance = self.get_parameter(
+            'lab_goal_max_distance'
+        ).value
 
         # -----------------------------
         # Map
@@ -385,6 +395,8 @@ class FrontierExplorer(Node):
         self.escape_pending = False
         self.goal_is_escape = False
         self.last_escape_time = None
+        self.lab_paused = False
+        self.lab_pause_reason = None
 
         self.exploration_complete_logged = False
 
@@ -412,6 +424,9 @@ class FrontierExplorer(Node):
         self.goal_cancelled_for_scan = False
         self.scan_service = self.create_service(
             Trigger, '~/scan', self.handle_scan_request
+        )
+        self.resume_service = self.create_service(
+            Trigger, '~/resume', self.handle_resume_request
         )
 
         self.setup_vlm()
@@ -807,6 +822,12 @@ class FrontierExplorer(Node):
                 continue
 
             goal_range = math.hypot(goal_x - robot_x, goal_y - robot_y)
+            if (
+                self.supervised_lab_mode
+                and self.lab_goal_max_distance > 0.0
+                and goal_range > self.lab_goal_max_distance
+            ):
+                continue
             bearing = math.atan2(goal_y - robot_y, goal_x - robot_x)
 
             # Just turned away from an obstacle: take the longest walk on
@@ -1261,6 +1282,12 @@ class FrontierExplorer(Node):
         # Never reached, so there's no visit to judge the frontier by.
         self.goal_frontier = None
 
+        if self.supervised_lab_mode:
+            self._pause_for_lab(
+                f'{detail}; waiting for an operator resume request'
+            )
+            return
+
         if self.goal_is_escape:
             # Don't escape from a failed escape (request_escape's cooldown
             # also guards this); just go back to exploring.
@@ -1342,6 +1369,51 @@ class FrontierExplorer(Node):
     # ==========================================================
     # SCAN ON REQUEST
     # ==========================================================
+
+    def _pause_for_lab(self, reason):
+        """Hold a supervised lab run after a failed navigation action.
+
+        Normal exploration may try another frontier or find open space. A
+        supervised test instead leaves the next movement decision to the
+        operator.
+        """
+
+        self.lab_paused = True
+        self.lab_pause_reason = reason
+        self.escape_pending = False
+        self.backup_pending = False
+        self.scan_pending = False
+        self._hold_stop()
+        self.get_logger().error(
+            f'Supervised lab mode paused: {reason}. '
+            'Call /frontier_explorer/resume after checking Oak.'
+        )
+
+    def handle_resume_request(self, request, response):
+        """Allow an operator to continue a supervised lab run."""
+
+        if not self.supervised_lab_mode:
+            response.success = False
+            response.message = 'Supervised lab mode is not enabled.'
+            return response
+        if not self.lab_paused:
+            response.success = False
+            response.message = 'Explorer is not paused for operator review.'
+            return response
+        if self.maneuver_active or self.orphans or self.maneuver_stopping:
+            response.success = False
+            response.message = 'Waiting for Nav2 to finish its previous action.'
+            return response
+
+        reason = self.lab_pause_reason
+        self.lab_paused = False
+        self.lab_pause_reason = None
+        self.get_logger().info(
+            f'Operator resumed supervised lab mode (was: {reason}).'
+        )
+        response.success = True
+        response.message = 'Explorer resumed; the next timer cycle may choose one goal.'
+        return response
 
     def handle_scan_request(self, request, response):
         """Turn 360 degrees as soon as possible: the current goal is paused
@@ -1981,6 +2053,9 @@ class FrontierExplorer(Node):
         """
 
         try:
+            if self.supervised_lab_mode and self.lab_paused:
+                self._hold_stop()
+                return
             # A latched stop, or a Nav2 action not yet confirmed ended, takes
             # precedence over a recovery translation.
             if self.recovery_fault or self.orphans or self.maneuver_stopping:
@@ -2041,8 +2116,13 @@ class FrontierExplorer(Node):
             # from cancelling and asking to escape again.
             self.current_goal_handle.cancel_goal_async()
             self.current_goal_handle = None
-            self.backup_pending = True
-            self.request_escape('obstacle ahead')
+            if self.supervised_lab_mode:
+                self._pause_for_lab(
+                    f'obstacle {gap:.2f} m ahead; operator review required'
+                )
+            else:
+                self.backup_pending = True
+                self.request_escape('obstacle ahead')
 
         except Exception as e:
             # Same reason as exploration_loop: never let a callback error
@@ -2187,6 +2267,10 @@ class FrontierExplorer(Node):
             self.get_logger().error(f'Exploration loop error: {e}')
 
     def _exploration_loop_impl(self):
+
+        if self.supervised_lab_mode and self.lab_paused:
+            self._hold_stop()
+            return
 
         if self.recovery_move is not None or self.recovery_fault:
             return
