@@ -2,7 +2,7 @@
 title: Scoreboard
 parent: maps-nav
 code: [src/go2_scoreboard/**]
-verified: cdafdbe2e8c5
+verified: 4ef0f27da67b
 ---
 
 # Scoreboard
@@ -52,6 +52,10 @@ Git. It contains `run.json`, `scorecard.csv`, `report.md`, `timeline.csv`,
 run keeps its last complete checkpoint.
 
 ## Run it
+
+For the first physical-robot validation, follow the
+[supervised Oak lab checklist](scoreboard-oak-lab-test.md). It separates
+read-only sensor checks, the short motion test, abort steps and evidence review.
 
 Start the recorder before the auto mapper:
 
@@ -108,12 +112,19 @@ gate and replay path: the live score was 0.4544 m, 25.0432% and 0 collisions;
 replay measured 0.4726 m, 25.0432% and 0 collisions with no missing-start
 warning. The 1.8 cm distance difference is final ROS callback ordering and is
 inside the simulator parity tolerance; repeated replay itself is deterministic.
-The next steps are to diagnose the remaining automapper stall and complete one
-supervised Oak recording. A later 10-run batch reached 33.7% to 99.4%
+The first supervised Oak recording passed on 2026-11-08: 57.169 s, 3.3359 m
+of odometry travel, 12.955 square meters of known map, two failed goals, one
+recovery, zero collisions or touches and no scoreboard warnings. It produced
+the final map and a 4.29 MB bag. That run reproduced the automapper's `no safe
+direction` latch even though the operator saw no physical obstacle. The raw
+scan contained close returns, but the original bag did not include the local
+costmap that triggered the stop, so future bags now record
+`/local_costmap/costmap` for diagnosis. A later 10-run batch reached 33.7% to 99.4%
 completeness (64.3% mean), with 0 collisions but 0 formal completions: five
 runs stalled and five timed out. It also showed that simulator ground-truth
 travel and Oak's noisy reported `/odom` are different measurements. The trial
 runner now preserves both and validates the scoreboard against an independent
-`/odom` accumulator. No Oak scorecard has been claimed yet.
+`/odom` accumulator. The Oak run is a measurement baseline, not a completeness
+claim; completeness remains null until a measured answer map exists.
 
 <!-- sources: src/go2_scoreboard/**, src/go2_auto_mapper/go2_auto_mapper/explorer.py structured event publisher, src/go2_sim/go2_sim/trials.py -->
