@@ -57,6 +57,9 @@ _YAW_SAMPLES = 7
 # they alone refused a backward move with 2.5 m of free floor. A wider run
 # could be something the lidar cannot see, such as glass, so it still refuses.
 MAX_MISSING_GAP_RAD = math.radians(15.0)
+# How far past the trailing edge a point must be for a sideways or diagonal
+# move to ignore it: 0.49 m body radius times DRIFT_YAW_RAD, rounded up.
+SWING_CLEAR_M = 0.04
 
 
 def swept_bounds(dx, dy):
@@ -142,19 +145,31 @@ def _inside(polygons, x, y, pad):
     return False
 
 
-def _trigger_exempt(x, y, dx, pad=0.0):
-    """True for robot-frame points (start pose) that belong to the obstacle
-    that stopped Oak, while the move backs away from it.
+def _behind_move(x, y, dx, dy, pad=0.0):
+    """True for robot-frame points (start pose) behind the body's trailing
+    edge: the move only takes the body further from them.
 
-    The stop comes from an obstacle in front of the nose
-    (free_distance_ahead), often within the padded nose, so counting it
-    would refuse every move away from it and latch Oak stopped next to the
-    first close wall (found in go2_sim). Only that obstacle is exempt: points
-    past the nose, and only on a move with a backward part. Walls beside the
-    body, and the nose obstacle on a sideways move, are always checked.
+    Oak often stops already close to something, so counting it would refuse
+    every move away from it and latch Oak next to it (found in go2_sim, for
+    the nose while backing up and for a wall beside the body while sidestepping
+    away). Points level with the body, or ahead of its trailing edge, are
+    always checked. Except straight back from the nose, a point must also
+    be SWING_CLEAR_M past the edge: a small turn at the start of the move
+    swings the body toward what it is leaving.
     """
 
-    return dx < 0 and x >= ROBOT_FRONT_M - pad
+    distance = math.hypot(dx, dy)
+    if distance <= 0.0:
+        return False
+    ux, uy = dx / distance, dy / distance
+    trailing = min(
+        a * ux + b * uy
+        for a in (-ROBOT_REAR_M, ROBOT_FRONT_M)
+        for b in (-ROBOT_HALF_WIDTH_M, ROBOT_HALF_WIDTH_M)
+    )
+    if dx < 0.0 and dy == 0.0:
+        return x * ux + y * uy <= trailing + pad
+    return x * ux + y * uy <= trailing - SWING_CLEAR_M
 
 
 def _margin_exempt(x, y, dx, dy, pad=0.0, slack=0.0):
@@ -208,8 +223,9 @@ def _wide_gap_rays(scan, full_circle):
 
 def scan_covers_move(scan, dx, dy):
     """True when no scan return falls inside the body's move envelope
-    (move_envelope), except returns on the obstacle that stopped Oak
-    (_trigger_exempt), and the new space the move enters is measured.
+    (move_envelope), except returns behind the move
+    (_behind_move) or already in the padding (_margin_exempt), and the new
+    space the move enters is measured.
 
     Missing rays, NaNs and infinite returns do not prove the space is clear,
     so a wide run of them (MAX_MISSING_GAP_RAD) refuses the move where it
@@ -261,7 +277,7 @@ def scan_covers_move(scan, dx, dy):
             if value < radius + SAFETY_MARGIN_M:
                 hit_x = value * math.cos(angle)
                 hit_y = value * math.sin(angle)
-                if not (_trigger_exempt(hit_x, hit_y, dx)
+                if not (_behind_move(hit_x, hit_y, dx, dy)
                         or _margin_exempt(hit_x, hit_y, dx, dy,
                                           slack=SAFETY_MARGIN_M)):
                     return False
@@ -275,7 +291,8 @@ def swept_clear(grid, x, y, yaw, dx, dy, start=0.0):
     progress so far: the envelope is anchored where the move began.
 
     Unknown cells, cells off the grid and lethal (100) cells are unsafe,
-    except the obstacle that stopped Oak (_trigger_exempt). Inflation,
+    except points behind the move (_behind_move) and points already inside
+    the padding that the bare body cannot reach (_margin_exempt). Inflation,
     including inscribed (99), is allowed: the padded body plus the drift
     envelope already keeps the clearance. Counting it too doubled the body
     width, so no move was ever clear (found in go2_sim). Nav2's own
@@ -304,7 +321,7 @@ def swept_clear(grid, x, y, yaw, dx, dy, start=0.0):
             if cost is None or cost < 0:
                 return False
             if cost >= LETHAL_COST and not (
-                _trigger_exempt(along, across, dx, res / 2)
+                _behind_move(along, across, dx, dy, res / 2)
                 or _margin_exempt(along, across, dx, dy, res / 2, res)
             ):
                 return False
@@ -312,7 +329,8 @@ def swept_clear(grid, x, y, yaw, dx, dy, start=0.0):
 
 
 def choose_recovery(grid, x, y, yaw, distance, scan):
-    """The rear or side translation with the most extra free travel.
+    """The rear, side or rear-diagonal translation with the most extra free
+    travel.
 
     Returns (dx, dy) in the robot frame, or None when no corridor is both
     clear on the costmap and covered by a finite scan. A missing scan is
@@ -321,7 +339,11 @@ def choose_recovery(grid, x, y, yaw, distance, scan):
 
     if scan is None:
         return None
-    candidates = [(-distance, 0.0), (0.0, distance), (0.0, -distance)]
+    diagonal = distance * math.sqrt(0.5)
+    candidates = [
+        (-distance, 0.0), (0.0, distance), (0.0, -distance),
+        (-diagonal, diagonal), (-diagonal, -diagonal),
+    ]
     safe = [
         move for move in candidates
         if swept_clear(grid, x, y, yaw, *move)
