@@ -198,4 +198,3 @@ Foxglove connection and release Oak for the next teammate.
 - Do not run another WebRTC client at the same time.
 - Do not claim a completeness percentage without a measured answer map.
 - Do not spend lab time rebuilding Docker or redesigning the dashboard.
-
