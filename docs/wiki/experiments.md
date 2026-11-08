@@ -25,6 +25,44 @@ Times are local (EST). Branches named max/automapper-sim* are local experiment b
   the 2026-11-06 measurement-boundary fix below. A trial now stops the explorer
   before either scorer finalizes. Physical Gazebo travel and reported `/odom`
   are kept separately so parity compares the same public signal.
+- Making every Nav2 goal finish facing its direction of travel was denied in a
+  matched five-run test. Mean completeness fell from 77.4% to 62.9%, and goal
+  results fell from 22 reached / 11 failed to 8 reached / 47 failed. A plausible
+  travel direction is not the same as an unconstrained final yaw; the added yaw
+  requirement made many otherwise useful goals harder for Nav2 to satisfy.
+
+## 2026-11-08 11:16 - Face each frontier goal in the direction of travel
+- Branch: local `noah/exp/frontier-heading`, based on scoreboard commit
+  `843ad4a`. The two source edits remain uncommitted. Compared against the same
+  five seeds from the 2026-11-06 ten-run baseline.
+- Hypothesis: the old identity quaternion makes every Nav2 goal finish at map
+  yaw zero. Facing from Oak's current position toward the selected goal should
+  avoid an unnecessary final turn and leave Oak better positioned to scan.
+- Change: calculate the goal quaternion from the map-frame vector from Oak to
+  the selected frontier. Frontier scoring, goal positions, Nav2 parameters,
+  recovery behavior and the VLM were unchanged.
+- Matched results (baseline -> travel-heading completeness):
+  - Seed 28000: 98.5% -> 95.6% (-2.9 points).
+  - Seed 28001: 99.4% -> 71.7% (-27.7 points).
+  - Seed 28002: 46.8% -> 50.2% (+3.4 points).
+  - Seed 28003: 98.6% -> 47.4% (-51.2 points).
+  - Seed 28004: 43.7% -> 49.6% (+5.9 points).
+- Aggregate: mean completeness 77.4% -> 62.9%; stuck runs 2/5 -> 3/5;
+  formal completions stayed 0/5; collisions stayed 0. Baseline reached 22 of
+  35 sent goals and failed 11; the change reached only 8 of 55 and failed 47.
+  Logs repeatedly report DWB `No valid trajectories` and failed Nav2 goals.
+- Scoreboard evidence: all five run folders finalized and completeness and
+  collision parity held. Three distance checks passed. Two reported distance
+  parity failures because `/odom` contained a discontinuity larger than 1 m;
+  both run reports preserved that warning instead of silently counting it.
+- Verdict: denied. Do not commit, push, merge or test this heading change on
+  Oak. The final goal orientation is an additional planner constraint, not a
+  harmless hint, and this implementation materially reduced reliability.
+- Next: keep the unchanged baseline automapper for the first supervised Oak
+  scoreboard run. Preserve these artifacts as negative evidence. Do not start
+  another orientation experiment until the real baseline is recorded; a later
+  design should explicitly evaluate position-only goal completion or a
+  frontier-facing yaw rather than assuming travel direction is better.
 
 ## 2026-11-07 17:25 - A/B test: wait 2 seconds at an obstacle
 - Branch: `noah/feat/scoreboard` (`52d1536`) with no automapper source change. The trial runner temporarily set `blocked_timeout:=2.0` and labeled the result `blocked_grace_2s`.

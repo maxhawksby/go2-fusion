@@ -24,6 +24,7 @@ def test_bag_command_contains_required_topics_and_cleans_up(tmp_path):
     recorder.start()
     assert calls[0][0][:5] == ['ros2', 'bag', 'record', '-o', str(tmp_path / 'bag')]
     assert '/map' in calls[0][0]
+    assert '/local_costmap/costmap' in calls[0][0]
     assert '/auto_mapper/events' in calls[0][0]
     assert '/scoreboard/status' in calls[0][0]
     assert '--qos-profile-overrides-path' in calls[0][0]
