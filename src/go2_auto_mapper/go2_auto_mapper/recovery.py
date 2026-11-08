@@ -42,10 +42,17 @@ SLAM_MIN_TRAVEL_M = 0.2
 # so an abort always comes before the body leaves checked space. Kept tight
 # because the envelope grows with them: at 0.10 m and 0.15 rad a wall
 # 0.17 m beside the body refused every move, and in go2_sim Oak never made
-# a single recovery move in 4 runs. Aborting is safe: Oak just stops.
-DRIFT_YAW_RAD = 0.10
-DRIFT_ACROSS_M = 0.05
+# a single recovery move in 4 runs. At 0.10 rad and 0.05 m a wall 0.10 m
+# beside the body still refused a straight-back move with 1.5 m free behind
+# (found from go2_sim recordings). Aborting is safe: Oak just stops.
+DRIFT_YAW_RAD = 0.06
+DRIFT_ACROSS_M = 0.03
 _YAW_SAMPLES = 7
+# A short run of rays with no return is normal: in go2_sim 17 to 43 of 360
+# rays were empty at every freeze, in runs of 1 to 10 degrees behind Oak, and
+# they alone refused a backward move with 2.5 m of free floor. A wider run
+# could be something the lidar cannot see, such as glass, so it still refuses.
+MAX_MISSING_GAP_RAD = math.radians(15.0)
 
 
 def swept_bounds(dx, dy):
@@ -80,7 +87,7 @@ def _hull(points):
     return lower[:-1] + upper[:-1]
 
 
-def move_envelope(dx, dy, start=0.0):
+def move_envelope(dx, dy, start=0.0, margin=SAFETY_MARGIN_M):
     """Polygons (robot frame at the start pose) that together hold every
     place the padded body can be during the move (dx, dy), from `start`
     meters along it to the end, while the heading stays within
@@ -89,14 +96,15 @@ def move_envelope(dx, dy, start=0.0):
     The whole body is covered, both halves: Oak can turn while it moves,
     so the half facing away from the move can swing into a wall beside it.
     Returns (polygons, pad): `pad` covers the gaps between yaw samples.
+    `margin` is the padding around the body outline.
     """
 
     distance = math.hypot(dx, dy)
     ux, uy = (dx / distance, dy / distance) if distance > 0 else (1.0, 0.0)
     nx, ny = -uy, ux
-    front = ROBOT_FRONT_M + SAFETY_MARGIN_M
-    rear = ROBOT_REAR_M + SAFETY_MARGIN_M
-    half = ROBOT_HALF_WIDTH_M + SAFETY_MARGIN_M
+    front = ROBOT_FRONT_M + margin
+    rear = ROBOT_REAR_M + margin
+    half = ROBOT_HALF_WIDTH_M + margin
     corners = [(a, b) for a in (-rear, front) for b in (-half, half)]
     offsets = [
         (s * ux + side * nx, s * uy + side * ny)
@@ -145,17 +153,66 @@ def _trigger_exempt(x, y, dx, pad=0.0):
     return dx < 0 and x >= ROBOT_FRONT_M - pad
 
 
+def _margin_exempt(x, y, dx, dy, pad=0.0, slack=0.0):
+    """True for a robot-frame point that is already inside the padding where
+    Oak stands now, and that the bare body cannot reach during the move.
+
+    Without this, a wall 0.10 to 0.15 m beside the body refuses every move,
+    of any length, including the ones that slide straight along it (found
+    from go2_sim recordings). The padding still stops Oak moving toward new
+    obstacles; it just cannot pin Oak against one it is already next to.
+    `slack` widens only the "already inside the padding" test, for callers
+    whose own check reaches past the padding (the scan's extra margin, the
+    costmap's cell size).
+    """
+
+    distance = math.hypot(dx, dy)
+    if distance <= 0.0:
+        return False
+    scale = 1e-6 / distance
+    here, here_pad = move_envelope(dx * scale, dy * scale)
+    if not _inside(here, x, y, here_pad + pad + slack):
+        return False
+    bare, bare_pad = move_envelope(dx, dy, margin=0.0)
+    return not _inside(bare, x, y, bare_pad + pad)
+
+
+def _wide_gap_rays(scan, full_circle):
+    """Indices of no-return rays in a run wider than MAX_MISSING_GAP_RAD."""
+
+    count = len(scan.ranges)
+    missing = [
+        not math.isfinite(value) or not scan.range_min <= value <= scan.range_max
+        for value in scan.ranges
+    ]
+    if all(missing):
+        return set(range(count))
+    limit = MAX_MISSING_GAP_RAD / scan.angle_increment
+    # Start the walk on a valid ray, so a run across the wrap stays whole.
+    begin = missing.index(False) if full_circle else 0
+    wide, run = set(), []
+    for offset in range(count + 1):
+        index = (begin + offset) % count
+        if offset < count and missing[index]:
+            run.append(index)
+            continue
+        if len(run) > limit:
+            wide.update(run)
+        run = []
+    return wide
+
+
 def scan_covers_move(scan, dx, dy):
     """True when no scan return falls inside the body's move envelope
     (move_envelope), except returns on the obstacle that stopped Oak
     (_trigger_exempt), and the new space the move enters is measured.
 
     Missing rays, NaNs and infinite returns do not prove the space is clear,
-    so they refuse the move where they cross space ahead of base_link along
-    the move. Behind it the body is already standing there, and the
-    costmap check still covers it; the scan has a few empty rays (no
-    return in its height band), and refusing on those blocked every
-    backward move (found in go2_sim).
+    so a wide run of them (MAX_MISSING_GAP_RAD) refuses the move where it
+    crosses space ahead of base_link along the move. Behind it the body is
+    already standing there. A narrow run is a normal sparse scan: the rays
+    either side of it measured the space and the costmap check still covers
+    it. Refusing on those blocked every backward move (found in go2_sim).
     """
 
     if scan.angle_increment <= 0:
@@ -165,6 +222,17 @@ def scan_covers_move(scan, dx, dy):
     # from -pi: straight behind (+pi) is ray 0 again, not ray 360. Without
     # the wrap every backward move looked unmeasured (found in go2_sim).
     full_circle = count * scan.angle_increment >= 2 * math.pi - 1e-6
+    wide_gaps = _wide_gap_rays(scan, full_circle)
+    distance = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / distance, dy / distance
+    # The leading edge of the padded body along the move. Only space past it
+    # is new; what the body stands beside is the costmap check's job.
+    leading = max(
+        a * ux + b * uy
+        for a in (-(ROBOT_REAR_M + SAFETY_MARGIN_M), ROBOT_FRONT_M + SAFETY_MARGIN_M)
+        for b in (-(ROBOT_HALF_WIDTH_M + SAFETY_MARGIN_M),
+                  ROBOT_HALF_WIDTH_M + SAFETY_MARGIN_M)
+    )
     polygons, pad = move_envelope(dx, dy)
     xs = [p[0] for poly in polygons for p in poly]
     ys = [p[1] for poly in polygons for p in poly]
@@ -183,13 +251,15 @@ def scan_covers_move(scan, dx, dy):
                 return False
             value = scan.ranges[index]
             if not math.isfinite(value) or not scan.range_min <= value <= scan.range_max:
-                if x * dx + y * dy >= 0.0:
+                if index in wide_gaps and x * ux + y * uy > leading:
                     return False
                 continue
             if value < radius + SAFETY_MARGIN_M:
                 hit_x = value * math.cos(angle)
                 hit_y = value * math.sin(angle)
-                if not _trigger_exempt(hit_x, hit_y, dx):
+                if not (_trigger_exempt(hit_x, hit_y, dx)
+                        or _margin_exempt(hit_x, hit_y, dx, dy,
+                                          slack=SAFETY_MARGIN_M)):
                     return False
     return True
 
@@ -229,8 +299,9 @@ def swept_clear(grid, x, y, yaw, dx, dy, start=0.0):
             cost = cost_at(grid, wx, wy)
             if cost is None or cost < 0:
                 return False
-            if cost >= LETHAL_COST and not _trigger_exempt(
-                along, across, dx, res / 2
+            if cost >= LETHAL_COST and not (
+                _trigger_exempt(along, across, dx, res / 2)
+                or _margin_exempt(along, across, dx, dy, res / 2, res)
             ):
                 return False
     return True

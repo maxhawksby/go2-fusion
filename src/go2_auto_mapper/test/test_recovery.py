@@ -108,7 +108,7 @@ def test_drift_envelope_covers_turning_and_sliding():
     # it drifts within the limits tick_recovery allows (DRIFT_ACROSS_M off
     # the line, DRIFT_YAW_RAD of heading). Backing up past it must be
     # refused.
-    post = (-0.65, -0.60, 0.33, 0.38)  # beside the tail
+    post = (-0.65, -0.60, 0.30, 0.35)  # beside the tail
     grid = make_grid(obstacles=[post])
     assert not swept_clear(grid, 0, 0, 0, -0.3, 0)
     # Further out than any allowed drift: clear.
@@ -120,12 +120,12 @@ def test_mid_move_check_is_anchored_at_the_start_pose():
     # A box beside the far end of a 0.6 m back-up, within the drift
     # envelope. Checked from the start pose 0.3 m in, the rest of the move
     # still reaches it, so the move must stop.
-    box = make_grid(obstacles=[(-1.0, -0.9, 0.36, 0.42)])
+    box = make_grid(obstacles=[(-1.0, -0.9, 0.30, 0.35)])
     assert swept_clear(box, 0, 0, 0, -0.3, 0)
     assert not swept_clear(box, 0, 0, 0, -0.6, 0, start=0.3)
     # A wall beside the start, already left behind 0.3 m into the move
     # (with the drift allowance), no longer counts.
-    behind = make_grid(obstacles=[(0.3, 0.6, 0.36, 0.42)])
+    behind = make_grid(obstacles=[(0.3, 0.6, 0.22, 0.26)])
     assert not swept_clear(behind, 0, 0, 0, -0.6, 0)
     assert swept_clear(behind, 0, 0, 0, -0.6, 0, start=0.5)
 
@@ -196,16 +196,30 @@ def test_scan_coverage_wraps_a_full_circle_scan():
     assert scan_covers_move(scan, 0, 0.3)
 
 
-def test_empty_rays_refuse_only_new_space():
-    # A few rays with no return. Toward the space the move enters they
-    # refuse it; through space the body already stands in (in front of
-    # base_link while backing up) the costmap check covers it.
+def test_empty_rays_refuse_only_a_wide_gap_toward_new_space():
+    # A narrow run of rays with no return is a normal sparse scan and does
+    # not refuse the move, even straight behind; the costmap still covers it.
     scan = clear_scan()
     for degrees in (-28, -27, 40):
         scan.ranges[degrees + 180] = float('inf')
     assert scan_covers_move(scan, -0.3, 0)
-    scan.ranges[180 + 180] = float('inf')  # straight behind
+    for degrees in range(175, 181):  # 6 degrees straight behind
+        scan.ranges[degrees + 180] = float('inf')
+    assert scan_covers_move(scan, -0.3, 0)
+    # A wide run across the space the move enters could be glass: refused.
+    for degrees in range(150, 181):
+        scan.ranges[degrees + 180] = float('inf')
     assert not scan_covers_move(scan, -0.3, 0)
+
+
+def test_wall_beside_the_body_does_not_pin_a_straight_back_move():
+    # The freeze from go2_sim: a wall 0.10 m beside the body, open behind.
+    # It is inside the padding already, and backing up slides along it.
+    grid = make_grid(obstacles=[(-0.4, 0.4, 0.31, 0.33)])
+    assert swept_clear(grid, 0, 0, 0, -0.3, 0)
+    # Touching distance is still refused.
+    grid = make_grid(obstacles=[(-0.4, 0.4, 0.21, 0.23)])
+    assert not swept_clear(grid, 0, 0, 0, -0.3, 0)
 
 
 def _stamps(when):
