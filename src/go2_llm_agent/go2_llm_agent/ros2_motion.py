@@ -7,7 +7,7 @@ import rclpy
 from rclpy.context import Context
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 from go2_llm_agent.heading import HeadingTracker
 
@@ -27,7 +27,9 @@ class RosMotionController:
         rclpy.init(args=[], context=self._context)
         self._node = Node("go2_llm_agent", context=self._context)
         self._pub = self._node.create_publisher(Twist, self._topic, 10)
-        self._odom_sub = self._node.create_subscription(Odometry, "/odom", self._on_odom, qos_profile_sensor_data)
+        self._odom_sub = self._node.create_subscription(
+            Odometry, "/odom", self._on_odom,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self._executor = SingleThreadedExecutor(context=self._context)
         self._executor.add_node(self._node)
         self._thread = threading.Thread(target=self._executor.spin, daemon=True)
@@ -39,7 +41,8 @@ class RosMotionController:
             return  # Repeated/out-of-order telemetry must not make old data look fresh.
         self._last_odom_stamp = stamp
         q = msg.pose.pose.orientation
-        self._heading.update((q.x, q.y, q.z, q.w), msg.header.frame_id)
+        self._heading.update((q.x, q.y, q.z, q.w),
+                             (msg.header.frame_id, msg.child_frame_id))
 
     def read_heading(self):
         return self._heading.read()

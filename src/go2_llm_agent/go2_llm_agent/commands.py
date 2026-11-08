@@ -5,14 +5,11 @@ import json
 import math
 import re
 
-MAX_DURATION_S = 5.0
-MAX_PLAN_DURATION_S = 45.0
 DEFAULT_WALK_DURATION_S = 1.0
 DEFAULT_TURN_ANGLE_DEG = 90.0
 DEFAULT_SPIN_ANGLE_DEG = 360.0
-MAX_STEPS = 4
-LINEAR_SPEED_MPS = 0.2
-ANGULAR_SPEED_RAD_S = 0.5
+LINEAR_SPEED_MPS = 0.5
+ANGULAR_SPEED_RAD_S = 1.5
 
 PLAN_SCHEMA = {
     "type": "object",
@@ -52,7 +49,9 @@ class Step:
 
     def time_limit(self):
         if self.angle_deg is not None:
-            return math.radians(self.angle_deg) / ANGULAR_SPEED_RAD_S * 2 + 3
+            # Budget includes the slower feedback-controlled approach and settling.
+            # Elapsed time can abort a turn; it never declares the angle reached.
+            return math.radians(self.angle_deg) / ANGULAR_SPEED_RAD_S * 2 + 8
         return self.duration_s
 
     def velocities(self):
@@ -103,8 +102,8 @@ def validate_plan(content):
         raise InvalidPlan("Unknown plan status.")
     if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
         raise InvalidPlan("Expected a short explanation.")
-    if not isinstance(raw_steps, list) or len(raw_steps) > MAX_STEPS:
-        raise InvalidPlan("At most four action steps are allowed.")
+    if not isinstance(raw_steps, list):
+        raise InvalidPlan("Steps must be an array.")
     if status != "execute" and raw_steps:
         raise InvalidPlan("Non-executable responses must have no steps.")
     if status == "execute" and not raw_steps:
@@ -143,19 +142,17 @@ def validate_plan(content):
             if unit != "seconds" or quantity != 0:
                 raise InvalidPlan("Stop must have zero seconds.")
         elif unit == "seconds":
-            if not 0 < quantity <= MAX_DURATION_S:
-                return Plan("unsupported", "Timed movement must be greater than zero and at most five seconds.", ())
+            if quantity <= 0:
+                return Plan("unsupported", "Timed movement must be greater than zero.", ())
         elif unit == "degrees" and action in {"turn", "spin"}:
-            if not 0 < quantity <= 360:
-                return Plan("unsupported", "Turn angle must be greater than zero and at most 360 degrees.", ())
+            if quantity <= 0:
+                return Plan("unsupported", "Turn angle must be greater than zero.", ())
             angle, quantity = quantity, 0.0
         else:
             raise InvalidPlan("Unsupported movement unit.")
         if action == "spin" and direction == "none":
             direction = "left"
         steps.append(Step(action, direction, quantity, angle))
-    if sum(s.time_limit() for s in steps) > MAX_PLAN_DURATION_S:
-        return Plan("unsupported", "Plan exceeds the 45-second execution budget, including turn timeouts.", ())
     if any(s.direction == "none" and s.action != "stop" for s in steps):
         return Plan("clarify", "Should I move forward/backward or turn left/right?", ())
     return Plan(status, reason.strip(), tuple(steps))
@@ -211,10 +208,10 @@ _ACTIONS = re.compile(r"\b(?P<walk>walk|move|go|back\s+up|reverse)\b|\b(?P<turn>
 _STEP_COUNTS = re.compile(r"\b(?:steps?|paces?)\b", re.I)
 
 
-def validate_request(plan, text):
-    """Check explicit quantities per action; only documented defaults may fill gaps.
+def validate_request(plan, text, strict=True):
+    """Reject unsupported conditions; optionally verify source words and quantities.
 
-    This conservative vocabulary check does not prove arbitrary English semantics.
+    Strict mode uses conservative vocabulary, not general English understanding.
     """
     if plan.status != "execute":
         return plan
@@ -222,6 +219,8 @@ def validate_request(plan, text):
         return Plan("unsupported", "Counting footsteps is not implemented. Specify walking time in seconds.", ())
     if any(s.action != "stop" for s in plan.steps) and _QUALIFIED_REQUEST.search(text):
         return Plan("unsupported", "Negated or conditional movements are not supported. Give a direct movement request.", ())
+    if not strict:
+        return plan
     actions = list(_ACTIONS.finditer(text))
     if len(actions) != len(plan.steps):
         return Plan("clarify", "Please name each movement, such as walk forward then turn left.", ())
@@ -265,3 +264,73 @@ def validate_request(plan, text):
             raise InvalidPlan("The model changed a quantity or the documented default. Please rephrase; no actions ran.")
         normalized.append(step)
     return Plan(plan.status, plan.reason, tuple(normalized))
+
+
+# Only full, unambiguous matches use this path; everything else goes to Qwen.
+_SIMPLE_DIRECTION = r"forwards?|ahead|backwards?|back|left|right|counter-?clockwise|anti-?clockwise|clockwise|ccw|cw"
+_SIMPLE_CLAUSE = re.compile(
+    r"(?P<verb>walk|move|go|back\s+up|reverse|turn|rotate|spin|stop|halt)"
+    r"(?:\s+(?P<direction>" + _SIMPLE_DIRECTION + r"))?"
+    r"(?:\s+(?P<around>around))?"
+    r"(?:\s+(?:for|by))?"
+    r"(?:\s+(?P<amount>" + _AMOUNT + r")\s*(?P<unit>milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|hours?|hrs?|degrees?|deg|°))?",
+    re.I)
+
+
+def parse_simple_request(text):
+    """Return a validated plan for familiar commands, or None for model fallback."""
+    normalized = re.sub(r"^please\s+", "", text.strip().lower()).rstrip(".!?")
+    normalized = " ".join(normalized.split())
+    clauses = re.split(r"(?:,\s*(?:then\s+)?|\s+(?:and\s+then|then|and)\s+)(?=(?:walk|move|go|back|reverse|turn|rotate|spin|stop|halt)\b)", normalized)
+    steps = []
+    for clause in clauses:
+        match = _SIMPLE_CLAUSE.fullmatch(clause.strip())
+        if match is None:
+            return None
+        verb, direction = match['verb'], match['direction']
+        if verb in {'walk', 'move', 'go', 'back up', 'reverse'}:
+            action = 'walk'
+        elif verb in {'turn', 'rotate'}:
+            action = 'turn'
+        elif verb in {'stop', 'halt'}:
+            action = 'stop'
+        else:
+            action = 'spin'
+        if direction:
+            direction = next((key for key, pattern in _DIRECTIONS.items() if re.fullmatch(pattern, direction, re.I)), None)
+        elif verb in {'back up', 'reverse'}:
+            direction = 'backward'
+        if verb in {'back up', 'reverse'} and direction != 'backward':
+            return None
+        if action == 'stop':
+            if direction or match['around'] or match['amount']:
+                return None
+            steps.append({'action': action, 'direction': 'none', 'quantity': 0, 'unit': 'seconds'})
+            continue
+        if match['around'] and action != 'spin':
+            return None
+        if direction is None and action != 'spin':
+            return None
+        if action == 'walk' and direction not in {'forward', 'backward'}:
+            return None
+        if action in {'turn', 'spin'} and direction not in {'left', 'right', None}:
+            return None
+        quantity, unit = None, 'default'
+        if match['amount']:
+            amount, source_unit = match['amount'], match['unit']
+            if source_unit.startswith(('deg', '°')):
+                unit = 'degrees'
+                quantity = explicit_durations(amount + ' seconds')[0]
+            else:
+                unit = 'seconds'
+                if source_unit.startswith(('min', 'hour', 'hr')):
+                    quantity = explicit_durations(amount + ' seconds')[0] * (60 if source_unit.startswith('min') else 3600)
+                else:
+                    quantity = explicit_durations(amount + ' ' + source_unit)[0]
+        # A dangling 'for/by' is not a complete simple command.
+        elif re.search(r'\b(?:for|by)$', clause):
+            return None
+        if action == 'walk' and unit == 'degrees':
+            return None
+        steps.append({'action': action, 'direction': direction or 'none', 'quantity': quantity, 'unit': unit})
+    return validate_plan(json.dumps({'status': 'execute', 'reason': 'Direct command; no model request needed.', 'steps': steps}))

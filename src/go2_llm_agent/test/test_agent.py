@@ -9,8 +9,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from go2_llm_agent.agent import AgentSession
-from go2_llm_agent.commands import InvalidPlan, explicit_durations, is_stop, validate_plan, validate_request
-from go2_llm_agent.heading import Heading, HeadingTracker
+from go2_llm_agent.commands import InvalidPlan, explicit_durations, is_stop, parse_simple_request, validate_plan, validate_request
+from go2_llm_agent.heading import AngleTurnController, Heading, HeadingTracker, TURN_TOLERANCE_RAD
 from go2_llm_agent.ollama_client import ModelError, OllamaClient
 
 
@@ -20,19 +20,49 @@ def response(action="walk", direction="backward", duration=0.1, unit="seconds"):
 
 
 class ContractTests(unittest.TestCase):
+    def test_long_requests_and_many_actions_are_not_capped(self):
+        for seconds in (5.01, 100, 3600):
+            self.assertEqual(validate_plan(json.dumps(response(duration=seconds))).steps[0].duration_s, seconds)
+        raw = response('spin', 'left', 720, 'degrees')['steps'] * 8
+        plan = validate_plan(json.dumps({'status': 'execute', 'reason': 'Long plan.', 'steps': raw}))
+        self.assertEqual(len(plan.steps), 8)
+        self.assertEqual(plan.steps[0].angle_deg, 720)
+
+    def test_fast_parser_preserves_whole_request(self):
+        for text, expected in [
+            ('walk forward for 20 seconds then turn left', [('walk', 'forward', 20, None), ('turn', 'left', 0, 90)]),
+            ('please move backward for two minutes', [('walk', 'backward', 120, None)]),
+            ('back up for half a second', [('walk', 'backward', 0.5, None)]),
+            ('back   up for half a second', [('walk', 'backward', 0.5, None)]),
+            ('spin clockwise 720 degrees', [('spin', 'right', 0, 720)]),
+            ('walk forward for one and a half seconds', [('walk', 'forward', 1.5, None)]),
+        ]:
+            with self.subTest(text=text):
+                plan = parse_simple_request(text)
+                self.assertEqual([(s.action, s.direction, s.duration_s, s.angle_deg) for s in plan.steps], expected)
+        for text in ('do not walk forward', 'walk forward then jump', 'walk forward for',
+                     'walk forward until I say stop', 'walk to the chair', 'turn around',
+                     'walk forward for three steps', 'walk forward at 2 meters per second', 'back up forward'):
+            with self.subTest(text=text):
+                self.assertIsNone(parse_simple_request(text))
+
+    def test_flexible_language_does_not_require_old_vocabulary(self):
+        plan = validate_plan(json.dumps(response('walk', 'backward', 3)))
+        self.assertEqual(validate_request(plan, 'Retreat for three seconds', strict=False), plan)
+        self.assertEqual(validate_request(plan, 'Do not retreat', strict=False).steps, ())
+
     def test_signs_are_derived_from_direction(self):
-        for action, direction, expected in [("walk", "forward", (0.2, 0)), ("walk", "backward", (-0.2, 0)),
-                                             ("turn", "left", (0, 0.5)), ("turn", "right", (0, -0.5))]:
+        for action, direction, expected in [("walk", "forward", (0.5, 0)), ("walk", "backward", (-0.5, 0)),
+                                             ("turn", "left", (0, 1.5)), ("turn", "right", (0, -1.5))]:
             with self.subTest(direction=direction):
                 self.assertEqual(validate_plan(json.dumps(response(action, direction))).steps[0].velocities(), expected)
 
     def test_invalid_parameters_fail_closed(self):
-        invalid = [response(duration=x) for x in [0, -1, 5.01, True, "1", float("inf"), float("nan")]]
+        invalid = [response(duration=x) for x in [0, -1, True, "1", float("inf"), float("nan")]]
         invalid += [response("walk", "left"), response("turn", "forward"), response("stop", "none", 1)]
         invalid += [{"status": "unsupported", "reason": "No.", "steps": response()["steps"]},
                     {"status": "execute", "reason": "Empty.", "steps": []},
-                    {"status": "execute", "reason": "Too long.", "steps": response("spin", "left", 360, "degrees")["steps"] * 2},
-                    {"status": "execute", "reason": "Too many.", "steps": response()["steps"] * 5}]
+                    {"status": "execute", "reason": "Bad steps.", "steps": "not an array"}]
         for obj in invalid:
             with self.subTest(obj=obj):
                 try:
@@ -60,7 +90,7 @@ class ContractTests(unittest.TestCase):
         for raw in [response("walk", "forward", 90, "degrees"), response("turn", "left", 90, "default")]:
             with self.assertRaises(InvalidPlan):
                 validate_plan(json.dumps(raw))
-        for amount in (0, 361):
+        for amount in (0, -1):
             self.assertEqual(validate_plan(json.dumps(response("turn", "left", amount, "degrees"))).steps, ())
         plan = validate_plan(json.dumps(response("turn", "left", 90, "degrees")))
         self.assertEqual(validate_request(plan, "turn left 90 degrees"), plan)
@@ -142,7 +172,8 @@ class HeadingTests(unittest.TestCase):
             tracker = HeadingTracker()
             for degrees in range(0, 361, 10):
                 yaw = sign * math.radians(degrees)
-                tracker.update((0, 0, math.sin(yaw / 2), math.cos(yaw / 2)), "odom")
+                with patch("go2_llm_agent.heading.time.monotonic", return_value=1 + degrees / 100):
+                    tracker.update((0, 0, math.sin(yaw / 2), math.cos(yaw / 2)), "odom")
             self.assertAlmostEqual(tracker.read().radians, sign * 2 * math.pi)
 
     def test_invalid_samples_do_not_refresh_and_frame_change_is_rejected(self):
@@ -154,6 +185,72 @@ class HeadingTests(unittest.TestCase):
         self.assertEqual(tracker.read(), valid)
         tracker.update((0, 0, 0, 1), "map")
         with self.assertRaises(RuntimeError):
+            tracker.read()
+
+
+class AngleFeedbackTests(unittest.TestCase):
+    def test_slows_near_target_and_corrects_overshoot(self):
+        turn = AngleTurnController(Heading(0, 0), 90, 'left', 1.5)
+        fast = turn.update(Heading(0, .1))
+        slow = turn.update(Heading(math.radians(85), .2))
+        correction = turn.update(Heading(math.radians(94), .3))
+        self.assertGreater(fast, slow)
+        self.assertGreater(slow, 0)
+        self.assertLess(correction, 0)
+        self.assertFalse(turn.complete)
+
+    def test_first_crossing_and_repeated_sample_do_not_complete(self):
+        turn = AngleTurnController(Heading(0, 0), 90, 'left', 1.5)
+        sample = Heading(math.radians(90), .1)
+        for _ in range(100):
+            self.assertEqual(turn.update(sample), 0)
+        self.assertFalse(turn.complete)
+        turn.update(Heading(math.radians(90), .3))
+        self.assertFalse(turn.complete)
+        turn.update(Heading(math.radians(90), .5))
+        self.assertTrue(turn.complete)
+
+    def test_drift_during_stopping_restarts_settling(self):
+        turn = AngleTurnController(Heading(0, 0), 90, 'left', 1.5)
+        for stamp, angle in ((.1, 89.2), (.3, 89.8), (.5, 90.4)):
+            turn.update(Heading(math.radians(angle), stamp))
+        self.assertFalse(turn.complete)
+        turn.update(Heading(math.radians(92), .6))
+        self.assertFalse(turn.complete)
+        for stamp in (.8, 1., 1.2):
+            turn.update(Heading(math.radians(90), stamp))
+        self.assertTrue(turn.complete)
+
+    def test_measured_heading_drives_completion_with_different_robot_responses(self):
+        # Different speed response, inertia and delayed sensor readings. No wall
+        # clock sleeps and no integration of commanded speed as completion evidence.
+        for angle, direction in ((90, 'left'), (90, 'right'), (360, 'left'), (720, 'right')):
+            for response_scale, lag_s in ((.5, .0), (1., .12), (1.4, .2)):
+                with self.subTest(angle=angle, direction=direction, scale=response_scale, lag=lag_s):
+                    turn = AngleTurnController(Heading(0, 0), angle, direction, 1.5)
+                    yaw, rate, command = 0., 0., 0.
+                    history = [(0., 0.)]
+                    for tick in range(1, 3001):
+                        stamp = tick * .02
+                        rate += (response_scale * command - rate) * .02 / .15
+                        yaw += rate * .02
+                        history.append((stamp, yaw))
+                        sample_time, measured = history[max(0, len(history) - 1 - round(lag_s / .02))]
+                        command = turn.update(Heading(measured, sample_time))
+                        if turn.complete:
+                            break
+                    self.assertTrue(turn.complete)
+                    target = math.radians(angle) * (1 if direction == 'left' else -1)
+                    self.assertLessEqual(abs(yaw - target), TURN_TOLERANCE_RAD)
+                    self.assertEqual(command, 0)
+
+    def test_pose_reset_is_rejected_instead_of_counting_as_a_turn(self):
+        tracker = HeadingTracker()
+        with patch('go2_llm_agent.heading.time.monotonic', return_value=1.):
+            tracker.update((0, 0, 0, 1), 'odom')
+        with patch('go2_llm_agent.heading.time.monotonic', return_value=1.05):
+            tracker.update((0, 0, math.sin(math.pi / 4), math.cos(math.pi / 4)), 'odom')
+        with self.assertRaisesRegex(RuntimeError, 'jumped'):
             tracker.read()
 
 
@@ -174,7 +271,7 @@ class ExecutionTests(unittest.TestCase):
 
             def read_heading(self):
                 if self.moving.is_set():
-                    self.yaw += 0.4 * (1 if self.samples[-1][2] > 0 else -1)
+                    self.yaw += self.samples[-1][2] * 0.05
                 return Heading(self.yaw, time.monotonic())
 
         for direction, sign in (("left", 1), ("right", -1)):
@@ -184,7 +281,7 @@ class ExecutionTests(unittest.TestCase):
             session.submit("spin")
             session.wait()
             self.assertIsNone(session.last_error)
-            self.assertGreaterEqual(sign * motion.yaw, math.radians(358))
+            self.assertAlmostEqual(sign * motion.yaw, 2 * math.pi, delta=TURN_TOLERANCE_RAD)
             self.assertTrue(all(z * sign > 0 for _, _, z in motion.samples if z))
             self.assertEqual(motion.samples[-1][1:], (0, 0))
             session.close()
@@ -262,16 +359,16 @@ class ExecutionTests(unittest.TestCase):
         self.assertIsNone(session.last_error)
         moving = [s for s in motion.samples if s[1] or s[2]]
         self.assertTrue(moving)
-        self.assertTrue(all(s[1] == -0.2 and s[2] == 0 for s in moving))
+        self.assertTrue(all(s[1] == -0.5 and s[2] == 0 for s in moving))
         self.assertGreaterEqual(motion.samples[-1][0] - moving[0][0], 0.09)
         self.assertEqual(motion.samples[-1][1:], (0, 0))
         session.close()
 
     def test_stop_interrupts_and_never_calls_model(self):
         motion = RecordingMotion()
-        client = StaticClient(validate_plan(json.dumps(response(duration=5))))
+        client = StaticClient(validate_plan(json.dumps(response(duration=100))))
         session = AgentSession(client, motion, output=lambda _: None)
-        session.submit("walk backward for five seconds")
+        session.submit("walk backward for 100 seconds")
         self.assertTrue(motion.moving.wait(1))
         stopped_at = time.monotonic()
         session.submit("stop")
@@ -303,7 +400,7 @@ class ExecutionTests(unittest.TestCase):
 
     def test_close_during_motion_leaves_no_late_publish(self):
         motion = RecordingMotion()
-        session = AgentSession(StaticClient(validate_plan(json.dumps(response(duration=5)))), motion, output=lambda _: None)
+        session = AgentSession(StaticClient(validate_plan(json.dumps(response(duration=100)))), motion, output=lambda _: None)
         session.submit("walk")
         self.assertTrue(motion.moving.wait(1))
         session.close()
@@ -354,7 +451,7 @@ class TransportTests(unittest.TestCase):
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-        self.client = OllamaClient(f"http://127.0.0.1:{self.server.server_port}", timeout=1)
+        self.client = OllamaClient(f"http://127.0.0.1:{self.server.server_port}", timeout=1, fast_path=False)
 
     def tearDown(self):
         self.server.shutdown()
@@ -377,9 +474,25 @@ class TransportTests(unittest.TestCase):
                 self.client.interpret("walk")
 
     def test_memory_release_option_is_sent_to_server(self):
-        client = OllamaClient(f"http://127.0.0.1:{self.server.server_port}", timeout=1, keep_alive="0")
+        client = OllamaClient(f"http://127.0.0.1:{self.server.server_port}", timeout=1, keep_alive="0", fast_path=False)
         client.interpret("walk backward for 0.1 seconds")
         self.assertEqual(self.payloads[-1]["keep_alive"], 0)
+
+    def test_zero_model_timeout_and_large_values_are_supported(self):
+        self.assertIsNone(OllamaClient(timeout=0).timeout)
+        self.assertEqual(OllamaClient(timeout=600).timeout, 600)
+        for bad in (-1, float('inf'), float('nan')):
+            with self.assertRaises(ValueError):
+                OllamaClient(timeout=bad)
+
+    def test_familiar_commands_skip_http_and_other_language_reaches_model(self):
+        client = OllamaClient(f"http://127.0.0.1:{self.server.server_port}")
+        plan = client.interpret('walk backward for 100 seconds')
+        self.assertEqual(plan.steps[0].duration_s, 100)
+        self.assertEqual(self.payloads, [])
+        plan = client.interpret('Retreat briefly')
+        self.assertEqual(plan.steps[0].direction, 'backward')
+        self.assertEqual(len(self.payloads), 1)
 
     def test_network_failure(self):
         # Close an ephemeral listening socket rather than assuming a particular port is unused.

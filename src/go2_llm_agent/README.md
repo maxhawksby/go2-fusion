@@ -1,7 +1,7 @@
 # go2_llm_agent
 
-Typed commands through local Ollama/Qwen, without a paid API key or extra Python
-libraries. Simulation is the default; speech input and output are outside this feature.
+Typed commands through a fast local parser or Ollama/Qwen, without a paid API key
+or extra Python libraries. Simulation is the default; speech input and output are outside this feature.
 
 ## Build and run
 

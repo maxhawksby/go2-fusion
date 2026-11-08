@@ -42,14 +42,19 @@ def main():
     session = None
     yaw = math.radians(170)  # Both angle tests cross the +/-pi boundary.
     updated_at = time.monotonic()
+    yaw_rate = 0.0
+    response_scale = 1.0
 
     def tick():
-        nonlocal yaw, updated_at
+        nonlocal yaw, updated_at, yaw_rate
         now = time.monotonic()
-        yaw += velocity[1] * (now - updated_at)
+        dt = now - updated_at
+        yaw_rate += (response_scale * velocity[1] - yaw_rate) * min(1.0, dt / 0.18)
+        yaw += yaw_rate * dt
         updated_at = now
         msg = Odometry()
         msg.header.frame_id = "odom"
+        msg.child_frame_id = "base_link"
         msg.header.stamp = probe.get_clock().now().to_msg()
         msg.pose.pose.orientation.z = math.sin(yaw / 2)
         msg.pose.pose.orientation.w = math.cos(yaw / 2)
@@ -75,6 +80,7 @@ def main():
             ("full clockwise spin", [{"action":"spin", "direction":"right", "quantity":None, "unit":"default"}], 360, -1),
         ]
         for name, steps, angle, sign in cases:
+            response_scale = 0.65 if sign == 1 else 1.25
             initial_yaw, initial_sample = yaw, len(samples)
             session = AgentSession(Client(steps), motion)
             done = False
@@ -95,11 +101,13 @@ def main():
             assert session.last_error is None, (session.last_error, math.degrees(yaw - initial_yaw), len(observed), observed[-5:], motion.read_heading())
             assert observed and observed[-1] == (0, 0), observed[-5:]
             if angle is None:
-                assert any(x == -0.2 and z == 0 for x, z in observed), observed
+                assert any(x == -0.5 and z == 0 for x, z in observed), observed
             else:
                 measured = sign * math.degrees(yaw - initial_yaw)
-                assert angle - 3 <= measured <= angle + 3, (name, measured)
+                assert angle - 1.5 <= measured <= angle + 1.5, (name, measured)
                 assert any(z * sign > 0 and x == 0 for x, z in observed), observed
+                speeds = [abs(z) for x, z in observed if z]
+                assert min(speeds) < max(speeds) / 2, "Turn did not slow near the measured goal"
                 print(f"PASS: {name}; measured {measured:.2f} degrees across heading wraparound.")
             print(f"PASS: {name}; {len(observed)} DDS messages, ending in zero.")
             session = None  # Same backend is intentionally reused across independent sessions.

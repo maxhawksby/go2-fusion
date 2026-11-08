@@ -7,11 +7,11 @@ import os
 import threading
 import time
 
-from go2_llm_agent.commands import is_stop
+from go2_llm_agent.commands import ANGULAR_SPEED_RAD_S, is_stop
+from go2_llm_agent.heading import AngleTurnController
 from go2_llm_agent.ollama_client import DEFAULT_MODEL, DEFAULT_URL, ModelError, OllamaClient
 
 HEADING_MAX_AGE_S = 1.0
-TURN_TOLERANCE_RAD = math.radians(2)
 
 
 def fresh_heading(motion):
@@ -20,7 +20,7 @@ def fresh_heading(motion):
         raise RuntimeError("Fresh /odom heading is required for angle turns; no timed substitute will run.")
     if not math.isfinite(heading.radians):
         raise RuntimeError("Invalid /odom heading.")
-    return heading.radians
+    return heading
 
 
 class AgentSession:
@@ -80,7 +80,9 @@ class AgentSession:
                     measure = f"{step.angle_deg:g} degrees" if step.angle_deg is not None else f"{step.duration_s:g}s"
                     self.output(f"Action: {step.action} {step.direction}, {measure}")
                 try:
-                    initial_heading = fresh_heading(self.motion) if step.angle_deg is not None else None
+                    turn = (AngleTurnController(fresh_heading(self.motion), step.angle_deg,
+                                                step.direction, ANGULAR_SPEED_RAD_S)
+                            if step.angle_deg is not None else None)
                     deadline = time.monotonic() + step.time_limit()
                     reached = False
                     while time.monotonic() < deadline:
@@ -89,29 +91,28 @@ class AgentSession:
                                 return
                             if time.monotonic() >= deadline:
                                 break
-                            if initial_heading is not None:
-                                heading = fresh_heading(self.motion)
-                                progress = (heading - initial_heading) * (1 if step.direction == "left" else -1)
-                                if progress < -math.radians(10):
-                                    raise RuntimeError("Heading moved opposite to the requested turn; stopped.")
-                                target = math.radians(step.angle_deg)
-                                if progress >= target - min(TURN_TOLERANCE_RAD, target / 2):
+                            linear, angular = step.velocities()
+                            if turn is not None:
+                                angular = turn.update(fresh_heading(self.motion))
+                                if turn.complete:
                                     reached = True
+                                    self.output(f"Turn settled: odometry measured {math.degrees(turn.measured):.2f} degrees; "
+                                                f"remaining error {math.degrees(turn.error) * turn.sign:+.2f} degrees.")
                                     break
                             # Check and publish under the same lock as stop: no late nonzero command.
-                            self.motion.publish_twist(*step.velocities())
+                            self.motion.publish_twist(linear, angular)
                         remaining = deadline - time.monotonic()
                         if remaining <= 0 or cancel.wait(min(0.05, remaining)):
                             break
-                    if initial_heading is not None and not reached and not cancel.is_set():
-                        raise RuntimeError("Turn did not reach its angle before the timeout; stopped remaining actions.")
+                    if turn is not None and not reached and not cancel.is_set():
+                        raise RuntimeError("Turn did not settle at its measured angle before the timeout; stopped remaining actions.")
                 finally:
                     with self._lock:
                         if not self._closed:
                             self.motion.publish_stop()
                 if cancel.is_set():
                     return
-            self.output("Completed; stopped.")
+            self.output("Finished publishing this plan; sent stop. Robot movement is not acknowledged.")
         except Exception as exc:
             # All model/validation/backend failures fail closed; never execute partial plans.
             with self._lock:
@@ -144,7 +145,12 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ollama-url", default=os.getenv("OLLAMA_BASE_URL", DEFAULT_URL))
     parser.add_argument("--model", default=os.getenv("OLLAMA_MODEL", DEFAULT_MODEL))
-    parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument("--timeout", type=float, default=30.0,
+                        help="model socket timeout in seconds; 0 waits without a timeout (not a movement limit)")
+    parser.add_argument("--strict-language", action="store_true",
+                        help="also require the old conservative word-by-word source check")
+    parser.add_argument("--llm-only", action="store_true",
+                        help="always ask Qwen, bypassing the fast parser for familiar commands")
     parser.add_argument("--keep-alive", choices=("0", "5m"), default=os.getenv("OLLAMA_KEEP_ALIVE", "5m"),
                         help="0 releases model memory after each reply; 5m keeps it loaded (default)")
     parser.add_argument("--mode", choices=("mock", "ros"), default="mock",
@@ -154,7 +160,8 @@ def main(argv=None):
     parser.add_argument("--command", help="run one request and exit instead of prompting")
     args = parser.parse_args(argv)
     try:
-        client = OllamaClient(args.ollama_url, args.model, args.timeout, keep_alive=args.keep_alive)
+        client = OllamaClient(args.ollama_url, args.model, args.timeout, keep_alive=args.keep_alive,
+                              strict_language=args.strict_language, fast_path=not args.llm_only)
         if args.check:
             print(json.dumps(client.check(), indent=2))
             return 0

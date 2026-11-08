@@ -26,7 +26,7 @@ CASES = [
     ("Turn right", "execute", [("turn", "right", 0, 90)]),
     ("Walk for one second", "clarify", []),
     ("Go that way for a second", "clarify", []),
-    ("Walk forward for 100 seconds", "unsupported", []),
+    ("Walk forward for 100 seconds", "execute", [("walk", "forward", 100)]),
     ("Walk backward for minus one second", "unsupported", []),
     ("Walk forward for zero seconds", "unsupported", []),
     ("Walk forward for one meter", "unsupported", []),
@@ -46,7 +46,7 @@ CASES = [
     ("Walk forward for 3 seconds then turn left", "execute", [("walk", "forward", 3), ("turn", "left", 0, 90)]),
     ("Walk forward for three steps", "unsupported", []),
     ("Walk forward for one second then take three steps backward", "unsupported", []),
-    ("Turn left 400 degrees", "unsupported", []),
+    ("Turn left 400 degrees", "execute", [("turn", "left", 0, 400)]),
     ("Hello", "chat", []),
     ("Who are you?", "chat", []),
 ]
@@ -56,9 +56,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ollama-url", default=DEFAULT_URL)
     parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--llm-only", action="store_true", help="bypass the local fast parser")
     parser.add_argument("--report", default="/tmp/go2-ollama-benchmark.json")
     args = parser.parse_args()
-    client = OllamaClient(args.ollama_url, args.model)
+    client = OllamaClient(args.ollama_url, args.model, fast_path=not args.llm_only)
     identity = client.check()
     results = []
     for text, status, expected in CASES:
