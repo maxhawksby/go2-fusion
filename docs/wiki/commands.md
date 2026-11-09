@@ -48,15 +48,6 @@ See [Map viewers](map-viewers.md). Both open a window.
 docker compose exec unitree_ros bash -ic 'ros2 run go2_map_viewer_cpp map_viewer_node'
 ```
 
-**Julia viewer:** a read-only map heatmap with an approximate robot marker. Start `rosbridge_server` first (it is not started automatically), then the viewer in another terminal:
-
-```shell
-docker compose exec unitree_ros bash -ic 'ros2 launch rosbridge_server rosbridge_websocket_launch.xml'
-docker compose exec unitree_ros bash -ic 'julia --threads=auto --project=/opt/go2_map_viewer_julia /ros2_ws/src/go2_map_viewer_julia/map_viewer.jl'
-```
-
-The Julia viewer has an odom-versus-map frame caveat; see [Map viewers](map-viewers.md).
-
 No window available? Foxglove shows the same map and sensor data with no WSL setup, but cannot click-to-navigate (see [WSL and Windows](wsl.md)).
 
 ## Keyboard controller
