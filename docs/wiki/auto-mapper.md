@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: 0db04c86ad46
+verified: b5e385343a7e
 ---
 
 # Auto mapper
