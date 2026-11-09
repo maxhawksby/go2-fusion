@@ -4,8 +4,8 @@ Points stay stored in the cloud frame (odom). The .ply is written in the
 map frame using the latest map <- odom transform, which is the same
 transform slam_toolbox updates on a loop closure. Re-applying that
 transform at each save moves the whole file with the correction. The
-in-memory cloud is not rewritten, and it is not cleared to drop obstacles
-that have moved.
+in-memory cloud is not rewritten; obstacles that moved drop out because each
+fresh cloud replaces the area it covers (see point_map.py).
 """
 
 
