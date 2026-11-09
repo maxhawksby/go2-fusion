@@ -79,6 +79,8 @@ button:focus-visible, a:focus-visible {
 .shell { display: grid; grid-template-columns: 286px minmax(0, 1fr); min-height: calc(100vh - 128px); }
 
 .run-rail {
+  min-width: 0;
+  overflow: hidden;
   padding: 28px 18px;
   background: #e8edf4;
   border-right: 1px solid var(--line);
@@ -120,9 +122,11 @@ button:focus-visible, a:focus-visible {
 }
 .sort-control select:focus-visible { outline: 3px solid rgba(22, 74, 138, 0.35); outline-offset: 2px; }
 
-.run-list { display: grid; gap: 8px; }
+.run-list { display: grid; min-width: 0; gap: 8px; }
 .run-item {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 14px;
   text-align: left;
   border: 1px solid transparent;
@@ -133,9 +137,10 @@ button:focus-visible, a:focus-visible {
 }
 .run-item:hover { background: rgba(255,255,255,0.65); }
 .run-item.active { background: white; border-color: #cbd6e5; box-shadow: 0 8px 24px rgba(0,14,47,0.07); }
-.run-item-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-.run-item strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.run-item small { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
+.run-item-top { display: flex; min-width: 0; justify-content: space-between; gap: 8px; align-items: center; }
+.run-item strong { display: block; min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.mini-state { flex: 0 0 auto; }
+.run-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 6px; color: var(--muted); font-size: 11px; }
 .mini-state { padding: 3px 6px; border-radius: 999px; background: #dce6f2; color: var(--blue); font-size: 9px; font-weight: 900; letter-spacing: 0.06em; }
 .mini-state.recording { background: #dff4ec; color: var(--success); }
 .mini-state.interrupted { background: #fff1d9; color: #815000; }
