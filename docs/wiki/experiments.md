@@ -21,7 +21,109 @@ Times are local (EST). Branches named max/automapper-sim* are local experiment b
 - SLAM can freeze right after the startup scan; the explorer then waits forever (step 3, first run 1). A recovery case for #29.
 - Runs can map 99 % and still not "finish": the latch stops Oak before the explorer declares the room complete.
 - Collisions have been 0 in every run so far. The sim has no people and no narrow doors, so that grade is untested here.
-- Noah's scoreboard (#47) runs in the sim and agrees with the old scorer (parity pass on every run so far).
+- Noah's scoreboard (#47) runs in the sim and agrees with the old scorer after
+  the 2026-11-06 measurement-boundary fix below. A trial now stops the explorer
+  before either scorer finalizes. Physical Gazebo travel and reported `/odom`
+  are kept separately so parity compares the same public signal.
+- Making every Nav2 goal finish facing its direction of travel was denied in a
+  matched five-run test. Mean completeness fell from 77.4% to 62.9%, and goal
+  results fell from 22 reached / 11 failed to 8 reached / 47 failed. A plausible
+  travel direction is not the same as an unconstrained final yaw; the added yaw
+  requirement made many otherwise useful goals harder for Nav2 to satisfy.
+
+## 2026-11-08 11:16 - Face each frontier goal in the direction of travel
+- Branch: local `noah/exp/frontier-heading`, based on scoreboard commit
+  `843ad4a`. The two source edits remain uncommitted. Compared against the same
+  five seeds from the 2026-11-06 ten-run baseline.
+- Hypothesis: the old identity quaternion makes every Nav2 goal finish at map
+  yaw zero. Facing from Oak's current position toward the selected goal should
+  avoid an unnecessary final turn and leave Oak better positioned to scan.
+- Change: calculate the goal quaternion from the map-frame vector from Oak to
+  the selected frontier. Frontier scoring, goal positions, Nav2 parameters,
+  recovery behavior and the VLM were unchanged.
+- Matched results (baseline -> travel-heading completeness):
+  - Seed 28000: 98.5% -> 95.6% (-2.9 points).
+  - Seed 28001: 99.4% -> 71.7% (-27.7 points).
+  - Seed 28002: 46.8% -> 50.2% (+3.4 points).
+  - Seed 28003: 98.6% -> 47.4% (-51.2 points).
+  - Seed 28004: 43.7% -> 49.6% (+5.9 points).
+- Aggregate: mean completeness 77.4% -> 62.9%; stuck runs 2/5 -> 3/5;
+  formal completions stayed 0/5; collisions stayed 0. Baseline reached 22 of
+  35 sent goals and failed 11; the change reached only 8 of 55 and failed 47.
+  Logs repeatedly report DWB `No valid trajectories` and failed Nav2 goals.
+- Scoreboard evidence: all five run folders finalized and completeness and
+  collision parity held. Three distance checks passed. Two reported distance
+  parity failures because `/odom` contained a discontinuity larger than 1 m;
+  both run reports preserved that warning instead of silently counting it.
+- Verdict: denied. Do not commit, push, merge or test this heading change on
+  Oak. The final goal orientation is an additional planner constraint, not a
+  harmless hint, and this implementation materially reduced reliability.
+- Next: keep the unchanged baseline automapper for the first supervised Oak
+  scoreboard run. Preserve these artifacts as negative evidence. Do not start
+  another orientation experiment until the real baseline is recorded; a later
+  design should explicitly evaluate position-only goal completion or a
+  frontier-facing yaw rather than assuming travel direction is better.
+
+## 2026-11-07 17:25 - A/B test: wait 2 seconds at an obstacle
+- Branch: `noah/feat/scoreboard` (`52d1536`) with no automapper source change. The trial runner temporarily set `blocked_timeout:=2.0` and labeled the result `blocked_grace_2s`.
+- Hypothesis: giving Nav2 two seconds to steer before cancelling a blocked goal should reduce entries into the no-safe-direction latch.
+- Comparison: two identical seeds and start poses, 300 s run timeout and 180 s no-progress timeout.
+  - Default: 54.9 % and 99.1 %, 77.0 % mean, 36.1 m total, 0/2 finished, 0 collisions. The first run latched; the second timed out near complete.
+  - Two-second grace: 51.7 % and 99.6 %, 75.7 % mean, 31.6 m total, 0/2 finished, 0 collisions. The first run still latched; the second timed out near complete after repeated failed goals.
+- Verdict: denied at the smoke-test level. It did not improve mean coverage, formal completion or the latch, so keep the default and do not open an automapper PR for this setting.
+- Measurement finding: both default runs exposed a start-boundary mismatch. The independent scorer counted `/odom` from process creation while the scoreboard began at `exploration_started`; startup-scan drift caused distance parity failures. The runner now waits for the same structured start event and resets physical distance, odometry and collisions there. This measurement correction still needs one short simulator confirmation.
+
+## 2026-11-07 16:27 - Step 5: try shorter checked recovery moves
+- Branch: `noah/feat/recovery-steps` (`ef1fac3`), based on master after step 4. Compared against: the step-4 diagnosis; this was a two-run smoke test, not a statistical comparison.
+- Hypothesis: when the normal 0.30 m recovery does not fit, a 0.15 m or 0.08 m move can safely get Oak out of the doorway latch.
+- Change: try 0.30, 0.15 and 0.08 m in that order. Every candidate keeps the same full-body costmap, live-scan, stale-sensor and drift checks.
+- Runs:
+  - Run 1: 50.2 %, not finished, 0 collisions, 230 s, 4.6 m. All three distances were unsafe and the latch remained for 180 s.
+  - Run 2: 34.5 %, not finished, 0 collisions, 218 s, 1.3 m. The first latch briefly cleared when the forward scan changed, but its escape goal failed; the next stop reported stale or missing scan, costmap or transform data and then no safe direction.
+- Verdict: denied. The fallback executed and checked all three distances, but neither run found a safe shorter translation. Do not merge or test this version on Oak.
+- Next: use the simulator runner's temporary `--explorer-param` support to compare the current default with `blocked_timeout:=2.0` on identical seeds. This tests the already documented step-1 result without changing the automapper or competing with its owner.
+
+## 2026-11-06 - Ten-run scoreboard baseline after #41
+- Branch: `noah/feat/scoreboard` (#47), master with #41's recovery fixes.
+- Hypothesis: a larger batch should prove the score pipeline is repeatable and
+  reveal whether the remaining stops are isolated or systematic.
+- Runs: 10 starts, 33.7% to 99.4% completeness, 64.3% mean and 49.8% median.
+  Three reached at least 98.5%, but none emitted `exploration_completed`.
+  Five hit the 300 s timeout and five stopped after making less than 0.25 m of
+  progress for 180 s. All 10 recorded zero collisions.
+- Artifacts: every run wrote its JSON, CSV, Markdown report, map and explorer
+  log. The weak runs repeatedly logged `Still stopped: no safe direction on
+  the latest scan`; the high-coverage runs could reach the same latch near the
+  end.
+- Measurement finding: completeness and collision counts agreed, but five
+  distance parity checks compared Gazebo's hidden ground-truth travel with the
+  scoreboard's noisy `/odom`. Those numbers answer different questions.
+- Change after review: keep physical `distance_m`, add `odom_distance_m` plus
+  signed odometry error, and compare the scoreboard only with the independent
+  `/odom` accumulator. This changes scoring output, not exploration behavior.
+- Verdict: the scoreboard produced complete evidence, while the automapper is
+  capable but not reliable. Re-run a short validation for the corrected
+  distance columns, then compare any recovery change against these same seeds.
+
+## 2026-11-06 15:56 - Scoreboard measurement-boundary validation
+- Branch: `noah/feat/scoreboard` (#47), updated onto master `7572866`.
+- Hypothesis: the three-run batch's parity failures came from the two scorers
+  measuring different endpoints and from the legacy distance counter including
+  simulator reset jumps, not from the scoreboard changing exploration.
+- Evidence before the fix: a three-run batch mapped 92.0 %, 85.2 % and 16.6 %
+  according to the legacy scorer (0 collisions). The scoreboard agreed on the
+  first two maps but rejected large odometry jumps; on run 3 it received map
+  growth while the explorer was still active and reported 35.1 %.
+- Change: stop the explorer at the trial boundary before finalizing either
+  scorer; reject truth-odometry steps over 1 m; preserve unknown cells when
+  saving simulator maps (`free_thresh: 0.196`). No exploration behavior changed.
+- Validation run: seed 27 mapped 48.6 %, stopped after the 60 s no-progress
+  rule, and had 0 collisions. Legacy measured 3.3 m and 48.6 %; scoreboard
+  measured 3.119 m and 48.638 %. Parity passed for distance, completeness and
+  collisions.
+- Verdict: confirmed on the deterministic validation run. Re-run a multi-run
+  batch after #47 review for broader parity evidence; this result does not fix
+  the automapper's variable coverage or latch behavior.
 
 ## 2026-11-06 12:40 - Step 4: measure why every escape is refused
 - Branch: max/automapper-sim-v2-diag (local) = v2 + logging only. Compared against: nothing; this measures, it changes no behavior.

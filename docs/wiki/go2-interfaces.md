@@ -2,7 +2,7 @@
 title: Go2 interfaces
 parent: driver
 code: [src/go2_interfaces/**]
-verified: 8a9a7118a6d4
+verified: e4fa2f427a66
 ---
 
 # Go2 interfaces
@@ -17,7 +17,7 @@ In ROS 2, every topic carries one message **type**, a fixed list of named fields
 Most of our topics use standard types (for example `geometry_msgs/Twist` for drive commands or `sensor_msgs/PointCloud2` for lidar).
 Robot-specific data needs its own forms. Each one is a short `.msg` text file in `msg/`, and the build turns it into Python and C++ code.
 
-This package holds 31 message types. Most came from Unitree's own definitions (they were once a separate package, `unitree_go`, now merged in). The ones our code actually uses today:
+Most types came from Unitree's own definitions (they were once a separate package, `unitree_go`, now merged in). The ones our code actually uses today include:
 
 | Type | Topic | What it carries | Used by |
 | --- | --- | --- | --- |
@@ -26,6 +26,8 @@ This package holds 31 message types. Most came from Unitree's own definitions (t
 | `IMU` | `/imu` | Orientation (quaternion and roll-pitch-yaw), gyroscope, accelerometer, temperature | Published by the driver |
 | `VoxelMapCompressed` | `/utlidar/voxel_map_compressed` | Raw compressed lidar data | Published only when the driver's `publish_raw_voxel` is on |
 | `LowState` | `lowstate` | Low-level motor and battery state | Subscribed in CycloneDDS mode (handler is empty for now) |
+| `AutoMapperEvent` | `/auto_mapper/events` | A timestamped exploration, goal, recovery or safety event with a stable goal sequence | Published by the [Auto mapper](auto-mapper.md), consumed by the [Scoreboard](scoreboard.md) |
+| `ScoreboardStatus` | `/scoreboard/status` | Live run metrics, resource use, warnings and end state | Published by the [Scoreboard](scoreboard.md) for dashboards and logs |
 
 Note that `/imu` uses this custom `IMU` type, not the standard `sensor_msgs/Imu`, so tools expecting the standard type will not read it directly.
 
@@ -42,6 +44,7 @@ ros2 topic pub /webrtc_req go2_interfaces/msg/WebRtcReq "{api_id: 1016, topic: '
 - [Go2 driver](go2-driver.md): publishes `Go2State` and `IMU`, reads `WebRtcReq`.
 - [Robot link](robot-link.md): turns each `WebRtcReq` into a message on the WebRTC data channel.
 - [Posture](posture.md), [LLM agent](llm-agent.md), [Voice](voice.md): send `WebRtcReq`.
+- [Auto mapper](auto-mapper.md) and [Scoreboard](scoreboard.md): share measurement-only run events and status.
 
 ## How it breaks
 

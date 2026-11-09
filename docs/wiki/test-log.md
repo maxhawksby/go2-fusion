@@ -18,6 +18,22 @@ During a session, the note-taker (often Claude, from Max's feedback and its own 
 
 It matters because robot time is scarce: one dog, one connection at a time. The log tells you what is already known, so you test what is new.
 
+## 2026-11-08 - ISL lab, Oak, Wi-Fi (WebRTC)
+
+Code: `noah/feat/scoreboard` at `843ad4a`.
+
+| Test | Result | What we saw |
+| --- | --- | --- |
+| WebRTC and sensing preflight | pass | Oak validated once; `/odom` was about 20 Hz, `/scan` about 3.2 Hz, `/map` had one slam_toolbox publisher, and Nav2 exposed one `/navigate_to_pose` server. |
+| First physical scoreboard run | pass | The ready gate succeeded before exploration. A 57.169 s run recorded 3.3359 m travel and 12.955 square meters of known map, two failed goals, one recovery, zero collisions, zero touches and no warnings. Completeness stayed null because no measured answer map exists. |
+| Evidence finalization | pass | JSON, scorecard/timeline/resource CSVs, Markdown report, PGM/YAML map and a 4.29 MB rosbag finalized on the host. |
+| Stop after the run | pass | Ctrl+C stopped the explorer. Cancel-all found no remaining Nav2 goals and `/cmd_vel_out` produced no active command during a five-second check. |
+| Auto mapper in a clear hallway | **fail** | Oak reported obstacles 0.20 m and 0.05 m beyond its nose, failed two goals, attempted one open-space recovery and latched at `no safe direction`, although the operator saw no obstacle. The recorded raw scan did contain close returns. The bag lacked `/local_costmap/costmap`, so the next diagnostic run must record it to distinguish scan/self/floor returns from costmap or TF errors. |
+
+No second autonomous run was attempted. The priority is now to diagnose the
+false or misinterpreted close returns before tuning frontier selection or
+testing a different exploration algorithm.
+
 ## 2026-10-11 - ISL lab, Oak, Wi-Fi (WebRTC)
 
 Code: `master` at `61de971` (fusion + Luis's Oct 9-11 work), then branch `fix/keyboard-panel-idle`.

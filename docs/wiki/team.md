@@ -17,7 +17,7 @@ Oak is built by **Team 48**, a five-student senior design team (the dashboard's 
 | --- | --- | --- |
 | **Luis** | Auto mapper: making Oak explore a room reliably | [Auto mapper](auto-mapper.md), [SLAM](slam.md), [Nav2](nav2.md) |
 | **Adib** | Local Ollama/Qwen [LLM agent](llm-agent.md); next, odometry and turn accuracy | [LLM agent](llm-agent.md) |
-| **Noah** | Oak Control dashboard and its ROS 2 bridge; reviewed Piper TTS | [Voice](voice.md), [Posture](posture.md) |
+| **Noah** | Mapping scoreboard: run recording, reports and replay; later the Oak Control dashboard | [Scoreboard](scoreboard.md), [Maps and navigation](maps-nav.md) |
 | **Jeth** | Piper text-to-speech through Oak's speaker | [Voice](voice.md) |
 | **Max** | Computer vision: YOLO object memory; leads the wiki | [Object detection](object-detection.md), this hub |
 
