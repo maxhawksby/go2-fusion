@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: 5f5ddc20d877
+verified: 0db04c86ad46
 ---
 
 # Auto mapper
@@ -25,6 +25,12 @@ Part of: [Maps and navigation](maps-nav.md)
 6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap, then slides 0.05 to 0.5 m at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If nothing is safe, it stays stopped and logs why.
 7. **Head for open space.** After 3 failed goals in a row (or similar signs of being stuck), it drives to the nearest spot with 0.8 m of room on every side, scans, and carries on.
 8. **Finish.** With no frontiers left it logs "Exploration complete" and waits, in case a door opens.
+
+At the same state transitions it publishes structured, reliable
+`/auto_mapper/events` messages for the [Scoreboard](scoreboard.md): exploration
+start/stop/completion, goal sent/accepted/outcome, recovery start/finish and
+stale sensing. These messages observe existing choices; they do not choose a
+frontier, change a threshold or send motion.
 
 **Buttons.** The RViz AutoMapper panel has **Start/Stop**, **Scan** (pause the goal, forget recent failures, turn 360 degrees; the same as calling `/frontier_explorer/scan`) and **Reset maps** (restart SLAM with an empty 2D map and clear the 3D point cloud).
 
@@ -69,6 +75,7 @@ Part of: [Maps and navigation](maps-nav.md)
 - [twist_mux](twist-mux.md) - recovery moves on `/cmd_vel_mapper` (priority 6).
 - [RViz panels](rviz-panels.md) - the AutoMapper panel starts and stops it.
 - [Simulator](simulator.md) - try it with no robot, or score it over 10 runs.
+- [Scoreboard](scoreboard.md) - counts goals and recoveries from structured events.
 
 ## How it breaks
 

@@ -309,7 +309,9 @@ def write_map(grid, yaml_path):
         f.write(f'image: {os.path.basename(pgm_path)}\n'
                 f'resolution: {grid.resolution}\n'
                 f'origin: [{grid.origin_x}, {grid.origin_y}, 0.0]\n'
-                'negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.25\n')
+                # Map-server's conventional threshold keeps gray 205 as
+                # unknown. At 0.25 it was incorrectly reloaded as free.
+                'negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n')
     return pgm_path
 
 

@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: d4f76d4cc8c0
+verified: ae253ea2c84e
 ---
 
 # Simulator
@@ -74,7 +74,18 @@ This runs the auto mapper 10 times with no windows. Each run starts a fresh simu
 - **Distance**: how far Oak really walked.
 - **Finished**: yes if the auto mapper said it was done. Otherwise the note says why it stopped and where Oak ended up, so you can find the trouble spot.
 
-Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores it): `results.csv`, `results.md` (the table), each run's final map, and logs. Options: `--runs 3`, `--timeout 600`, `--stall-timeout 300` (0 = never), `--seed 2`, `--world <name or .sdf>`. Dials go after `--`, for example `ros2 run go2_sim trials --runs 5 -- lidar_rate:=2.0 odom_noise_xy:=0.05`.
+Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores it): `results.csv`, `results.md` (the table), each run's final map, and logs. Options: `--runs 3`, `--timeout 600`, `--stall-timeout 300` (0 = never), `--seed 2`, `--world <name or .sdf>`. Dials for the simulator go after `--`, for example `ros2 run go2_sim trials --runs 5 -- lidar_rate:=2.0 odom_noise_xy:=0.05`. An experiment can temporarily change an auto-mapper ROS parameter without editing its code, for example `--variant blocked_grace --explorer-param blocked_timeout:=2.0`. The variant and every override are saved with the scoreboard run so comparisons do not mix configurations.
+
+The trial runner also starts the [Scoreboard](scoreboard.md) before each auto
+mapper. Its independent artifacts are under the run's `scoreboard/` folder,
+including a rosbag by default. The legacy simulator scorer remains in place and
+both scorers begin at the auto mapper's structured `exploration_started` event.
+The CSV reports whether reported odometry distance (within 10% or 0.5 m),
+completeness (within one percentage point) and collision counts agree. It also
+keeps Gazebo's hidden physical distance and reports the odometry error separately;
+that ground truth is an answer key, not data available to Oak. Use
+`--no-scoreboard-bag` for a small development run or `--no-scoreboard` to
+isolate the legacy scorer.
 
 ## Watch the trials live
 
@@ -124,8 +135,31 @@ Every simulator experiment since 2026-11-06 (hypothesis, change, runs, why each 
 
 Before the recovery fixes (master's old Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
 
+The first [Scoreboard](scoreboard.md) integration proof on 2026-11-05
+reproduced that stop with seed 27. It also proved that the new scorer and this
+legacy scorer agree despite the failed exploration: both measured 0.0 m,
+0 collisions and 5.7% completeness. Treat that as measurement-pipeline
+evidence, not as a successful mapping run.
+
+After pull request #41 merged the costmap and recovery fixes, the same seed was
+rerun on 2026-11-05. It traveled 2.8 m, mapped 48.0% and recorded 0 collisions
+before the runner declared it stuck after 60 seconds with less than 0.25 m of
+new movement. The independent scoreboard measured 2.7235 m, 47.959% and 0
+collisions. This confirms the old startup stall is fixed and the measurement
+paths agree, but it does not claim that exploration finishes reliably.
+
+On 2026-11-06, a three-run batch demonstrated the remaining variability: two
+starts reached 92.0% and 85.2%, while one stalled early. That batch also exposed
+a validation bug: the explorer could keep mapping between the legacy snapshot
+and scoreboard finalization, and simulator reset jumps inflated legacy distance.
+The trial runner now freezes exploration at one measurement boundary, applies
+the scoreboard's 1 m jump rejection to truth odometry, and preserves unknown
+cells in saved maps. A deterministic seed-27 validation then passed independent
+parity at 48.6% completeness, 3.3 m versus 3.119 m, and zero collisions. See
+the [experiments journal](experiments.md) for the evidence and limitations.
+
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
-- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. Three bugs caused it, all fixed (see [Auto mapper](auto-mapper.md)); still to confirm on Oak.
+- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits. Earlier recovery bugs were fixed (see [Auto mapper](auto-mapper.md)), but repeat runs show a remaining case where Oak is genuinely too close to fit the fixed 0.3 m escape. Shorter bounded recovery moves are the next experiment; no Oak result is claimed yet.
 - **Nav2 drives Oak to within 0.05-0.25 m of door jambs, the pillar and furniture**, then reports "No valid trajectories" or "Failed to make progress". TODO(Luis): does Oak get that close on the real floor?
 - **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. The real driver might hit the same thing at startup (see [TF and robot model](tf.md)).
 

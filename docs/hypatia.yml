@@ -37,7 +37,7 @@ people:
     github: noahsteinberg
     color: "#d9a066"
     discord_id: ""
-    focus: Oak Control dashboard and the ROS 2 bridge
+    focus: Mapping scoreboard - run recording, reports and replay
 
   - id: adib
     name: Adib

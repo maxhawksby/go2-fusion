@@ -2,6 +2,8 @@
 
     ros2 run go2_sim trials                       # 10 headless runs
     ros2 run go2_sim trials --runs 3 --timeout 600 -- lidar_rate:=2.0
+    ros2 run go2_sim trials --runs 3 --variant blocked_grace \
+        --explorer-param blocked_timeout:=2.0
 
 Each run starts a fresh simulator and robot stack (sim.launch.py) at a random
 but seeded start pose, starts the auto mapper once Nav2 is up, and waits for
@@ -21,9 +23,11 @@ every run's sim.launch.py.
 
 import argparse
 import csv
+import glob
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -37,9 +41,45 @@ COMPLETE_TEXT = 'Exploration complete'
 EXPLORER_NODE = 'frontier_explorer'
 # A new bump only after this long with no contact, so one scrape counts once.
 BUMP_GAP_SEC = 1.0
+# Gazebo can reset or teleport the model while a trial is starting or ending.
+# Neither event is physical travel, so keep the independent trial scorer on
+# the same discontinuity rule as go2_scoreboard.
+MAX_TRUTH_STEP_M = 1.0
 # Where the running trial's ROS domain and Gazebo partition are written, so
 # `ros2 run go2_sim watch` can attach windows to it. Removed when a run ends.
 CURRENT_RUN_FILE = '/tmp/go2_sim_current_run.json'
+_PARAMETER_OVERRIDE = re.compile(r'^[A-Za-z_][A-Za-z0-9_.]*:=.+$')
+_VARIANT_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]*$')
+
+
+def explorer_parameter(value):
+    """Argparse validator for one ROS parameter override."""
+
+    if not _PARAMETER_OVERRIDE.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            'explorer parameters must use name:=value, for example '
+            'blocked_timeout:=2.0')
+    return value
+
+
+def variant_name(value):
+    """Keep run labels readable and safe to use in artifact names."""
+
+    if not _VARIANT_NAME.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            'variant must contain only letters, numbers, underscores or hyphens')
+    return value
+
+
+def explorer_command(parameters):
+    """The explorer command with explicit, repeatable ROS parameter dials."""
+
+    command = ['ros2', 'run', 'go2_auto_mapper', 'explorer']
+    if parameters:
+        command.append('--ros-args')
+        for parameter in parameters:
+            command.extend(['-p', parameter])
+    return command
 
 
 def default_results_dir():
@@ -61,11 +101,28 @@ def resolve_world(world):
     return path
 
 
+def distance_increment(previous, current, max_step=MAX_TRUTH_STEP_M):
+    """Return physical travel between poses, excluding reset/teleport jumps."""
+    if previous is None:
+        return 0.0
+    step = math.hypot(current[0] - previous[0], current[1] - previous[1])
+    return step if step <= max_step else 0.0
+
+
+def distance_update(total, previous, current, active):
+    """Observe a pose, accumulating it only inside the measurement window."""
+
+    if active:
+        total += distance_increment(previous, current)
+    return total, current
+
+
 # ---------------------------------------------------------------------------
 # ROS side: one monitor node per run, in that run's ROS domain
 # ---------------------------------------------------------------------------
 
 def make_monitor(context):
+    from go2_interfaces.msg import AutoMapperEvent
     from nav_msgs.msg import OccupancyGrid, Odometry
     from rcl_interfaces.msg import Log
     from rclpy.node import Node
@@ -82,19 +139,27 @@ def make_monitor(context):
                                  reliability=ReliabilityPolicy.RELIABLE,
                                  history=HistoryPolicy.KEEP_LAST)
             self.done = False
+            self.measurement_started = False
+            self.measurement_started_at = None
             self.latest_map = None
             self.bumps = 0
             self.last_contact = None
             self.distance = 0.0
             self.prev_xy = None
+            self.odom_distance = 0.0
+            self.prev_odom_xy = None
+            self.odom_xy = None
             self.true_xy = None
             self.cloud_seen = False
             self.clock_first = None
             self.clock_last = None
             self.create_subscription(Log, '/rosout', self.on_log, 100)
+            self.create_subscription(
+                AutoMapperEvent, '/auto_mapper/events', self.on_event, latched)
             self.create_subscription(OccupancyGrid, '/map', self.on_map, latched)
             self.create_subscription(Contacts, '/sim/bumper', self.on_contacts, 50)
             self.create_subscription(Odometry, '/sim/ground_truth/odom', self.on_truth, 50)
+            self.create_subscription(Odometry, '/odom', self.on_odom, 100)
             self.create_subscription(PointCloud2, '/point_cloud2', self.on_cloud,
                                      qos_profile_sensor_data)
             self.create_subscription(Clock, '/clock', self.on_clock, 10)
@@ -103,11 +168,26 @@ def make_monitor(context):
             if msg.name == EXPLORER_NODE and COMPLETE_TEXT in msg.msg:
                 self.done = True
 
+        def on_event(self, msg):
+            if msg.event_type != 'exploration_started' or self.measurement_started:
+                return
+            # Match the scoreboard's start boundary exactly. The explorer can
+            # spend several seconds initializing before this event; counting
+            # noisy odometry during that period made parity depend on luck.
+            self.measurement_started = True
+            self.measurement_started_at = time.monotonic()
+            self.distance = 0.0
+            self.prev_xy = self.true_xy
+            self.odom_distance = 0.0
+            self.prev_odom_xy = self.odom_xy
+            self.bumps = 0
+            self.last_contact = None
+
         def on_map(self, msg):
             self.latest_map = msg
 
         def on_contacts(self, msg):
-            if not msg.contacts:
+            if not self.measurement_started or not msg.contacts:
                 return
             now = time.monotonic()
             if self.last_contact is None or now - self.last_contact > BUMP_GAP_SEC:
@@ -116,10 +196,18 @@ def make_monitor(context):
 
         def on_truth(self, msg):
             p = msg.pose.pose.position
-            if self.prev_xy is not None:
-                self.distance += math.hypot(p.x - self.prev_xy[0], p.y - self.prev_xy[1])
-            self.prev_xy = (p.x, p.y)
-            self.true_xy = (p.x, p.y)
+            current = (p.x, p.y)
+            self.distance, self.prev_xy = distance_update(
+                self.distance, self.prev_xy, current, self.measurement_started)
+            self.true_xy = current
+
+        def on_odom(self, msg):
+            p = msg.pose.pose.position
+            current = (p.x, p.y)
+            self.odom_distance, self.prev_odom_xy = distance_update(
+                self.odom_distance, self.prev_odom_xy, current,
+                self.measurement_started)
+            self.odom_xy = current
 
         def on_cloud(self, _msg):
             self.cloud_seen = True
@@ -175,6 +263,25 @@ def stop_group(proc, first_signal=signal.SIGINT, wait=20.0):
             continue
 
 
+def finish_scoreboard(proc, env, wait=15.0):
+    """Ask the recorder to finalize before falling back to process signals."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        subprocess.run(
+            ['ros2', 'service', 'call', '/scoreboard/finish',
+             'std_srvs/srv/Trigger', '{}'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            timeout=10.0,
+            check=False,
+        )
+        proc.wait(timeout=wait)
+    except (OSError, subprocess.TimeoutExpired):
+        stop_group(proc, wait=wait)
+
+
 def write_current_run(index, runs, env):
     info = {k: env.get(k, '') for k in
             ('ROS_DOMAIN_ID', 'ROS_LOCALHOST_ONLY', 'IGN_PARTITION')}
@@ -194,12 +301,46 @@ def clear_current_run():
         pass
 
 
-def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
+def scoreboard_parity(legacy, scoreboard):
+    """Compare the independent scorers with explicit, reviewable tolerances."""
+    try:
+        # The scoreboard measures Oak's reported /odom, not Gazebo's hidden
+        # ground-truth pose. Keep physical travel as a separate benchmark and
+        # compare two independent accumulators fed by the same public signal.
+        legacy_distance = float(legacy['odom_distance_m'])
+        score_distance = float(scoreboard['distance_m'])
+        legacy_completeness = float(legacy['completeness_pct'])
+        score_completeness = float(scoreboard['completeness_pct'])
+        legacy_collisions = int(legacy['collisions'])
+        score_collisions = int(scoreboard['collisions'])
+    except (KeyError, TypeError, ValueError):
+        checks = {'distance': False, 'completeness': False, 'collisions': False}
+        return checks, ['scoreboard metrics unavailable']
+    checks = {
+        'distance': abs(legacy_distance - score_distance)
+        <= max(0.5, 0.10 * max(legacy_distance, 0.1)),
+        'completeness': abs(legacy_completeness - score_completeness) <= 1.0,
+        'collisions': legacy_collisions == score_collisions,
+    }
+    return checks, [name for name, passed in checks.items() if not passed]
+
+
+def _latest_scoreboard_summary(root):
+    paths = glob.glob(os.path.join(root, '*', 'run.json'))
+    if not paths:
+        return None
+    path = max(paths, key=os.path.getmtime)
+    with open(path, encoding='utf-8') as stream:
+        return json.load(stream)
+
+
+def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launch_extra):
     import rclpy
     from rclpy.signals import SignalHandlerOptions
     from nav2_msgs.action import NavigateToPose
     from rclpy.action import ActionClient
     from rclpy.executors import SingleThreadedExecutor
+    from std_srvs.srv import Trigger
 
     domain = 50 + (index % 40)   # a fresh ROS domain per run: no leftovers can talk to it
     env = os.environ.copy()
@@ -216,14 +357,20 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
     result = dict(run=index + 1, seed=run_seed, start_x=round(x, 2), start_y=round(y, 2),
                   start_yaw=round(yaw, 2), completeness_pct=0.0, time_s=0.0, collisions=0,
                   distance_m=0.0, finished='no', end_reason='', rtf=float('nan'),
-                  end_x=float('nan'), end_y=float('nan'))
+                  end_x=float('nan'), end_y=float('nan'),
+                  odom_distance_m=0.0, odom_error_m=0.0, odom_error_pct='',
+                  scoreboard_distance_m='', scoreboard_completeness_pct='',
+                  scoreboard_collisions='', scoreboard_parity='disabled')
 
     launch_log = open(os.path.join(logs, f'{tag}_launch.log'), 'w')
     explorer_log = open(os.path.join(logs, f'{tag}_explorer.log'), 'w')
+    scoreboard_log = open(os.path.join(logs, f'{tag}_scoreboard.log'), 'w')
     launch = subprocess.Popen(launch_cmd, stdout=launch_log, stderr=subprocess.STDOUT,
                               env=env, start_new_session=True)
     write_current_run(index, args.runs, env)
     explorer = None
+    scoreboard = None
+    scoreboard_root = os.path.join(out_dir, 'scoreboard', tag)
     context = rclpy.Context()
     # Our own Ctrl+C / SIGTERM handling (main), so the finally below always
     # stops this run's simulator and auto mapper.
@@ -249,13 +396,67 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
                                                            else 'no lidar on /point_cloud2'))
             return result
 
-        # 2. Start the auto mapper, exactly as the RViz panel does.
-        explorer = subprocess.Popen(['ros2', 'run', 'go2_auto_mapper', 'explorer'],
+        # 2. Start the measurement-only scoreboard before the mapper so its
+        # first exploration event cannot be missed.
+        if not args.no_scoreboard:
+            scoreboard_command = [
+                'ros2', 'run', 'go2_scoreboard', 'recorder', '--ros-args',
+                '-p', 'use_sim_time:=true',
+                '-p', 'source:=sim',
+                '-p', f'run_label:={args.variant}_seed_{run_seed}',
+                '-p', f'results_root:={scoreboard_root}',
+                '-p', f'record_bag:={str(not args.no_scoreboard_bag).lower()}',
+                '-p', f'ground_truth_map:={gt_path}',
+                '-p', f'start_x:={x:.6f}', '-p', f'start_y:={y:.6f}',
+                '-p', f'start_yaw:={yaw:.6f}',
+                '-p', "configuration_json:='"
+                + json.dumps({
+                    'algorithm': 'frontier',
+                    'variant': args.variant,
+                    'seed': run_seed,
+                    'launch_args': launch_extra,
+                    'explorer_params': args.explorer_param,
+                }, separators=(',', ':')) + "'",
+            ]
+            scoreboard = subprocess.Popen(
+                scoreboard_command, stdout=scoreboard_log, stderr=subprocess.STDOUT,
+                env=env, start_new_session=True)
+            # The recorder computes its source fingerprint and then starts a
+            # separate rosbag process. A fixed sleep raced both on slower
+            # machines and produced bags missing the start event and initial
+            # odometry. Wait for the actual ROS graph instead.
+            ready_client = node.create_client(Trigger, '/scoreboard/ready')
+            scoreboard_deadline = time.monotonic() + min(30.0, args.startup_timeout)
+            while time.monotonic() < scoreboard_deadline:
+                executor.spin_once(timeout_sec=0.2)
+                if scoreboard.poll() is not None:
+                    result['end_reason'] = (
+                        f'scoreboard exited during startup (code {scoreboard.returncode})')
+                    return result
+                if ready_client.service_is_ready():
+                    break
+            else:
+                result['end_reason'] = 'scoreboard startup timeout'
+                return result
+            node.destroy_client(ready_client)
+
+        # 3. Start the auto mapper, exactly as the RViz panel does.
+        explorer = subprocess.Popen(explorer_command(args.explorer_param),
                                     stdout=explorer_log, stderr=subprocess.STDOUT,
                                     env=env, start_new_session=True)
-        started = time.monotonic()
-        node.bumps = 0   # bumps before the mapper starts are not its fault
-        node.distance = 0.0
+        # The scoreboard and independent scorer both begin at the structured
+        # start event, not at process creation. Wait for that shared boundary.
+        start_deadline = time.monotonic() + min(30.0, args.startup_timeout)
+        while time.monotonic() < start_deadline and not node.measurement_started:
+            executor.spin_once(timeout_sec=0.2)
+            if explorer.poll() is not None:
+                result['end_reason'] = (
+                    f'auto mapper exited before start event (code {explorer.returncode})')
+                return result
+        if not node.measurement_started:
+            result['end_reason'] = 'auto mapper start event timeout'
+            return result
+        started = node.measurement_started_at
         deadline = started + args.timeout
         anchor, anchor_time = node.true_xy, started   # for spotting a stuck robot
         while time.monotonic() < deadline:
@@ -280,13 +481,25 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
         else:
             result['end_reason'] = 'timeout'
         result['time_s'] = round(time.monotonic() - started, 1)
-        # Let SLAM publish the last map (it updates every second).
+
+        # Freeze exploration at the measurement boundary. Previously the
+        # mapper kept moving while the legacy scorer took its map snapshot and
+        # the scoreboard finalized, so the two independent scorers measured
+        # different moments of the same run.
+        stop_group(explorer, wait=8.0)
+
+        # Let the clean explorer shutdown and SLAM's final update propagate.
         settle = time.monotonic() + 3.0
         while time.monotonic() < settle:
             executor.spin_once(timeout_sec=0.2)
 
         result['collisions'] = node.bumps
         result['distance_m'] = round(node.distance, 1)
+        result['odom_distance_m'] = round(node.odom_distance, 4)
+        result['odom_error_m'] = round(node.odom_distance - node.distance, 4)
+        if node.distance > 1e-6:
+            result['odom_error_pct'] = round(
+                100.0 * (node.odom_distance - node.distance) / node.distance, 2)
         result['rtf'] = round(node.real_time_factor(), 2)
         if node.true_xy is not None:
             result['end_x'], result['end_y'] = (round(v, 2) for v in node.true_xy)
@@ -295,9 +508,22 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
             result['completeness_pct'] = round(
                 world_tools.score_completeness(gt, grid, pose), 1)
             save_slam_map(grid, os.path.join(out_dir, 'maps', f'{tag}_map.yaml'))
+        if scoreboard is not None:
+            finish_scoreboard(scoreboard, env)
+            scoreboard_summary = _latest_scoreboard_summary(scoreboard_root)
+            if scoreboard_summary is None:
+                result['scoreboard_parity'] = 'missing scoreboard report'
+            else:
+                result['scoreboard_distance_m'] = scoreboard_summary['distance_m']
+                result['scoreboard_completeness_pct'] = scoreboard_summary['completeness_pct']
+                result['scoreboard_collisions'] = scoreboard_summary['collisions']
+                _checks, failures = scoreboard_parity(result, scoreboard_summary)
+                result['scoreboard_parity'] = (
+                    'pass' if not failures else 'fail: ' + ', '.join(failures))
         return result
     finally:
         clear_current_run()
+        stop_group(scoreboard, wait=15.0)
         stop_group(explorer, wait=8.0)
         stop_group(launch, wait=20.0)
         executor.shutdown()
@@ -305,6 +531,7 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
         rclpy.shutdown(context=context)
         launch_log.close()
         explorer_log.close()
+        scoreboard_log.close()
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +539,10 @@ def run_one(args, index, world_path, gt, pose, run_seed, out_dir, launch_extra):
 # ---------------------------------------------------------------------------
 
 COLUMNS = ['run', 'seed', 'start_x', 'start_y', 'start_yaw', 'completeness_pct', 'time_s',
-           'collisions', 'distance_m', 'finished', 'end_reason', 'end_x', 'end_y', 'rtf']
+           'collisions', 'distance_m', 'odom_distance_m', 'odom_error_m', 'odom_error_pct',
+           'finished', 'end_reason', 'end_x', 'end_y', 'rtf']
+COLUMNS += ['scoreboard_distance_m', 'scoreboard_completeness_pct',
+            'scoreboard_collisions', 'scoreboard_parity']
 
 
 def table(results):
@@ -375,6 +605,15 @@ def main(argv=None):
     parser.add_argument('--clearance', type=float, default=0.7,
                         help='free space (m) around each random start pose')
     parser.add_argument('--out', default=None, help='results folder')
+    parser.add_argument('--no-scoreboard', action='store_true',
+                        help='run only the legacy simulator scorer')
+    parser.add_argument('--no-scoreboard-bag', action='store_true',
+                        help='score runs but skip rosbag recording')
+    parser.add_argument('--variant', type=variant_name, default='frontier',
+                        help='short experiment label stored with every run')
+    parser.add_argument('--explorer-param', action='append', default=[],
+                        type=explorer_parameter, metavar='NAME:=VALUE',
+                        help='temporary go2_auto_mapper ROS parameter; repeat as needed')
     args = parser.parse_args(argv)
 
     # Stopping the runner (Ctrl+C, SIGTERM, docker stop) unwinds through each
@@ -391,6 +630,8 @@ def main(argv=None):
         print(f'[trials] warning: {note}')
     header = (f'# Auto mapper trials\n\nWorld: `{os.path.basename(world_path)}`, '
               f'{args.runs} runs, seed {args.seed}, timeout {args.timeout:.0f} s, '
+              f'variant: `{args.variant}`, explorer parameters: '
+              f'`{" ".join(args.explorer_param) or "defaults"}`, '
               f'launch args: `{" ".join(launch_extra) or "defaults"}`. '
               f'Ground truth: `{os.path.basename(gt_path)}`.')
     print(f'[trials] {args.runs} runs in {os.path.basename(world_path)}; results in {out_dir}',
@@ -398,7 +639,7 @@ def main(argv=None):
 
     results = []
     try:
-        run_all(args, world_path, gt, out_dir, header, launch_extra, results)
+        run_all(args, world_path, gt, gt_path, out_dir, header, launch_extra, results)
     except KeyboardInterrupt:
         print('[trials] stopped early; each started run was shut down.', flush=True)
 
@@ -406,7 +647,7 @@ def main(argv=None):
     print(f'[trials] wrote {out_dir}/results.csv and results.md', flush=True)
 
 
-def run_all(args, world_path, gt, out_dir, header, launch_extra, results):
+def run_all(args, world_path, gt, gt_path, out_dir, header, launch_extra, results):
     startup_failures = 0
     for i in range(args.runs):
         run_seed = args.seed * 1000 + i
@@ -414,7 +655,7 @@ def run_all(args, world_path, gt, out_dir, header, launch_extra, results):
                                              clearance=args.clearance)
         print(f'[trials] run {i + 1}/{args.runs}: start {pose[0]:.2f}, {pose[1]:.2f}, '
               f'yaw {pose[2]:.2f}', flush=True)
-        r = run_one(args, i, world_path, gt, pose, run_seed, out_dir, launch_extra)
+        r = run_one(args, i, world_path, gt, gt_path, pose, run_seed, out_dir, launch_extra)
         results.append(r)
         write_results(out_dir, results, header)
         print(f"[trials] run {i + 1}: {r['completeness_pct']:.1f} % in {r['time_s']:.0f} s, "
