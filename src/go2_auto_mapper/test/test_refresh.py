@@ -7,7 +7,13 @@ from go2_auto_mapper.explorer import FrontierExplorer
 
 
 def explorer_stub():
-    node = SimpleNamespace(observed={}, recovery_move=None, recovery_fault=False)
+    node = SimpleNamespace(
+        observed={},
+        recovery_move=None,
+        recovery_fault=False,
+        supervised_lab_mode=False,
+        lab_paused=False,
+    )
     node.get_clock = lambda: SimpleNamespace(
         now=lambda: SimpleNamespace(nanoseconds=100_000_000_000))
     node.data_fresh = lambda names, after=None: FrontierExplorer.data_fresh(
