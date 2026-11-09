@@ -12,6 +12,7 @@ from go2_auto_mapper.vlm_ranking import (
     build_describe_request,
     clear_distance,
     lidar_sentence,
+    vlm_mode_name,
     describe_move,
     parse_suggestion,
     suggestion_bonus,
@@ -254,3 +255,13 @@ def test_client_runs_one_request_at_a_time():
     assert not client.submit([(0, 0)], [b'a'])
     release.append(True)
     wait_for_result(client)
+
+
+def test_vlm_mode_off_from_the_command_line_is_read_as_off():
+    # `-p vlm_mode:=off` arrives as the boolean False (YAML).
+    assert vlm_mode_name(False) == 'off'
+    assert vlm_mode_name(None) == 'off'
+    assert vlm_mode_name('off') == 'off'
+    assert vlm_mode_name(' Active ') == 'active'
+    assert vlm_mode_name('shadow') == 'shadow'
+    assert vlm_mode_name(True) == 'true'   # not a mode: setup_vlm warns and stays off

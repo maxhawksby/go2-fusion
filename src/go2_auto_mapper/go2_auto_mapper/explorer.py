@@ -11,6 +11,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.signals import SignalHandlerOptions
 
 from action_msgs.srv import CancelGoal
@@ -67,6 +68,7 @@ from go2_auto_mapper.vlm_ranking import (
     suggestion_bonus,
     usable_heading,
     vlm_bonus,
+    vlm_mode_name,
 )
 
 
@@ -109,7 +111,11 @@ class FrontierExplorer(Node):
         # sent if the server needs one.
         # VLM_MODE, VLM_URL and VLM_MODEL set the defaults: the RViz panel's Start
         # button runs the explorer with no parameters.
-        self.declare_parameter('vlm_mode', os.environ.get('VLM_MODE', 'off'))
+        # dynamic_typing: `-p vlm_mode:=off` arrives as the boolean False
+        # (YAML), which a string parameter refuses at startup.
+        self.declare_parameter(
+            'vlm_mode', os.environ.get('VLM_MODE', 'off'),
+            ParameterDescriptor(dynamic_typing=True))
         self.declare_parameter(
             'vlm_url', os.environ.get('VLM_URL', 'http://localhost:8000/v1/chat/completions'))
         self.declare_parameter(
@@ -896,7 +902,7 @@ class FrontierExplorer(Node):
         """Camera subscription and server client, unless vlm_mode is off."""
 
         self.vlm_client = None
-        self.vlm_mode = self.get_parameter('vlm_mode').value
+        self.vlm_mode = vlm_mode_name(self.get_parameter('vlm_mode').value)
         if self.vlm_mode == 'off':
             return
         if self.vlm_mode not in ('shadow', 'active'):

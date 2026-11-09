@@ -78,6 +78,18 @@ MOVE_CONE_RAD = math.radians(20.0)
 Ranking = namedtuple('Ranking', 'goals scores reason finished_at')
 
 
+def vlm_mode_name(value):
+    """
+    Return vlm_mode as a lowercase name.
+
+    ROS reads `-p vlm_mode:=off` as YAML, where off means false, so the
+    parameter can arrive as the boolean False.
+    """
+    if value is None or value is False:
+        return 'off'
+    return str(value).strip().lower()
+
+
 def heading_bin(yaw, bins):
     """Which of `bins` equal slices of a full turn the heading falls in."""
     turn = (yaw % (2.0 * math.pi)) / (2.0 * math.pi)
