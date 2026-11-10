@@ -18,6 +18,7 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 import numpy as np
 
+from std_msgs import Header
 
 @dataclass 
 class AggregatorConfig:
@@ -216,7 +217,8 @@ class PointCloudAggregatorNode(Node):
             all_points = self.latest_points
             
             # Create header
-            header = self.get_clock().now().to_msg()
+            header = Header()
+            header.stamp = self.get_clock().now().to_msg()
             header.frame_id = "base_link"
             
             # Publish filtered cloud
