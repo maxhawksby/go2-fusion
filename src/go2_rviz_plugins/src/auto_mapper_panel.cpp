@@ -9,6 +9,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
+#include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTimer>
@@ -41,6 +42,9 @@ constexpr char kSlamProcessPattern[] = "async_slam_toolbox_node";
 
 // How long the spin thread waits for work before checking whether to stop.
 constexpr auto kSpinPollPeriod = std::chrono::milliseconds(100);
+
+// Width the VLM's picture is shown at, in pixels.
+constexpr int kVlmImageWidth = 320;
 
 // An installed go2_auto_mapper executable, or an empty string if it can't be found.
 // Starting it directly (not through `ros2 run`) makes it the panel's own child:
@@ -81,15 +85,44 @@ AutoMapperPanel::AutoMapperPanel(QWidget * parent)
   buttons->addWidget(scan_button_);
   buttons->addWidget(reset_map_button_);
 
+  vlm_button_ = new QPushButton("VLM view", this);
+  vlm_button_->setCheckable(true);
+  vlm_button_->setToolTip(
+    "Ask the VLM to describe Oak's camera every few seconds and show the answer. "
+    "Doesn't move the robot. Needs VLM_URL and VLM_MODEL pointing at a running server.");
+  buttons->addWidget(vlm_button_);
+  vlm_image_ = new QLabel(this);
+  vlm_image_->setAlignment(Qt::AlignCenter);
+  vlm_image_->setVisible(false);
+  vlm_text_ = new QLabel(this);
+  vlm_text_->setWordWrap(true);
+  vlm_text_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  vlm_text_->setVisible(false);
+
   auto * layout = new QVBoxLayout(this);
   layout->addWidget(status_label_);
   layout->addLayout(buttons);
+  layout->addWidget(vlm_image_);
+  layout->addWidget(vlm_text_);
   layout->addWidget(log_view_, /*stretch=*/1);
   setLayout(layout);
 
   node_ = rclcpp::Node::make_shared("go2_rviz_auto_mapper_panel");
   scan_client_ = node_->create_client<std_srvs::srv::Trigger>(kScanService);
   reset_map_client_ = node_->create_client<std_srvs::srv::Trigger>(kResetMapService);
+  // Called on the spin thread; the signals queue onto the GUI thread.
+  const auto latched = rclcpp::QoS(1).transient_local();
+  vlm_view_sub_ = node_->create_subscription<sensor_msgs::msg::CompressedImage>(
+    "/vlm/view", latched,
+    [this](sensor_msgs::msg::CompressedImage::ConstSharedPtr msg) {
+      emit vlmViewReceived(
+        QByteArray(reinterpret_cast<const char *>(msg->data.data()), msg->data.size()));
+    });
+  vlm_description_sub_ = node_->create_subscription<std_msgs::msg::String>(
+    "/vlm/description", latched,
+    [this](std_msgs::msg::String::ConstSharedPtr msg) {
+      emit vlmDescriptionReceived(QString::fromStdString(msg->data));
+    });
   executor_.add_node(node_);
   // Not executor_.spin(): a cancel() that lands before spin() starts is lost,
   // and the destructor's join() would then wait forever.
@@ -103,6 +136,13 @@ AutoMapperPanel::AutoMapperPanel(QWidget * parent)
   connect(scan_button_, &QPushButton::clicked, this, &AutoMapperPanel::onScanClicked);
   connect(reset_map_button_, &QPushButton::clicked, this, &AutoMapperPanel::onResetMapClicked);
   connect(this, &AutoMapperPanel::serviceReplied, this, &AutoMapperPanel::onServiceReplied);
+
+  vlm_process_ = new QProcess(this);
+  connect(vlm_button_, &QPushButton::clicked, this, &AutoMapperPanel::onVlmViewClicked);
+  connect(this, &AutoMapperPanel::vlmViewReceived, this, &AutoMapperPanel::onVlmViewReceived);
+  connect(
+    this, &AutoMapperPanel::vlmDescriptionReceived,
+    this, &AutoMapperPanel::onVlmDescriptionReceived);
 
   process_ = new QProcess(this);
   process_->setProcessChannelMode(QProcess::SeparateChannels);
@@ -125,6 +165,14 @@ AutoMapperPanel::~AutoMapperPanel()
   executor_.cancel();
   if (spin_thread_.joinable()) {
     spin_thread_.join();
+  }
+
+  if (vlm_process_->state() != QProcess::NotRunning) {
+    ::kill(static_cast<pid_t>(vlm_process_->processId()), SIGINT);
+    if (!vlm_process_->waitForFinished(1000)) {
+      vlm_process_->kill();
+      vlm_process_->waitForFinished(1000);
+    }
   }
 
   if (process_->state() != QProcess::NotRunning) {
@@ -178,6 +226,39 @@ void AutoMapperPanel::onStartStopClicked()
     ::kill(static_cast<pid_t>(process_->processId()), SIGINT);
     QTimer::singleShot(kGracefulStopTimeoutMs, this, &AutoMapperPanel::onForceKillTimeout);
   }
+}
+
+void AutoMapperPanel::onVlmViewClicked()
+{
+  const bool on = vlm_button_->isChecked();
+  vlm_image_->setVisible(on);
+  vlm_text_->setVisible(on);
+  if (!on) {
+    if (vlm_process_->state() != QProcess::NotRunning) {
+      ::kill(static_cast<pid_t>(vlm_process_->processId()), SIGINT);
+    }
+    return;
+  }
+  const QString vlm_view = mapperExecutable("vlm_view");
+  if (vlm_view.isEmpty()) {
+    vlm_text_->setText("vlm_view not found: rebuild go2_auto_mapper.");
+    return;
+  }
+  vlm_text_->setText("Asking the VLM...");
+  vlm_process_->start(vlm_view, QStringList());
+}
+
+void AutoMapperPanel::onVlmViewReceived(const QByteArray & jpeg)
+{
+  QPixmap picture;
+  if (picture.loadFromData(jpeg, "JPEG")) {
+    vlm_image_->setPixmap(picture.scaledToWidth(kVlmImageWidth, Qt::SmoothTransformation));
+  }
+}
+
+void AutoMapperPanel::onVlmDescriptionReceived(const QString & text)
+{
+  vlm_text_->setText(text);
 }
 
 void AutoMapperPanel::onScanClicked()
