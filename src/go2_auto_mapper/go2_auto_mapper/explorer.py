@@ -10,7 +10,9 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.signals import SignalHandlerOptions
 
+from action_msgs.srv import CancelGoal
 from nav_msgs.msg import OccupancyGrid
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Twist
@@ -343,6 +345,12 @@ class FrontierExplorer(Node):
         self.last_escape_time = None
 
         self.exploration_complete_logged = False
+
+        # Shutdown (see stop()): set once stopping starts, so nothing new moves
+        # the robot. pending_submissions holds (future, action name) for goals
+        # Nav2 hasn't accepted or rejected yet.
+        self.shutting_down = False
+        self.pending_submissions = []
 
         # Don't start immediately.
         self.timer = self.create_timer(
@@ -950,6 +958,7 @@ class FrontierExplorer(Node):
         future = self.nav_client.send_goal_async(
             goal
         )
+        self._track_submission(future, 'navigate_to_pose')
 
         future.add_done_callback(
             self.goal_response_callback
@@ -1100,6 +1109,11 @@ class FrontierExplorer(Node):
         """Turn 360 degrees as soon as possible: the current goal is paused
         (not counted as failed), and failed spots are forgiven, since the
         scan gives SLAM fresh data and they may be reachable now."""
+
+        if self.shutting_down:
+            response.success = False
+            response.message = 'The explorer is shutting down.'
+            return response
 
         if self.maneuver_active and self.maneuver_name == 'Scan':
             response.success = False
@@ -1506,11 +1520,24 @@ class FrontierExplorer(Node):
         self.maneuver_time_allowance = time_allowance
 
         future = client.send_goal_async(goal)
+        self._track_submission(
+            future, 'spin' if client is self.spin_client else 'backup'
+        )
         future.add_done_callback(
             lambda f, g=generation, c=client:
             self.maneuver_response_callback(f, g, c)
         )
         return True
+
+    def _track_submission(self, future, action_name):
+        """Remember a goal Nav2 hasn't answered yet, so stop() can wait for
+        it: until accepted it has no handle to cancel."""
+
+        self.pending_submissions.append((future, action_name))
+        future.add_done_callback(
+            lambda f: self.pending_submissions.remove((f, action_name))
+            if (f, action_name) in self.pending_submissions else None
+        )
 
     def maneuver_response_callback(self, future, generation, client):
 
@@ -2101,18 +2128,40 @@ class FrontierExplorer(Node):
             self.goal_frontier = (keys, len(keys))
 
     def stop(self):
+        # Nothing new may start moving the robot from here on.
+        self.shutting_down = True
+        self.timer.cancel()
+        self.watch_timer.cancel()
+        self.recovery_move = None
         self.recovery_pub.publish(Twist())
         if not self.exploration_terminal_emitted:
             self.emit_goal_outcome('goal_cancelled', 'explorer stopped')
             self.emit_event('exploration_stopped', 'explorer stopped')
             self.exploration_terminal_emitted = True
-        # Cancel whatever Nav2 goal is in flight so the robot doesn't
-        # keep walking toward it after we've stopped sending new ones.
-        # rclpy.spin() has already returned by the time this runs, so we
-        # spin briefly here too, otherwise the cancel request is just
-        # queued and never actually sent before the node is destroyed.
+
+        # The goal Oak is walking to goes first: the waits below can take
+        # several seconds when Nav2 is slow, and the RViz panel force-kills
+        # the explorer if it takes too long. rclpy.spin() has already
+        # returned, so spin briefly to actually send the cancel.
         if self.current_goal_handle is not None:
             self.get_logger().info('Cancelling active navigation goal.')
+            future = self.current_goal_handle.cancel_goal_async()
+            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+            self.current_goal_handle = None
+
+        # A goal Nav2 hasn't answered yet has no handle to cancel. Wait (and
+        # spin, so the answer is processed) until it's accepted, which sets
+        # the handles cancelled below, or rejected.
+        deadline = time.monotonic() + SHUTDOWN_ACCEPT_WAIT_SEC
+        for future, action_name in list(self.pending_submissions):
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                rclpy.spin_until_future_complete(self, future, timeout_sec=remaining)
+            if not future.done():
+                self._cancel_all_goals(action_name)
+
+        # A goal accepted during the wait above.
+        if self.current_goal_handle is not None:
             future = self.current_goal_handle.cancel_goal_async()
             rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
         for orphan in self.orphans:
@@ -2123,6 +2172,39 @@ class FrontierExplorer(Node):
             future = self.maneuver_handle.cancel_goal_async()
             rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
 
+
+    def _cancel_all_goals(self, action_name):
+        """Last resort on shutdown: Nav2 never answered one of our goals, so
+        it may still accept and run it with nobody tracking it. Cancel every
+        goal on that action (a zero goal ID and stamp means all), even other
+        nodes' goals: stopping the robot is the safe outcome.
+
+        Known limit: a goal Nav2 receives only after this cancel is not
+        covered. That needs Nav2 to be failing already (no answer in
+        SHUTDOWN_ACCEPT_WAIT_SEC); the keyboard or joystick still override it.
+        """
+
+        self.get_logger().error(
+            f'Nav2 never answered a {action_name} goal; cancelling all '
+            f'{action_name} goals so the robot stops.'
+        )
+        client = self.create_client(
+            CancelGoal, f'/{action_name}/_action/cancel_goal'
+        )
+        if client.wait_for_service(timeout_sec=1.0):
+            future = client.call_async(CancelGoal.Request())
+            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+        else:
+            self.get_logger().error(
+                f'{action_name} cancel service unavailable. Stop the robot by '
+                f'hand: ros2 service call /{action_name}/_action/cancel_goal '
+                'action_msgs/srv/CancelGoal "{}"'
+            )
+        self.destroy_client(client)
+
+
+# How long stop() waits for Nav2 to answer goals it hasn't accepted yet.
+SHUTDOWN_ACCEPT_WAIT_SEC = 2.0
 
 PR_SET_PDEATHSIG = 1  # from <linux/prctl.h>
 
@@ -2209,7 +2291,6 @@ def main(args=None):
     # signal handler shuts the context down first, which prevents the final
     # zero velocity, active Nav2 goal cancellation, and exploration_stopped
     # event from being published.
-    from rclpy.signals import SignalHandlerOptions
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
 
     node = FrontierExplorer()
@@ -2221,6 +2302,8 @@ def main(args=None):
         raise KeyboardInterrupt
 
     previous_sigint_handler = signal.signal(signal.SIGINT, request_shutdown)
+    # SIGTERM (e.g. docker stop) is treated the same way.
+    previous_sigterm_handler = signal.signal(signal.SIGTERM, request_shutdown)
 
     try:
         rclpy.spin(node)
@@ -2240,6 +2323,7 @@ def main(args=None):
         if rclpy.ok():
             rclpy.shutdown()
         signal.signal(signal.SIGINT, previous_sigint_handler)
+        signal.signal(signal.SIGTERM, previous_sigterm_handler)
 
 
 if __name__ == '__main__':
