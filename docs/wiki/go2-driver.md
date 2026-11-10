@@ -2,7 +2,7 @@
 title: Go2 driver
 parent: driver
 code: [src/go2_robot_sdk/**]
-verified: 22bf2780b30a
+verified: c41860ecdc70
 ---
 
 # Go2 driver
