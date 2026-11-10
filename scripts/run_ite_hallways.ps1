@@ -61,7 +61,8 @@ try {
     $ErrorActionPreference = 'Continue'
     & docker compose -p go2ite -f docker/docker-compose.windows.yml -f docker/docker-compose.ite.yml `
         run --rm --no-deps --name oak-ite-run -e ROS_DOMAIN_ID=42 -e ROS_LOCALHOST_ONLY=1 `
-        unitree_ros @command 2>&1 | Tee-Object -FilePath (Join-Path $sessionDir 'console.log')
+        unitree_ros @command 2>&1 | ForEach-Object { "$_" } |
+        Tee-Object -FilePath (Join-Path $sessionDir 'console.log')
     $runExit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     @{ exit_code = $runExit; finished_at = (Get-Date -Format o) } |

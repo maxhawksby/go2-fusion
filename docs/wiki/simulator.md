@@ -85,7 +85,8 @@ download an image. Compose project `go2ite` gets its own build/install volumes,
 and a fixed container name prevents two script sessions running together. The
 image entrypoint builds the mounted workspace, so allow startup/build time.
 No new Docker dependencies are required for this world. Keep other simulator
-sessions stopped while running this suite; it uses ROS domain 42.
+sessions stopped while running this suite. The trial runner selects an isolated
+ROS domain starting at 50 for each run; direct simulation launches default to 42.
 
 Each invocation saves `session.json`, the world, a tracked source patch, console
 log and exit code under `src/go2_sim/results/ite_hallways/`. Trial modes also
@@ -99,7 +100,40 @@ The headless preview writes a `.pgm` and `.yaml`; the drawing above can be
 viewed without Docker. GUI users can instead launch the existing simulator
 with `world:=ite_hallways x:=1.5 y:=1.5 yaw:=1.57 gui:=true explore:=false`
 and start exploration deliberately after checking the layout. PowerShell GUI
-setup is unchanged. No simulation runs are claimed for this new world yet.
+setup is unchanged.
+
+### First hallway smoke result and diagnostic follow-up
+
+The first seed-28000 smoke test on November 10 ran for 60 seconds: 3.19%
+completeness, about 0.32 m traveled, zero collisions, one goal accepted and
+none reached. The scoreboard parity check passed. The initial spin predicted
+a collision, and Nav2 repeatedly failed its progress check; DWB later rejected
+unknown-region and oscillating trajectories. This establishes a stall, not its
+root cause. The aggregator's separate `Time`/`frame_id` error is also present,
+but this launch builds navigation's `/scan` from `/point_cloud2` directly.
+
+Keep the same world, seed and algorithm for one diagnostic repeat:
+
+```powershell
+.\scripts\run_ite_hallways.ps1 -Mode Smoke -Seed 28 -Variant scan_diagnostic -RecordBag
+```
+
+This records the existing scoreboard topics, including `/scan`, local costmap,
+TF, output velocity and ROS logs. It does not include the raw point cloud or
+every Nav2 internal topic. No longer batch is needed until the stall is understood.
+The offline helper reads bags without launching ROS nodes, playing messages or
+issuing motion commands. In a container with the workspace sourced, run:
+
+```shell
+python3 /ros2_ws/src/go2_sim/go2_sim/navigation_diagnostic.py /ros2_ws/src/go2_sim/results/ite_hallways
+```
+
+Each recorded run gets `navigation_diagnostic.json` next to its bag. It reports
+scan frames and directional returns, topic gaps, transforms present on both
+static and dynamic TF, output velocity and relevant failure logs. These are
+investigation clues, not a safety verdict. Aggregate scan statistics cover the
+whole bag, and costmap unknown percentage covers the whole grid. The first
+smoke test had bags disabled, so these measurements cannot be recovered from it.
 
 ## Watch one run (with windows)
 
