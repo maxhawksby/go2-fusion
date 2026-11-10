@@ -79,3 +79,44 @@ The new offset option changes only seed scheduling. Mapper, recovery, world
 and simulator parameters are unchanged from the first candidate batch.
 Keep completed seeds 28000/28001 from the first batch and seeds 28002-28004
 from this new batch. Do not average the partial original run 3 into the result.
+
+## Completed five-seed comparison
+
+The final three candidate runs completed on November 10. The valid candidate
+set combines the first two finalized rows from `20261110-213350` with the
+three resumed rows from `20261110-220650`. The interrupted original third run
+is excluded. Startup manifests record clean sources `e3b246b` and `6cf8150`;
+the latter adds resume scheduling/documentation, with no mapper/recovery,
+world or robot-model changes. All five seed/start-pose CSV fields match control.
+
+| Seed | Baseline coverage | Jeth recovery coverage | Difference |
+| --- | ---: | ---: | ---: |
+| 28000 | 55.8% | 56.5% | +0.7 points |
+| 28001 | 41.8% | 45.8% | +4.0 points |
+| 28002 | 35.1% | 65.0% | +29.9 points |
+| 28003 | 40.9% | 30.8% | -10.1 points |
+| 28004 | 25.9% | 64.8% | +38.9 points |
+| Mean | 39.9% | 52.6% | +12.7 points |
+
+These values consistently use the trial CSV completeness column. The live
+scoreboard's final callback boundary can differ slightly (seed 28003 shows
+31.3211% there versus 30.8% in the trial CSV), within the existing coverage
+parity tolerance. Do not mix the two columns when calculating means.
+
+Both sets have zero collisions and zero formal mapping completions. Three
+baseline runs ended on the 180-second no-progress rule; all five candidate
+runs reached the 300-second limit. Explorer logs count 18 reached exploration
+goals for control versus 29 for the candidate (escape goals excluded).
+The persistent `Still stopped: no safe direction` messages occurred in all
+five control logs and none of the five valid candidate logs. Other temporary
+faults, stale-sensing stops and recovery attempts still occurred; this does
+not prove the candidate never stalls.
+
+The weaker seed 28003 later reported no usable frontier, repeated open-space
+escape goals and waiting for failed spots to expire. Its coverage regression
+needs investigation. Four improved starts and fewer persistent latches support
+continuing with this recovery candidate, while the absence of formal finishes
+means room-completion reliability remains unproven. Five stochastic runs,
+split across two sessions, are not a statistical guarantee or physical-Oak
+validation. The existing distance parity failures remain unresolved in both
+sets; these results do not validate the live scoreboard's distance metric.
