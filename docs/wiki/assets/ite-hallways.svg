@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 790" role="img" aria-labelledby="title desc">
+<title id="title">ITE-inspired hallway exploration world</title>
+<desc id="desc">Approximate square corridor loop with central cross-hall, two closed cores and lobby tables. Not a measured UConn floor plan.</desc>
+<rect width="820" height="790" fill="#f5f7fb"/>
+<g font-family="Arial, sans-serif" fill="#15283e">
+<text x="40" y="38" font-size="24" font-weight="bold">ITE-inspired hallway exploration world</text>
+<text x="40" y="65" font-size="15">Assumed dimensions, not a measured floor plan. No individual rooms.</text>
+<g transform="translate(80 700) scale(24 -24)">
+<rect x="0" y="0" width="24" height="24" fill="#ffffff"/>
+<rect x="-0.1999999999999993" y="-0.2" width="24.4" height="0.2" fill="#63758c"/>
+<rect x="-0.1999999999999993" y="24.0" width="24.4" height="0.2" fill="#63758c"/>
+<rect x="-0.2" y="0.0" width="0.2" height="24" fill="#63758c"/>
+<rect x="24.0" y="0.0" width="0.2" height="24" fill="#63758c"/>
+<rect x="3.0" y="3.0" width="18" height="6.5" fill="#63758c"/>
+<rect x="3.0" y="14.5" width="18" height="6.5" fill="#63758c"/>
+<rect x="3.5" y="10.1" width="2" height="0.8" fill="#b4773b"/>
+<rect x="3.5" y="13.1" width="2" height="0.8" fill="#b4773b"/>
+<circle cx="1.5" cy="1.5" r="0.3" fill="#087f8c"/>
+<path d="M 1.5 1.5 L 1.5 2.5" stroke="#087f8c" stroke-width="0.15"/>
+</g>
+<g font-size="17" text-anchor="middle">
+<text x="368" y="276" fill="white">CLOSED CORE / NO ROOMS</text>
+<text x="368" y="552" fill="white">CLOSED CORE / NO ROOMS</text>
+<text x="390" y="418">5 m cross-hall / lobby</text>
+<text x="365" y="113">24 m interior width</text>
+<text x="368" y="680">3 m perimeter hallway</text>
+</g>
+<text x="675" y="400" font-size="14">Closed elevator /</text>
+<text x="675" y="422" font-size="14">stair entrance side</text>
+<text x="40" y="740" font-size="15">Teal: suggested preview start. Brown: tables. Grey: walls / inaccessible cores.</text>
+<text x="40" y="766" font-size="15">Tests: corners, branch choice, loop closure, and returning to skipped hallways.</text>
+</g></svg>
