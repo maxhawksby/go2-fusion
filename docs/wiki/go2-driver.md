@@ -2,7 +2,7 @@
 title: Go2 driver
 parent: driver
 code: [src/go2_robot_sdk/**]
-verified: c41860ecdc70
+verified: 0d18d39f678c
 ---
 
 # Go2 driver
@@ -17,6 +17,12 @@ Part of: [Driver](driver.md)
 When data arrives from the dog it decodes it and publishes `/odom`, `/imu`, `/joint_states`, `/point_cloud2`, `/camera/image_raw`, `/camera/camera_info` and `/go2_states`.
 When a command arrives on `/cmd_vel_out` or `/webrtc_req`, it sends it to the dog.
 A zero velocity is forwarded too, as an explicit stop (an older version dropped zeros, so "stop" never arrived).
+
+The driver (or the simulator's stand-in) owns `odom` -> `base_link`; SLAM owns
+`map` -> `odom`. The three standard URDF variants contain only the body tree,
+so the model publisher no longer supplies competing fixed navigation links.
+Missing live odometry now leaves that transform unavailable rather than
+showing an identity pose. See [TF and robot model](tf.md).
 
 The code is split into layers: `domain/` (plain data and constants, like the robot command numbers), `application/` (what to do with data and commands), `infrastructure/` (the WebRTC link, decoders, ROS publishing) and `presentation/` (the ROS node itself).
 
