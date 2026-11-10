@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: fe5f46d2d139
+verified: bff808272632
 ---
 
 # Auto mapper
@@ -23,7 +23,13 @@ Part of: [Maps and navigation](maps-nav.md)
    **Optionally, ask a vision-language model (VLM).** With `vlm_mode` on, the best 4 spots are also shown to a VLM (Qwen2.5-VL) running on a cloud GPU: one camera picture toward each, taken during the last 360 degree turn. It is also told what the map says about each spot (how far, how many unknown squares). It scores each from 0 to 1 for "will walking this way show a lot of new space" (a doorway or hallway scores high, a wall or dead end low), and that score is added to the reveal score. The VLM only reorders spots the map already found safe; lidar and Nav2 still decide where Oak can walk. See [Using the VLM](#using-the-vlm). In `active` mode with the panel's VLM view on, the VLM's suggested move also counts (it is told the lidar's distance each way when it suggests one): goals within 45 degrees of that direction are worth 300 more unknown squares (`vlm_suggest_weight`), unless the lidar sees something closer than 0.8 m that way or the suggestion is over 15 s old. A suggestion only picks among goals the map already found safe, and Nav2 still drives. "Stop" is not obeyed: it changes nothing.
 4. **Go.** It sends the goal to [Nav2](nav2.md) on `/navigate_to_pose`, exactly like clicking "Nav2 Goal" in RViz, so Nav2's obstacle avoidance still applies.
 5. **Learn from it.** If a visit did not shrink the frontier (the opening can't be seen into), that frontier is skipped for 2 minutes. Failed goals are also skipped for 2 minutes.
-6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap, then slides 0.05 to 0.5 m at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If nothing is safe, it stays stopped and logs why.
+6. **Get unstuck (experimental recovery comparison).** Check rear/side moves
+   first. If normal clearance does not fit, consider a move away from an
+   already-close wall, including backward diagonals, with tighter drift limits.
+   If no translation fits, request a bounded Nav2 turn toward open scan space.
+   Stale sensing still refuses recovery. This branch tests Jeth's changes;
+   they have not been validated on physical Oak. See the
+   [matched hallway experiment](../jeth-recovery-hallway-comparison.md).
 7. **Head for open space.** After 3 failed goals in a row (or similar signs of being stuck), it drives to the nearest spot with 0.8 m of room on every side, scans, and carries on.
 8. **Let people pass.** While walking to a goal, if a person, where they are about to step, or a group is within 1.5 m straight ahead, Oak stands still (zero speed on `/cmd_vel_mapper`) for up to 6 s, then carries on and lets Nav2 steer around them. It waits again only after the way has been clear once, so someone standing in a hallway can't stop exploring.
 9. **Finish.** With no frontiers left it logs "Exploration complete" and waits, in case a door opens.
@@ -39,6 +45,19 @@ frontier, change a threshold or send motion.
 **Buttons.** The RViz AutoMapper panel has **Start/Stop**, **Scan** (pause the goal, forget recent failures, turn 360 degrees; the same as calling `/frontier_explorer/scan`) and **Reset maps** (restart SLAM with an empty 2D map and clear the 3D point cloud).
 
 ### The finer details
+
+**Recovery experiment on this branch.** The description of ordinary recovery
+below is the baseline. Jeth's candidate adds a close-wall leaving check instead
+of requiring every point already inside the padded envelope to disappear.
+It rejects movement that worsens the checked local intrusion and uses 0.02 rad
+yaw/0.01 m lateral drift limits for leaving moves. Missing scan rays may be
+deferred to costmap checks in that mode; unknown costmap cells are judged with
+the same non-worsening rule. This is a meaningful change in clearance policy,
+not proof of safe escape. Nav2 turns check their own footprint and have retry
+limits. During an existing goal, low forward motion with an available normal
+recovery corridor avoids cancelling a goal merely because the nose rotates
+near a wall. The ordinary finite-scan and footprint rules still apply to normal
+translations. People yielding and VLM behavior from the baseline are retained.
 
 - **Before SLAM is ready.** Until SLAM publishes the `map` frame, the explorer logs "Waiting for robot position" and does nothing else.
 - **Goal spots.** Each region offers its middle plus one spot about every meter along long regions. The "clear straight line" check uses Nav2's local costmap (`/local_costmap/costmap`). The reveal score subtracts `info_gain_cells_per_meter` (100) unknown squares per meter of travel; the logic lives in `frontier_scoring.py`.
