@@ -28,7 +28,7 @@ Part of: [Senses](senses.md)
 
 **Any object by name (optional).** With YOLOE weights (`model_path:=yoloe-26s-seg.pt`, the open-vocabulary model SocialNav uses) the `classes` parameter lists what to look for in plain words, for example `person,chair,red box`, instead of YOLO's fixed 80 classes.
 
-**The older detector.** `coco_detector` is a second, older detector that uses a different network (MobileNet, from the torchvision library). It publishes the standard ROS message `vision_msgs/Detection2DArray` on `/detected_objects`, with a default confidence cut-off of 0.9 and no positions or memory. It is kept for now and is planned to be retired (see [Decisions](decisions.md), follow-up 3).
+**The older detector.** `coco_detector` is a second, older detector that uses a different network (MobileNet, from the torchvision library). It publishes the standard ROS message `vision_msgs/Detection2DArray` on `/detected_objects`, with a default confidence cut-off of 0.5 (it was 0.9, which missed most objects) and no positions or memory. It is kept for now and is planned to be retired (see [Decisions](decisions.md), follow-up 3).
 
 **Settings.** `object_detection` was written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav); its pose topic was renamed from `/detected_objects` to `/detected_objects/poses` when it came into this repo, and later replaced by the labeled markers on `/detected_objects/markers`. Its parameters:
 
@@ -44,7 +44,7 @@ Part of: [Senses](senses.md)
 
 To change the default weights, add the file to `models/`, list it in `setup.py` `data_files`, and update the default in `detector_node.py`. It needs `ultralytics` from pip, which is in the repo's `requirements.txt`, so the Docker image has it.
 
-`coco_detector` comes from [jfrancis71/ros2_coco_detector](https://github.com/jfrancis71/ros2_coco_detector) (demo: https://www.youtube.com/watch?v=emUs0nwwde8), chosen for its simple code and standard ROS messages. Its parameters: `publish_annotated_image` (default `True`), `device` (default `auto`, which uses a GPU if one is available and else the CPU; `cpu` or `cuda` forces one, and the node logs which it runs on), `detection_rate_hz` (default 10, the most pictures per second it runs on; 0 or less means every picture), and `detection_threshold` (default 0.9, between 0.0 and 1.0; higher rejects more detections, so raise it if you get too many false ones). It puts the class name straight into the message's `class_id` (for example `dog`) instead of an ID to look up. The first run downloads the MobileNet network (`fasterrcnn_mobilenet_v3_large_320_fpn`), then it is cached.
+`coco_detector` comes from [jfrancis71/ros2_coco_detector](https://github.com/jfrancis71/ros2_coco_detector) (demo: https://www.youtube.com/watch?v=emUs0nwwde8), chosen for its simple code and standard ROS messages. Its parameters: `publish_annotated_image` (default `True`), `device` (default `auto`, which uses a GPU if one is available and else the CPU; `cpu` or `cuda` forces one, and the node logs which it runs on), `detection_rate_hz` (default 10, the most pictures per second it runs on; 0 or less means every picture), and `detection_threshold` (default 0.5, between 0.0 and 1.0; higher rejects more detections, so raise it if you get too many false ones). It puts the class name straight into the message's `class_id` (for example `dog`) instead of an ID to look up. The first run downloads the MobileNet network (`fasterrcnn_mobilenet_v3_large_320_fpn`), then it is cached.
 
 ## Connects to
 
