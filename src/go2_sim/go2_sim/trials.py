@@ -71,6 +71,14 @@ def variant_name(value):
     return value
 
 
+def trial_seeds(batch_seed, runs, start_index=0):
+    """Keep an interrupted batch's remaining start poses and noise seeds."""
+    if start_index < 0:
+        raise ValueError('start_index must be nonnegative')
+    first = batch_seed * 1000 + start_index
+    return range(first, first + runs)
+
+
 def explorer_command(parameters):
     """The explorer command with explicit, repeatable ROS parameter dials."""
 
@@ -594,6 +602,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--runs', type=int, default=10)
     parser.add_argument('--seed', type=int, default=1, help='same seed = same start poses')
+    parser.add_argument('--start-index', type=int, default=0,
+                        help='zero-based seed offset; resume seed 28 at 28002 with 2')
     parser.add_argument('--timeout', type=float, default=900.0,
                         help='seconds the auto mapper gets per run')
     parser.add_argument('--stall-timeout', type=float, default=180.0,
@@ -622,6 +632,8 @@ def main(argv=None):
     signal.signal(signal.SIGINT, signal.default_int_handler)
     # The monitor must not reach a real robot's network either.
     os.environ['ROS_LOCALHOST_ONLY'] = '1'
+    if args.start_index < 0:
+        parser.error('--start-index must be nonnegative')
     world_path = resolve_world(args.world)
     out_dir = os.path.join(args.out or default_results_dir(), time.strftime('%Y%m%d-%H%M%S'))
     os.makedirs(os.path.join(out_dir, 'maps'), exist_ok=True)
@@ -629,7 +641,8 @@ def main(argv=None):
     for note in notes:
         print(f'[trials] warning: {note}')
     header = (f'# Auto mapper trials\n\nWorld: `{os.path.basename(world_path)}`, '
-              f'{args.runs} runs, seed {args.seed}, timeout {args.timeout:.0f} s, '
+              f'{args.runs} runs, seed {args.seed}, start index {args.start_index}, '
+              f'timeout {args.timeout:.0f} s, '
               f'variant: `{args.variant}`, explorer parameters: '
               f'`{" ".join(args.explorer_param) or "defaults"}`, '
               f'launch args: `{" ".join(launch_extra) or "defaults"}`. '
@@ -649,8 +662,8 @@ def main(argv=None):
 
 def run_all(args, world_path, gt, gt_path, out_dir, header, launch_extra, results):
     startup_failures = 0
-    for i in range(args.runs):
-        run_seed = args.seed * 1000 + i
+    for i, run_seed in enumerate(trial_seeds(
+            args.seed, args.runs, getattr(args, 'start_index', 0))):
         pose = world_tools.sample_start_pose(gt, np.random.default_rng(run_seed),
                                              clearance=args.clearance)
         print(f'[trials] run {i + 1}/{args.runs}: start {pose[0]:.2f}, {pose[1]:.2f}, '

@@ -4,6 +4,7 @@ param(
     [string]$Mode = 'Validate',
     [ValidateRange(1, 50)][int]$Runs = 5,
     [ValidateRange(1, 100000)][int]$Seed = 28,
+    [ValidateRange(0, 999)][int]$StartIndex = 0,
     [ValidateRange(30, 3600)][int]$Timeout = 600,
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_-]*$')]
     [string]$Variant = 'master_hallways',
@@ -42,10 +43,11 @@ try {
             '--runs', "$runCount", '--seed', "$Seed", '--timeout', "$runTimeout",
             '--stall-timeout', '180', '--startup-timeout', '180', '--variant', $Variant,
             '--out', $containerOut)
+        if ($StartIndex -gt 0) { $command += @('--start-index', "$StartIndex") }
         if (-not $RecordBag) { $command += '--no-scoreboard-bag' }
     }
     $metadata = [ordered]@{
-        mode = $Mode; variant = $Variant; seed = $Seed; image = $Image
+        mode = $Mode; variant = $Variant; seed = $Seed; start_index = $StartIndex; image = $Image
         commit = (& git rev-parse HEAD); branch = (& git branch --show-current)
         changes = @(& git status --porcelain); command = $command
         recorded_at = (Get-Date -Format o)

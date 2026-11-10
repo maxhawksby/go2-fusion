@@ -1,0 +1,122 @@
+# Jeth recovery versus the pinned hallway baseline
+
+This is an experimental simulation checkout, not a merge recommendation.
+It reuses the completed five-run baseline rather than asking for another one.
+
+## What is being compared
+
+- Control source: `4c2fc492abef5587c7daef65d82102726c38b4f8`, the hallway
+  branch after merged Luis #55, with VLM off and camera disabled.
+- Candidate: the same control plus Jeth's recovery commit
+  `fd78cac5b83596c6fa2e9a38aa3f449d3b23db75`, ported as `383ef1e`.
+- A conflict between adjacent methods was resolved by retaining both Luis's
+  people-yielding method and Jeth's forward-motion helper. Shutdown/event
+  handling, frontier ranking and VLM code are otherwise retained.
+- Only explorer recovery, its geometry helpers and recovery tests change.
+  Jeth's Header repair, the TF repair, voice, collision monitor and Nav2 tuning
+  are deliberately excluded so the effect of recovery can be measured.
+
+Jeth's changes add a close-wall leaving policy with tighter drift bounds,
+backward diagonals, Nav2 recovery turns toward open scan space, and a guard
+against cancelling goals unnecessarily while turning. This is not a new
+frontier-selection algorithm and may not resolve all navigation failures.
+
+## Completed control
+
+The November 10 `baseline_five_seeds` run used `ite_hallways`, seeds
+28000-28004, 300-second limits, 180-second stall/startup limits, bags on,
+no explorer overrides and default simulator dials. Source and world are
+preserved in its session manifest. No people or active VLM were involved.
+
+| Seed | Coverage | Independent odometry distance | End reason |
+| --- | ---: | ---: | --- |
+| 28000 | 55.8% | 27.1899 m | timeout |
+| 28001 | 41.8% | 21.7859 m | stuck |
+| 28002 | 35.1% | 11.5694 m | stuck |
+| 28003 | 40.9% | 37.5785 m | timeout |
+| 28004 | 25.9% | 12.1497 m | stuck |
+
+Mean coverage: 39.9%. Formal completions: 0/5. Collisions: zero.
+All five explorer logs eventually reported the no-safe-direction latch.
+Three runs ended under the 180-second lack-of-progress rule.
+
+Every control row flags distance parity failure: the live scoreboard distance
+is much smaller than the independent odometry accumulator. Coverage and collision
+counts agree. Do not use the UI distance values to claim a recovery improvement;
+use independent CSV odometry/Gazebo distance provisionally and keep the raw bags
+for the separate measurement investigation. The candidate keeps the same scorer
+code, so no hidden distance repair is mixed into the algorithm comparison.
+
+## User-run candidate
+
+Run from this checkout in PowerShell:
+
+```powershell
+.\scripts\run_ite_hallways.ps1 -Mode Batch -Runs 5 -Seed 28 -Timeout 300 -Variant jeth_recovery_five_seeds -RecordBag
+```
+
+The same seed in the same unchanged world selects the same five starts.
+Scheduling and SLAM/Nav2 remain variable; one five-run batch is evidence,
+not a guarantee. Do not run another simulator concurrently. Compare per-seed
+coverage, reached/failed goals, latches, duration, collisions and independent
+travel. Count any new collisions explicitly; a higher mean alone is not enough.
+
+No candidate simulation was launched during preparation. Review the saved
+candidate results before proposing a production merge or an Oak trial.
+
+## Interrupted candidate: resume seeds 28002-28004
+
+The first candidate batch completed seeds 28000 and 28001: 56.474% and
+45.814%, both timed out at 300 seconds with zero collisions. Run 3 was stopped
+before its CSV row finalized. Preserve its partial evidence but exclude it
+from the completed comparison. Resume the final three seeds from fresh starts:
+
+```powershell
+.\scripts\run_ite_hallways.ps1 -Mode Batch -Runs 3 -Seed 28 -StartIndex 2 -Timeout 300 -Variant jeth_recovery_remaining -RecordBag
+```
+
+The new offset option changes only seed scheduling. Mapper, recovery, world
+and simulator parameters are unchanged from the first candidate batch.
+Keep completed seeds 28000/28001 from the first batch and seeds 28002-28004
+from this new batch. Do not average the partial original run 3 into the result.
+
+## Completed five-seed comparison
+
+The final three candidate runs completed on November 10. The valid candidate
+set combines the first two finalized rows from `20261110-213350` with the
+three resumed rows from `20261110-220650`. The interrupted original third run
+is excluded. Startup manifests record clean sources `e3b246b` and `6cf8150`;
+the latter adds resume scheduling/documentation, with no mapper/recovery,
+world or robot-model changes. All five seed/start-pose CSV fields match control.
+
+| Seed | Baseline coverage | Jeth recovery coverage | Difference |
+| --- | ---: | ---: | ---: |
+| 28000 | 55.8% | 56.5% | +0.7 points |
+| 28001 | 41.8% | 45.8% | +4.0 points |
+| 28002 | 35.1% | 65.0% | +29.9 points |
+| 28003 | 40.9% | 30.8% | -10.1 points |
+| 28004 | 25.9% | 64.8% | +38.9 points |
+| Mean | 39.9% | 52.6% | +12.7 points |
+
+These values consistently use the trial CSV completeness column. The live
+scoreboard's final callback boundary can differ slightly (seed 28003 shows
+31.3211% there versus 30.8% in the trial CSV), within the existing coverage
+parity tolerance. Do not mix the two columns when calculating means.
+
+Both sets have zero collisions and zero formal mapping completions. Three
+baseline runs ended on the 180-second no-progress rule; all five candidate
+runs reached the 300-second limit. Explorer logs count 18 reached exploration
+goals for control versus 29 for the candidate (escape goals excluded).
+The persistent `Still stopped: no safe direction` messages occurred in all
+five control logs and none of the five valid candidate logs. Other temporary
+faults, stale-sensing stops and recovery attempts still occurred; this does
+not prove the candidate never stalls.
+
+The weaker seed 28003 later reported no usable frontier, repeated open-space
+escape goals and waiting for failed spots to expire. Its coverage regression
+needs investigation. Four improved starts and fewer persistent latches support
+continuing with this recovery candidate, while the absence of formal finishes
+means room-completion reliability remains unproven. Five stochastic runs,
+split across two sessions, are not a statistical guarantee or physical-Oak
+validation. The existing distance parity failures remain unresolved in both
+sets; these results do not validate the live scoreboard's distance metric.

@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: d339daf8a5fd
+verified: 842d68e58057
 ---
 
 # Simulator
@@ -147,6 +147,16 @@ docker compose run --rm unitree_ros ros2 launch go2_sim sim.launch.py rviz:=true
 RViz shows Oak and the map growing. `explore:=true` starts the auto mapper right away. Leave it out to drive yourself (keyboard teleop in a second terminal, with the domain set as above). Start somewhere else with `x:=7.5 y:=7.0 yaw:=1.57`. Add `gui:=true` to also open the Gazebo window, which shows the flat itself; closing it stops everything. Without a GPU the Gazebo window is expensive (see the box above), so RViz alone is the better choice on most laptops.
 
 ## Run many trials (headless)
+
+**Resume an interrupted batch.** On this experimental branch, `--start-index`
+is a zero-based seed offset. For example `--seed 28 --runs 3 --start-index 2`
+runs seeds 28002, 28003 and 28004, using the same start-pose/noise random streams
+as the final three runs of the original five-run batch. In the PowerShell
+wrapper, use `-StartIndex 2`. Keep world, source and all other settings unchanged.
+This starts fresh simulations in a new results folder; it does not continue an
+interrupted robot state or overwrite the first folder. A partly recorded run
+must be rerun from its beginning and excluded from the completed comparison.
+New run numbers start at 1; use the explicit seed column to join results.
 
 ```shell
 cd docker
