@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(MODULE_DIR, '..', '..');
 const PUBLIC_DIR = path.join(MODULE_DIR, 'public');
-const DEFAULT_RESULTS_ROOT = path.join(REPO_ROOT, 'src', 'go2_scoreboard', 'results');
+const DEFAULT_RESULTS_ROOT = path.join(REPO_ROOT, 'src', 'go2_sim', 'results');
 const SKIPPED_DIRECTORIES = new Set([
   '.git', '.pytest_cache', '__pycache__', 'bag', 'build', 'install', 'log', 'logs', 'maps',
 ]);

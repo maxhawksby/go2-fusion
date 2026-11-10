@@ -18,7 +18,7 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 import numpy as np
 
-from std_msgs import Header
+from std_msgs.msg import Header
 
 @dataclass 
 class AggregatorConfig:
