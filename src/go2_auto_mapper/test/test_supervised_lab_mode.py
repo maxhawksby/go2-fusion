@@ -16,17 +16,20 @@ class Logger:
 
 def test_failed_goal_pauses_in_supervised_mode():
     paused = []
+    outcomes = []
     node = SimpleNamespace(
         supervised_lab_mode=True,
         goal_frontier=object(),
         goal_is_escape=False,
         blacklist_current_goal=lambda: None,
+        emit_goal_outcome=lambda *args: outcomes.append(args),
         _pause_for_lab=paused.append,
     )
 
     FrontierExplorer.record_goal_failure(node, 'Nav2 result status 6')
 
     assert node.goal_frontier is None
+    assert outcomes == [('goal_failed', 'Nav2 result status 6')]
     assert paused == ['Nav2 result status 6; waiting for an operator resume request']
 
 

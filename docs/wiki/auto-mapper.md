@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: fe5f46d2d139
+verified: 347b28534e03
 ---
 
 # Auto mapper
@@ -160,6 +160,10 @@ ros2 run go2_auto_mapper explorer --ros-args \
 This mode was added after the 2026-11-08 Oak hallway evidence captured
 repeated Nav2 controller/spin/backup failures followed by an automatic escape
 goal. See issue #57 before changing the normal recovery behavior.
+
+This remains WIP: it pauses after failure, but not automatically after a
+successful goal. It does not yet enforce one goal per operator approval and
+is not a validated physical-test safety boundary.
 
 ## The code
 
