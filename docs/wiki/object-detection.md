@@ -2,7 +2,7 @@
 title: Object detection
 parent: senses
 code: [src/object_detection/**, src/coco_detector/**]
-verified: 9f60701a0f04
+verified: 6c9a3c4cce8e
 ---
 
 # Object detection
