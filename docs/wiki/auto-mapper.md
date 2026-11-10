@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: fe5f46d2d139
+verified: e0ed4e45de67
 ---
 
 # Auto mapper
@@ -39,6 +39,15 @@ frontier, change a threshold or send motion.
 **Buttons.** The RViz AutoMapper panel has **Start/Stop**, **Scan** (pause the goal, forget recent failures, turn 360 degrees; the same as calling `/frontier_explorer/scan`) and **Reset maps** (restart SLAM with an empty 2D map and clear the 3D point cloud).
 
 ### The finer details
+
+- **Replies belong to their own goal.** Each navigation submission and result
+  callback keeps the sequence number of the goal that created it. A late reply
+  from a timed-out or replaced goal cannot clear the new handle, blacklist the
+  new destination or count as its failure. A late accepted old submission goes
+  through the existing orphan-action cancellation/stop path until its end is
+  confirmed. This corrects action bookkeeping; it does not make unknown space
+  traversable or establish a complete map. See the
+  [callback investigation](../navigation-goal-callback-investigation.md).
 
 - **Before SLAM is ready.** Until SLAM publishes the `map` frame, the explorer logs "Waiting for robot position" and does nothing else.
 - **Goal spots.** Each region offers its middle plus one spot about every meter along long regions. The "clear straight line" check uses Nav2's local costmap (`/local_costmap/costmap`). The reveal score subtracts `info_gain_cells_per_meter` (100) unknown squares per meter of travel; the logic lives in `frontier_scoring.py`.

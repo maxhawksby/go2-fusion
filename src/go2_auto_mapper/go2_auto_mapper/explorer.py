@@ -1179,6 +1179,7 @@ class FrontierExplorer(Node):
         self.goal_is_escape = is_escape
         self.goal_sequence += 1
         self.active_goal_sequence = self.goal_sequence
+        sequence = self.active_goal_sequence
         self.goal_outcome_emitted = False
         # Set by the caller for frontier goals once this returns True.
         self.goal_frontier = None
@@ -1196,7 +1197,7 @@ class FrontierExplorer(Node):
         self._track_submission(future, 'navigate_to_pose')
 
         future.add_done_callback(
-            self.goal_response_callback
+            lambda result: self.goal_response_callback(result, sequence)
         )
 
         return True
@@ -1205,13 +1206,23 @@ class FrontierExplorer(Node):
     # NAV2 RESPONSE
     # ==========================================================
 
-    def goal_response_callback(self, future):
+    def _is_current_navigation_goal(self, sequence):
+        """Late action replies must not mutate a newer goal or a stopped run."""
+        return (
+            self.goal_active and not self.shutting_down
+            and (sequence is None or sequence == self.active_goal_sequence)
+        )
+
+    def goal_response_callback(self, future, sequence=None):
 
         try:
 
             goal_handle = future.result()
 
         except Exception as e:
+
+            if not self._is_current_navigation_goal(sequence):
+                return
 
             self.get_logger().error(
                 f'Navigation goal failed: {e}'
@@ -1220,6 +1231,18 @@ class FrontierExplorer(Node):
             self.record_goal_failure(f'goal response error: {e}')
             self.goal_active = False
             self.goal_sent_time = None
+            return
+
+        if not self._is_current_navigation_goal(sequence):
+            # A submission can be accepted after timeout or shutdown. Never
+            # attach it to the new goal; request cancellation of its own handle.
+            if goal_handle.accepted:
+                try:
+                    self._adopt_orphan(goal_handle, self.nav_client)
+                except Exception as error:
+                    self._stop_for(
+                        f'Could not cancel inactive goal {sequence}: {error}'
+                    )
             return
 
         if not goal_handle.accepted:
@@ -1244,7 +1267,7 @@ class FrontierExplorer(Node):
         result_future = goal_handle.get_result_async()
 
         result_future.add_done_callback(
-            self.navigation_result_callback
+            lambda result: self.navigation_result_callback(result, sequence)
         )
 
     def blacklist_current_goal(self):
@@ -1280,7 +1303,13 @@ class FrontierExplorer(Node):
     # NAVIGATION RESULT
     # ==========================================================
 
-    def navigation_result_callback(self, future):
+    def navigation_result_callback(self, future, sequence=None):
+
+        if not self._is_current_navigation_goal(sequence):
+            self.get_logger().info(
+                f'Ignoring result for inactive navigation goal {sequence}.'
+            )
+            return
 
         try:
 
@@ -1903,7 +1932,7 @@ class FrontierExplorer(Node):
         )
 
     def _adopt_orphan(self, handle, client):
-        """Nav2 accepted a maneuver the explorer had already given up on.
+        """Nav2 accepted an action the explorer had already given up on.
         Cancel it and block motion until it's confirmed ended."""
 
         handle.cancel_goal_async()
@@ -1912,7 +1941,7 @@ class FrontierExplorer(Node):
         handle.get_result_async().add_done_callback(
             lambda f, o=orphan: self._orphan_result(f, o)
         )
-        reason = 'Nav2 accepted an abandoned turn/back-up late'
+        reason = 'Nav2 accepted an abandoned action late'
         if self.recovery_fault:
             # Keep the existing stop's reason and requirements.
             self.recovery_move = None
@@ -1929,7 +1958,7 @@ class FrontierExplorer(Node):
         if status in TERMINAL_ACTION_STATUSES and orphan in self.orphans:
             self.orphans.remove(orphan)
             self.get_logger().info(
-                f'Late turn/back-up ended in Nav2 (status {status}).'
+                f'Late action ended in Nav2 (status {status}).'
             )
 
     def _check_unresolved(self):
@@ -1943,7 +1972,7 @@ class FrontierExplorer(Node):
             )
             if ended:
                 self.orphans.remove(orphan)
-                self.get_logger().info(f'Late turn/back-up ended ({why}).')
+                self.get_logger().info(f'Late action ended ({why}).')
 
     def finish_maneuver(self):
         # Retire this maneuver's number: any reply that still arrives for it
