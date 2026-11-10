@@ -63,3 +63,19 @@ travel. Count any new collisions explicitly; a higher mean alone is not enough.
 
 No candidate simulation was launched during preparation. Review the saved
 candidate results before proposing a production merge or an Oak trial.
+
+## Interrupted candidate: resume seeds 28002-28004
+
+The first candidate batch completed seeds 28000 and 28001: 56.474% and
+45.814%, both timed out at 300 seconds with zero collisions. Run 3 was stopped
+before its CSV row finalized. Preserve its partial evidence but exclude it
+from the completed comparison. Resume the final three seeds from fresh starts:
+
+```powershell
+.\scripts\run_ite_hallways.ps1 -Mode Batch -Runs 3 -Seed 28 -StartIndex 2 -Timeout 300 -Variant jeth_recovery_remaining -RecordBag
+```
+
+The new offset option changes only seed scheduling. Mapper, recovery, world
+and simulator parameters are unchanged from the first candidate batch.
+Keep completed seeds 28000/28001 from the first batch and seeds 28002-28004
+from this new batch. Do not average the partial original run 3 into the result.
