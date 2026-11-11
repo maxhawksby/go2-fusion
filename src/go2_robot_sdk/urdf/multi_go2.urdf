@@ -42,6 +42,21 @@ Stephen Brawner (brawner@gmail.com)
       </geometry>
     </collision>
   </link>
+  <link
+    name="odom">
+  </link>
+  <joint
+    name="odom_joint"
+    type="fixed">
+    <origin
+      xyz="0 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="odom" />
+    <child
+      link="{robot_num}/base_link" />
+  </joint>
+
   <joint name="{robot_num}/base_footprint_joint" type="fixed">
     <parent link="{robot_num}/base_link"/>
     <child link="{robot_num}/base_footprint"/>
@@ -49,6 +64,20 @@ Stephen Brawner (brawner@gmail.com)
   </joint>
   <link name="{robot_num}/base_footprint">
     </link>
+  <link
+    name="map">
+  </link>
+  <joint
+    name="map_joint"
+    type="fixed">
+    <origin
+      xyz="0 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="map" />
+    <child
+      link="odom" />
+  </joint>
   <link
     name="{robot_num}/Head_upper">
     <inertial>
