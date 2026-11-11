@@ -1,4 +1,11 @@
+---
+title: Goal callback investigation
+parent: auto-mapper
+---
+
 # Delayed navigation result ownership
+
+Part of: [Auto mapper](auto-mapper.md)
 
 ## Evidence
 
