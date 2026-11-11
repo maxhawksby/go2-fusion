@@ -47,3 +47,27 @@ with this scoring optimization and ask the user to run one recorded start.
 Compare live distance with independent trial odometry and bag reconstruction,
 retaining coverage equivalence and unchanged collision counts. Keep this
 change separate from navigation-goal ownership until that validation.
+
+
+## First user-run runtime validation
+
+The user completed seed 28003 on clean combined candidate 0e4cea6, keeping
+Jeth recovery, the callback repair, hallway world, start pose and 300 s limit.
+Session: 20261110-215445-496-scoreboard_distance_seed28003-batch;
+trial directory: 20261111-025719.
+
+Independent trial odometry was 39.4726 m; live scoreboard distance was
+39.4634 m (difference 0.0092 m, about 0.023%). Trial coverage was 62.1%,
+scoreboard coverage 62.0607%, and both recorded zero collisions. The trial's
+combined distance/coverage/collision parity check passed. Scoreboard warnings
+were empty. Timeline output contained 355 entries plus its header, versus
+91 plus header in the earlier 300 s callback-only run. This supports improved
+recorder responsiveness and distance accounting on this start.
+
+The run still timed out without finishing mapping. Its 62.1% coverage was
+lower than the previous callback-only run's 76.1%; execution variability and
+reduced observer load mean this is not a controlled algorithm comparison.
+No navigation behavior was changed by this measurement repair. This single
+runtime case validates the targeted distance defect, not all workloads,
+physical Oak distance, or general mapping reliability. Keep the original
+runs intact and expand paired navigation testing separately.
