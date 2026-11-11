@@ -82,20 +82,9 @@ Everything else runs inside **Docker**, which packs all the software into one id
 
 Windows without WSL, Macs, memory errors, and RViz windows: see [Lab setup](docs/wiki/lab-setup.md).
 
-## What we're working on now (week of Oct 18)
+## What we're working on now
 
-- **Auto mapper** (Luis): reliable exploration. Fixed false walls caused by floor drift, added Scan and Reset maps buttons in RViz, and made frontier search about 100x faster. Merged to `master`. *Next:* full exploration tests on Oak. See [Auto mapper](docs/wiki/auto-mapper.md).
-- **AI agent** (Adib): Ollama runs a free local Qwen model in place of the paid OpenAI API, tested on Oak and in mock mode. *Next:* odometry reliability and turn accuracy. See [LLM agent](docs/wiki/llm-agent.md).
-- **Oak Control dashboard** (Noah): a browser dashboard plus a ROS 2 bridge, with live sensors and object detection over WebRTC and Foxglove, voice input, robot actions, and safety limits. Noah also wrote a repeatable lab-testing guide and reviewed Piper.
-- **Text-to-speech** (Jeth): Piper, a free local voice, speaking through Oak's speaker. The audio is choppy and drops the start of short clips. *Next:* fix the packet loss, then connect it to voice commands. See [Voice](docs/wiki/voice.md).
-- **Computer vision and the wiki** (Max): YOLO object detection that remembers where objects are, to help map rooms. See [Object detection](docs/wiki/object-detection.md).
-
-**Open issues from the last robot test:**
-
-1. Retest Nav2 goals and click-to-walk in the map viewer.
-2. Retest how keyboard driving feels after the teleop fixes.
-3. Find what starts the lidar-to-pointcloud node and check its input topic.
-4. Confirm by eye that Oak stops cleanly when a driver goes quiet.
+The goal, the scorecard and every open task are GitHub issues: start at the pinned [goal issue](https://github.com/maxhawksby/go2-fusion/issues/58). Each person's lane is on the [Roadmap](docs/wiki/roadmap.md). This page does not keep a copy, so it cannot go out of date.
 
 **Tasks live as GitHub issues**, labelled `wiki:<page>` (for example `wiki:maps-nav`). Take one by assigning it to yourself. Stuck or curious? Ask in the team Discord; nobody minds a beginner question.
 
@@ -132,8 +121,7 @@ Sources:
 - AI agent: origin/adib/feat/llm-agent ("ollama agent instead of riley gpt")
 - Dashboard: origin/feat/desktop-app-prototype (Noah Steinberg; host_tools/control_dashboard, go2_dashboard_bridge, docs/DASHBOARD_LAB_GUIDE.md)
 - Computer vision memory: origin/feat/yolo-map-memory (Max Hawksby)
-- Current-work wording: team updates week of 2026-10-18; roles now on docs/wiki/people.md
-- Open issues: docs/wiki/test-log.md "Open issues" 1-4
+- Current work: not kept here since 2026-11-11; see GitHub issues (goal issue #58) and docs/wiki/roadmap.md
 - Automatic checks: .github/workflows/ros_build.yaml
 - Credits/license: original README.md "Thanks" and "License"; LICENSE
 -->

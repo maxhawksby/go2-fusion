@@ -13,7 +13,7 @@ Part of: [Lab setup](lab-setup.md)
 
 This page is the log itself. Newest session first.
 Each test gets one of these results: **pass**, **fail**, **partial**, or **not run**, plus a short note on what we saw.
-An **Open issues** list carries over between sessions until each issue is fixed and retested on Oak.
+Anything still broken after a session becomes a GitHub issue, linked from the session's table.
 During a session, the note-taker (often Claude, from Max's feedback and its own measurements) updates this page and commits it at the end.
 
 It matters because robot time is scarce: one dog, one connection at a time. The log tells you what is already known, so you test what is new.
@@ -58,19 +58,19 @@ Earlier tests ran on `f85e703` (fusion before Luis's update); marked "old code" 
 
 ## Open issues
 
-1. Retest Nav2 goals and MapViewer click-to-walk on new code.
-2. Retest keyboard driving feel with both teleop fixes.
-3. Find out what starts `lidar_to_pointcloud` and whether its input topic is right.
-4. Confirm by eye that Oak stops cleanly when a drive source goes quiet.
-5. WSL has 7.4 GB RAM: keep builds at `-j4` / 2 workers, or raise `memory=` in `.wslconfig`.
-6. Gamepad LB deadman: no longer required. The team no longer uses an Xbox gamepad; it drives with the Oak ROS2 pad, which sends signals differently. The pad talks straight to Oak and skips ROS (Max, 2026-10-22).
+Open work is not kept on this page. Checks still owed from past sessions are GitHub issues:
 
-Still to check from the fusion follow-ups (see [Decisions](decisions.md)): the driver reconnects after a Wi-Fi drop, TTS with the new 4 KB chunks, each twist_mux input actually reaching the driver, the sit message, the RViz panels, and `CONN_TYPE=webrtc` as the compose default.
+- [#71](https://github.com/maxhawksby/go2-fusion/issues/71): the retests left open since the 2026-10-11 session.
+- [#57](https://github.com/maxhawksby/go2-fusion/issues/57): the 2026-11-08 hallway failure and the supervised lab safety mode.
+
+When a session finds something broken, open an issue and link it from that session's table.
+
+Tips that are not tasks: WSL has 7.4 GB RAM, so keep builds at `-j4` / 2 workers or raise `memory=` in `.wslconfig`. The gamepad LB deadman test is no longer required; the team drives with the Oak ROS2 pad, which talks straight to Oak and skips ROS (Max, 2026-10-22).
 
 ## Connects to
 
 - [Lab checklist](lab-checklist.md): how to get connected for a session.
-- [Roadmap](roadmap.md) and the [Oak](../../README.md) front page: open issues show up there.
+- [Roadmap](roadmap.md): the scorecard these sessions feed. Open work is in GitHub issues.
 - Program pages such as [Keyboard teleop](keyboard-teleop.md), [Nav2](nav2.md) and [Go2 driver](go2-driver.md) quote these results in their "How it breaks" sections.
 
 ## How it breaks

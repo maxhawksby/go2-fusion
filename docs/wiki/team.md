@@ -11,15 +11,9 @@ Part of: [Oak](../../README.md)
 
 ## Who works on Oak
 
-Oak is built by **Team 48**, a five-student senior design team (the dashboard's title reads "UConn Team 48"). Each person has a main focus this week:
+Oak is built by **Team 48**, a five-student senior design team: Luis, Adib, Noah, Jeth and Max.
 
-| Person | Working on now | Closest pages |
-| --- | --- | --- |
-| **Luis** | Auto mapper: making Oak explore a room reliably | [Auto mapper](auto-mapper.md), [SLAM](slam.md), [Nav2](nav2.md) |
-| **Adib** | Local Ollama/Qwen [LLM agent](llm-agent.md); next, odometry and turn accuracy | [LLM agent](llm-agent.md) |
-| **Noah** | Mapping scoreboard: run recording, reports and replay; later the Oak Control dashboard | [Scoreboard](scoreboard.md), [Maps and navigation](maps-nav.md) |
-| **Jeth** | Piper text-to-speech through Oak's speaker | [Voice](voice.md) |
-| **Max** | Computer vision: YOLO object memory; leads the wiki | [Object detection](object-detection.md), this hub |
+Who owns which part of the goal is on the [Roadmap](roadmap.md) under "Who owns what". What each person is doing right now is their open GitHub issues and pull requests, not a list on this page.
 
 More detail on each person, and how to reach them, is on [People](people.md).
 

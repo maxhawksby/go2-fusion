@@ -1,4 +1,11 @@
+---
+title: Scoreboard distance investigation
+parent: scoreboard
+---
+
 # Scoreboard distance undercount
+
+Part of: [Scoreboard](scoreboard.md)
 
 ## Recorded evidence
 
