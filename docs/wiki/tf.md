@@ -2,7 +2,7 @@
 title: TF and robot model
 parent: senses
 code: [src/go2_robot_sdk/urdf/**, src/go2_robot_sdk/meshes/**, src/go2_robot_sdk/dae/**, src/go2_robot_sdk/calibration/**]
-verified: 752aafd7c2b2
+verified: 5133222e3146
 ---
 
 # TF and robot model
@@ -30,12 +30,6 @@ Part of: [Senses](senses.md)
 
 **The robot model (URDF).** `go2.urdf` is a text file that lists every body part (a "link") and every joint, with sizes, positions and the 3D shapes in `dae/` that RViz draws. For example the camera is placed 4.5 cm ahead of and 3 cm above the upper head. Variants: `multi_go2.urdf` (several robots, frames prefixed `robot0/`), `go2_with_realsense.urdf` and `go2_on_steroids.urdf`. The `calibration/` files describe the camera lens (see [Camera](camera.md)).
 
-The single-robot, RealSense and multi-robot models are rooted at `base_link`
-(prefixed for multiple robots). They do not declare `map` or `odom` links or
-fixed joints for navigation. With the driver stopped, `odom` -> `base_link`
-is therefore absent; with SLAM/localization stopped, `map` -> `odom` is absent.
-A standalone model viewer should choose `base_link` as its fixed frame.
-
 ## Connects to
 
 - [Go2 driver](go2-driver.md) - publishes `/joint_states`, `/odom`, `/imu` and `odom` -> `base_link`.
@@ -49,12 +43,7 @@ A standalone model viewer should choose `base_link` as its fixed frame.
 - **Drift in height** smears the 3D lidar cloud, so the floor looks like obstacles; Nav2 switched to the 2D scan because of it (`nav2_params.yaml` comments).
 - **Stale `map` -> `odom`.** `/scan` arrives about 4 times a second; with a short time-out Nav2 logged "Transform data too old" and stopped. SLAM's `transform_timeout` is now 0.5 s (`mapper_params_online_async.yaml`).
 - **Position data stops.** After Ctrl+C in a lab session, `/odom` went silent while the camera kept going ([Test log](test-log.md)).
-- **Duplicate navigation publishers.** The November 10 hallway bag contained
-  identity transforms on `/tf_static` for both navigation edges, alongside live
-  `/tf` updates. Those fixed joints have been removed from the three models.
-  Offline replay did not change latest poses after live TF arrived, so this
-  cleanup is not proof that the navigation stall is fixed. See the
-  [investigation and validation limits](../tf-ownership-investigation.md).
+- **Odd model entries.** `go2.urdf` also declares fixed `map` -> `odom` and `odom` -> `base_link` joints, which the driver and SLAM publish too. TODO(owner): confirm whether these clash with SLAM's live `map` -> `odom` and should be removed.
 
 ## Who's on it and what's next
 
