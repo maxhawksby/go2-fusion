@@ -50,3 +50,48 @@ reduced. Unknown-space trajectory rejection may remain and needs separate
 investigation. Do not combine new frontier heuristics or TF repairs into that
 first comparison. No simulation or live robot run was launched while preparing
 the repair.
+
+
+## Completed user-run comparison
+
+The user completed five matched starts on clean combined source e432bdf
+(recovery plus this repair), the unchanged hallway world and a 300 s limit.
+VLM/camera remained disabled. The original recovery-only source is preserved.
+
+| Seed | Recovery only | Recovery + callback repair | Difference |
+| --- | ---: | ---: | ---: |
+| 28000 | 56.5% | 51.4% | -5.1 pp |
+| 28001 | 45.8% | 56.4% | +10.6 pp |
+| 28002 | 65.0% | 42.4% | -22.6 pp |
+| 28003 | 30.8% | 76.1% | +45.3 pp |
+| 28004 | 64.8% | 67.9% | +3.1 pp |
+| Mean | 52.6% | 58.8% | +6.3 pp |
+
+Both sets had zero collisions and zero formal completions. Three starts
+improved, two scored lower. These are single executions per start, not
+replicated estimates or evidence that the repair guarantees better coverage.
+One scoreboard startup timeout on the first attempt at seed 28002 is retained
+as an infrastructure failure, excluded from mapping means and replaced with
+one user-run retry. Valid candidate manifests all record e432bdf and no dirty
+source changes. All five valid candidate runs ended at the 300 s limit.
+
+The candidate logged four ignored retired results: one on seed 28000, two on
+28002, one on 28004. Seed 28002 specifically timed out goal 4, accepted a new
+goal, ignored goal 4's delayed result and later reached the newer destination.
+This supplies runtime evidence that ownership filtering is exercised. Across
+five runs there were 27 exploration-goal successes, three open-space successes,
+seven navigation-ended-with-status messages and no no-usable-goal messages.
+Removing false status attribution does not remove slow or unreachable goals:
+seed 28002 still spent two long intervals waiting for Nav2 results.
+
+Coverage was taken consistently from trial CSV. Live scoreboard distance
+still undercounts; do not infer efficiency from it. A separate scoring-cost
+optimization is draft PR #64 and was not included in these runs. Follow up
+with that measurement validation before new frontier/controller changes.
+
+Raw candidate sessions in the experiment's go2_sim/results/ite_hallways:
+
+- 20261110-193928-352-goal_callback_seeds28000_28002-batch: first two rows only
+- 20261110-205533-234-goal_callback_seed28002_retry-batch: replacement seed 28002
+- 20261110-192312-727-goal_callback_seed28003-batch
+- 20261110-200617-677-goal_callback_seed28004-batch
