@@ -2,7 +2,7 @@
 title: Scoreboard
 parent: maps-nav
 code: [src/go2_scoreboard/**]
-verified: 4ef0f27da67b
+verified: 8d317800c468
 ---
 
 # Scoreboard
@@ -25,6 +25,14 @@ Part of: [Maps and navigation](maps-nav.md)
 Accuracy stays `null` until the team has a measured-floor-plan scorer. A run
 without an answer key also stores completeness as `null`; the scoreboard never
 invents a percentage.
+
+When an answer key is supplied, its floor mask and alignment are prepared once
+before recording starts. Each new SLAM map reuses those fixed points with its
+current size, origin and resolution. Rebuilding the answer key for every map
+was a measured multi-second callback bottleneck in hallway recordings with
+undercounted distance and apparent jumps. The one-metre discontinuity filter is unchanged. Existing
+recordings retain their original scores; replay writes a separate derived run.
+Runtime distance parity must still be checked after this optimization.
 
 ## Interfaces
 

@@ -165,25 +165,35 @@ def _interior_mask(grid):
     return inside
 
 
+class CompletenessScorer:
+    """Prepare fixed answer-key geometry once; sample each changing SLAM map."""
+
+    def __init__(self, ground_truth, start_pose, wall_margin=0.10):
+        scored = _interior_mask(ground_truth)
+        scored &= ~_dilate(ground_truth.data >= 65,
+                           int(round(wall_margin / ground_truth.resolution)))
+        self.total = int(scored.sum())
+        x_grid, y_grid = ground_truth.cell_centers()
+        world_x, world_y = x_grid[scored], y_grid[scored]
+        start_x, start_y, start_yaw = start_pose
+        cosine, sine = math.cos(start_yaw), math.sin(start_yaw)
+        self.map_x = cosine * (world_x - start_x) + sine * (world_y - start_y)
+        self.map_y = -sine * (world_x - start_x) + cosine * (world_y - start_y)
+
+    def score(self, slam):
+        """Use this map's current resolution, size and origin, not cached indices."""
+        if self.total == 0:
+            return 0.0
+        cols = np.floor((self.map_x - slam.origin_x) / slam.resolution).astype(int)
+        rows = np.floor((self.map_y - slam.origin_y) / slam.resolution).astype(int)
+        height, width = slam.data.shape
+        valid = (rows >= 0) & (rows < height) & (cols >= 0) & (cols < width)
+        values = np.full(self.total, UNKNOWN, dtype=np.int16)
+        values[valid] = slam.data[rows[valid], cols[valid]]
+        known = (values >= 0) & (values <= 100)
+        return 100.0 * float(known.sum()) / self.total
+
+
 def score_completeness(ground_truth, slam, start_pose, wall_margin=0.10):
-    """Return mapped floor percentage after aligning SLAM to the start pose."""
-    scored = _interior_mask(ground_truth)
-    scored &= ~_dilate(ground_truth.data >= 65,
-                       int(round(wall_margin / ground_truth.resolution)))
-    total = int(scored.sum())
-    if total == 0:
-        return 0.0
-    x_grid, y_grid = ground_truth.cell_centers()
-    world_x, world_y = x_grid[scored], y_grid[scored]
-    start_x, start_y, start_yaw = start_pose
-    cosine, sine = math.cos(start_yaw), math.sin(start_yaw)
-    map_x = cosine * (world_x - start_x) + sine * (world_y - start_y)
-    map_y = -sine * (world_x - start_x) + cosine * (world_y - start_y)
-    cols = np.floor((map_x - slam.origin_x) / slam.resolution).astype(int)
-    rows = np.floor((map_y - slam.origin_y) / slam.resolution).astype(int)
-    height, width = slam.data.shape
-    valid = (rows >= 0) & (rows < height) & (cols >= 0) & (cols < width)
-    values = np.full(total, UNKNOWN, dtype=np.int16)
-    values[valid] = slam.data[rows[valid], cols[valid]]
-    known = (values >= 0) & (values <= 100)
-    return 100.0 * float(known.sum()) / total
+    """One-shot scoring; repeated callers should retain a CompletenessScorer."""
+    return CompletenessScorer(ground_truth, start_pose, wall_margin).score(slam)
