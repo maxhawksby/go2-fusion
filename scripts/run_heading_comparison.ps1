@@ -27,7 +27,7 @@ try {
         }
         $plan = [pscustomobject]@{
             commit = $commit; batch_seed = $Seed; timeout_s = 300; world = 'ite_hallways'
-            camera = 'disabled'; vlm = 'off'; entries = $entries
+            camera = 'disabled'; vlm = 'off'; image_id = ''; entries = $entries
         }
     }
     function Save-Plan { $plan | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $manifestPath -Encoding UTF8 }
@@ -38,9 +38,15 @@ try {
     if (@(& git status --porcelain).Count -gt 0) { throw 'Commit source changes before running a comparison.' }
     if (-not (Test-Path 'src/go2_robot_sdk/external_lib/aioice/setup.py')) { throw 'Initialize git submodules before running.' }
     if (@(& docker ps --filter name=oak-ite-run --format '{{.Names}}').Count -gt 0) { throw 'An ITE run is already active.' }
+    $imageId = (& docker image inspect --format '{{.Id}}' go2scoreboard-unitree_ros:latest).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'Required simulator image is unavailable.' }
+    if ($plan.image_id -and $plan.image_id -ne $imageId) { throw 'Simulator image changed since this comparison began.' }
+    $plan.image_id = $imageId
+    Save-Plan
     foreach ($entry in $plan.entries) {
         if ($entry.status -in @('complete', 'recorded_review')) { continue }
         if ((& git rev-parse HEAD).Trim() -ne $commit -or @(& git status --porcelain).Count -gt 0) { throw 'Source changed during comparison.' }
+        if ((& docker image inspect --format '{{.Id}}' go2scoreboard-unitree_ros:latest).Trim() -ne $imageId) { throw 'Simulator image changed during comparison.' }
         $attemptNumber = @($entry.attempts).Count + 1
         $variant = "heading_$($entry.seed)_$($entry.mode)_a$attemptNumber" + '_' + (Get-Date -Format 'HHmmssfff')
         $attempt = [pscustomobject]@{ variant = $variant; session = ''; result = $null; error = '' }
