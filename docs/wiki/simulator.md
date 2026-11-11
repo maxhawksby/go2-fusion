@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: 64fd1f34d0d2
+verified: d339daf8a5fd
 ---
 
 # Simulator
@@ -47,6 +47,93 @@ So SLAM, Nav2, twist_mux and the auto mapper run unchanged. `/imu` and `/go2_sta
 **Kept away from the real robot.** The simulator uses ROS domain 42 and talks only inside your computer (`ROS_LOCALHOST_ONLY=1`), so its drive commands can never reach a real Oak on the network. To look at its topics from another terminal, first run `export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1`.
 
 **The world.** `placeholder_rooms` is a made-up 10 x 8 m flat: four rooms, 1.2 m doorways, two routes round (so SLAM can close a loop), a few furniture boxes and a pillar. It is not the lab. Jeth is building a tape-measured lab world (issue #28); any world drops in with `world:=`.
+
+## ITE-inspired hallways
+
+`ite_hallways` is a hallway-only practice world based on Noah's description,
+not a measured third-floor plan. It has a 24 x 24 m interior, a 3 m wide square
+perimeter corridor and a 5 m wide cross-hall linking the left and right sides.
+Two solid cores stand in for inaccessible rooms, elevators and stairs. Two
+solid table boxes sit at the west end of the lobby; the east boundary stands
+in for the closed elevator/stair entrance side. All dimensions are assumptions.
+TODO(noah): confirm orientation and replace assumed lengths with measurements.
+
+![Assumed hallway layout, closed cores and lobby tables](assets/ite-hallways.svg)
+
+This tests turning at corners, choosing a branch, closing loops and returning
+to hallways skipped while exploring the lobby. The explorer must retain
+reachable frontiers beyond the current view; heading toward the biggest open
+space alone does not guarantee it finishes. The generated answer key is used
+only by the scorers, not by SLAM or goal selection. Boxes make both collision
+geometry and scoring agree; individual rooms and stair drops are not simulated.
+
+From this branch's repo root in PowerShell, run these yourself, in order:
+
+```powershell
+# Unit checks, then a saved ground-truth preview; neither launches exploration.
+.\scripts\run_ite_hallways.ps1 -Mode Validate
+.\scripts\run_ite_hallways.ps1 -Mode Preview
+# One 60-second exploration run to check startup and saved artifacts.
+.\scripts\run_ite_hallways.ps1 -Mode Smoke
+# Only after the smoke run works: five matched starts, up to ten minutes each.
+.\scripts\run_ite_hallways.ps1 -Mode Batch -Runs 5 -Seed 28 -Timeout 600
+```
+
+The script reuses the installed `go2scoreboard-unitree_ros:latest` image;
+`-Image <existing-simulator-image>` selects another. It does not rebuild or
+download an image. Compose project `go2ite` gets its own build/install volumes,
+and a fixed container name prevents two script sessions running together. The
+image entrypoint builds the mounted workspace, so allow startup/build time.
+No new Docker dependencies are required for this world. Keep other simulator
+sessions stopped while running this suite. The trial runner selects an isolated
+ROS domain starting at 50 for each run; direct simulation launches default to 42.
+
+Each invocation saves `session.json`, the world, a tracked source patch, console
+log and exit code under `src/go2_sim/results/ite_hallways/`. Trial modes also
+save the existing CSV/report, maps, logs and scoreboard artifacts beneath that
+session's `trials/` folder. Bags are off by default; add `-RecordBag` when
+replay evidence is needed. Keep the commit unchanged during a batch. A successful
+process exit means the command ran; inspect `finished`, coverage, collisions and
+stop reasons to judge mapping. Startup failures are not algorithm failures.
+
+The headless preview writes a `.pgm` and `.yaml`; the drawing above can be
+viewed without Docker. GUI users can instead launch the existing simulator
+with `world:=ite_hallways x:=1.5 y:=1.5 yaw:=1.57 gui:=true explore:=false`
+and start exploration deliberately after checking the layout. PowerShell GUI
+setup is unchanged.
+
+### First hallway smoke result and diagnostic follow-up
+
+The first seed-28000 smoke test on November 10 ran for 60 seconds: 3.19%
+completeness, about 0.32 m traveled, zero collisions, one goal accepted and
+none reached. The scoreboard parity check passed. The initial spin predicted
+a collision, and Nav2 repeatedly failed its progress check; DWB later rejected
+unknown-region and oscillating trajectories. This establishes a stall, not its
+root cause. The aggregator's separate `Time`/`frame_id` error is also present,
+but this launch builds navigation's `/scan` from `/point_cloud2` directly.
+
+Keep the same world, seed and algorithm for one diagnostic repeat:
+
+```powershell
+.\scripts\run_ite_hallways.ps1 -Mode Smoke -Seed 28 -Variant scan_diagnostic -RecordBag
+```
+
+This records the existing scoreboard topics, including `/scan`, local costmap,
+TF, output velocity and ROS logs. It does not include the raw point cloud or
+every Nav2 internal topic. No longer batch is needed until the stall is understood.
+The offline helper reads bags without launching ROS nodes, playing messages or
+issuing motion commands. In a container with the workspace sourced, run:
+
+```shell
+python3 /ros2_ws/src/go2_sim/go2_sim/navigation_diagnostic.py /ros2_ws/src/go2_sim/results/ite_hallways
+```
+
+Each recorded run gets `navigation_diagnostic.json` next to its bag. It reports
+scan frames and directional returns, topic gaps, transforms present on both
+static and dynamic TF, output velocity and relevant failure logs. These are
+investigation clues, not a safety verdict. Aggregate scan statistics cover the
+whole bag, and costmap unknown percentage covers the whole grid. The first
+smoke test had bags disabled, so these measurements cannot be recovered from it.
 
 ## Watch one run (with windows)
 
