@@ -17,7 +17,7 @@ from go2_interfaces.msg import AutoMapperEvent, ScoreboardStatus
 from go2_scoreboard.accumulator import RECORDING, RunAccumulator
 from go2_scoreboard.artifacts import write_artifacts
 from go2_scoreboard.bag_recorder import BagRecorder
-from go2_scoreboard.map_metrics import grid_from_values, read_map, score_completeness
+from go2_scoreboard.map_metrics import CompletenessScorer, grid_from_values, read_map
 from go2_scoreboard.resources import ResourceSampler
 from go2_scoreboard.versioning import source_fingerprint
 
@@ -75,6 +75,7 @@ class ScoreboardRecorder(Node):
             max_odom_step_m=float(self.get_parameter('max_odom_step_m').value),
         )
         self.ground_truth = None
+        self.completeness_scorer = None
         self.start_pose = (
             float(self.get_parameter('start_x').value),
             float(self.get_parameter('start_y').value),
@@ -101,6 +102,8 @@ class ScoreboardRecorder(Node):
         if ground_truth_path:
             try:
                 self.ground_truth = read_map(os.path.expanduser(ground_truth_path))
+                self.completeness_scorer = CompletenessScorer(
+                    self.ground_truth, self.start_pose)
             except (OSError, ValueError, KeyError) as error:
                 self.accumulator.warnings.append(f'could not load ground truth: {error}')
 
@@ -186,9 +189,8 @@ class ScoreboardRecorder(Node):
         grid = grid_from_values(message.data, info.width, info.height, info.resolution,
                                 info.origin.position.x, info.origin.position.y)
         completeness = None
-        if self.ground_truth is not None:
-            completeness = score_completeness(
-                self.ground_truth, grid, self.start_pose)
+        if self.completeness_scorer is not None:
+            completeness = self.completeness_scorer.score(grid)
         self.accumulator.update_map(grid, timestamp, completeness)
 
     def _on_contacts(self, message):
