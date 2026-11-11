@@ -6,7 +6,7 @@ import os
 
 from go2_scoreboard.accumulator import RECORDING, RunAccumulator
 from go2_scoreboard.artifacts import write_artifacts
-from go2_scoreboard.map_metrics import grid_from_values, read_map, score_completeness
+from go2_scoreboard.map_metrics import CompletenessScorer, grid_from_values, read_map
 
 
 def _stamp_seconds(message, bag_timestamp_ns):
@@ -67,6 +67,7 @@ def replay_bag(bag_path, output_dir, ground_truth_path='', start_pose=(0.0, 0.0,
     }
     accumulator.warnings.extend(warnings)
     ground_truth = read_map(ground_truth_path) if ground_truth_path else None
+    scorer = CompletenessScorer(ground_truth, start_pose) if ground_truth is not None else None
     last_contact_timestamp = None
     while reader.has_next():
         topic, serialized, timestamp_ns = reader.read_next()
@@ -95,8 +96,7 @@ def replay_bag(bag_path, output_dir, ground_truth_path='', start_pose=(0.0, 0.0,
             info = message.info
             grid = grid_from_values(message.data, info.width, info.height, info.resolution,
                                     info.origin.position.x, info.origin.position.y)
-            completeness = (score_completeness(ground_truth, grid, start_pose)
-                            if ground_truth is not None else None)
+            completeness = scorer.score(grid) if scorer is not None else None
             accumulator.update_map(grid, timestamp, completeness)
         elif topic == '/scoreboard/status':
             if message.run_id:
