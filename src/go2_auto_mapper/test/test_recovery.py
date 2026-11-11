@@ -3,9 +3,13 @@ import math
 from types import SimpleNamespace
 
 from go2_auto_mapper.recovery import (
+    DRIFT_ACROSS_M,
+    DRIFT_YAW_RAD,
     SCAN_MAX_AGE_SEC,
     assess_recovery,
     choose_recovery,
+    choose_recovery_mode,
+    drift_limits,
     latch_decision,
     refresh_status,
     scan_age,
@@ -81,19 +85,27 @@ def test_wall_alongside_does_not_block_backing_out():
     assert choose_recovery(grid, 0, 0, 0, 0.3, clear_scan()) in ((-0.3, 0.0), (0.0, -0.3))
 
 
-def test_wall_beside_the_front_half_blocks_backing_up():
-    # Reviewer's case: a wall 0.01 m from the side of the front half. The
-    # old check looked only at the half facing the move, so backing up
-    # passed although a small turn swings the nose into the wall. Even
-    # sliding straight away from it is refused: a turn at the start swings
-    # the nose or tail into it. Oak stays stopped for a person instead.
+def test_wall_beside_the_front_half_needs_a_leaving_move():
+    # Reviewer's case: a wall 0.01 m from the side of the front half. With
+    # the normal drift allowance a small turn at the start swings the nose
+    # into it, so no normal move passes. Backing up along it, or sliding
+    # straight away from it, never brings the body closer, so those pass as
+    # leaving moves (run with the tight CLOSE_DRIFT limits); sliding toward
+    # it never does. Before, Oak stayed stopped here for good (go2_sim:
+    # wedged against the short wall stub after Nav2 drove it along it).
     grid = make_grid(obstacles=[(0.0, 0.36, 0.21, 0.4)])
     assert not swept_clear(grid, 0, 0, 0, -0.3, 0)
     assert not swept_clear(grid, 0, 0, 0, 0, -0.3)
-    assert choose_recovery(grid, 0, 0, 0, 0.3, clear_scan()) is None
-    # 0.15 m away, sliding away from it is fine again.
+    assert swept_clear(grid, 0, 0, 0, -0.3, 0, leaving=True)
+    assert swept_clear(grid, 0, 0, 0, 0, -0.3, leaving=True)
+    assert not swept_clear(grid, 0, 0, 0, 0, 0.3, leaving=True)
+    move, leaving = choose_recovery_mode(grid, 0, 0, 0, 0.3, clear_scan())
+    assert leaving
+    assert move in ((-0.3, 0.0), (0.0, -0.3))
+    # 0.15 m away, sliding away from it is a normal move again.
     grid = make_grid(obstacles=[(0.0, 0.36, 0.35, 0.5)])
     assert swept_clear(grid, 0, 0, 0, 0, -0.3)
+    assert choose_recovery_mode(grid, 0, 0, 0, 0.3, clear_scan())[1] is False
     scan = clear_scan()
     for index, _ in enumerate(scan.ranges):
         angle = scan.angle_min + index * scan.angle_increment
@@ -101,6 +113,93 @@ def test_wall_beside_the_front_half_blocks_backing_up():
             scan.ranges[index] = 0.21 / math.sin(angle)
     assert not scan_covers_move(scan, -0.3, 0)
     assert not scan_covers_move(scan, 0, -0.3)
+    assert scan_covers_move(scan, -0.3, 0, leaving=True)
+    assert scan_covers_move(scan, 0, -0.3, leaving=True)
+    assert not scan_covers_move(scan, 0, 0.3, leaving=True)
+
+
+def test_leaving_move_frees_a_corner_wedged_on_an_angled_wall():
+    # go2_sim: a wall down the left side, 0.01 m from the front-left corner
+    # and angled 10 degrees in toward it, so it moves away from the body
+    # further back. No normal move passes; backing up (or sliding right)
+    # only opens the gap.
+    slope = math.tan(math.radians(10))
+    wall = [
+        (along - 0.025, along + 0.025,
+         0.21 + slope * (0.35 - along), 0.31 + slope * (0.35 - along))
+        for along in (0.35 - 0.05 * k for k in range(20))
+    ]
+    grid = make_grid(obstacles=wall)
+    assert choose_recovery_mode(grid, 0, 0, 0, 0.3, clear_scan())[0] in (
+        (-0.3, 0.0), (0.0, -0.3))
+    assert choose_recovery_mode(grid, 0, 0, 0, 0.3, clear_scan())[1]
+    for move in ((-0.3, 0.0), (0.0, 0.3), (0.0, -0.3)):
+        assert not swept_clear(grid, 0, 0, 0, *move)
+
+
+def test_leaving_move_still_checks_walls_it_closes_in_on():
+    # Behind the tail, in the path: backing up runs the tail into it.
+    assert not swept_clear(
+        make_grid(obstacles=[(-0.65, -0.60, 0.05, 0.30)]),
+        0, 0, 0, -0.3, 0, leaving=True,
+    )
+    # Beside the front, sliding toward it.
+    assert not swept_clear(
+        make_grid(obstacles=[(0.0, 0.36, 0.30, 0.4)]),
+        0, 0, 0, 0, 0.3, leaving=True,
+    )
+    # Straight behind.
+    assert not swept_clear(
+        make_grid(obstacles=[(-0.75, -0.70, -0.3, 0.3)]),
+        0, 0, 0, -0.3, 0, leaving=True,
+    )
+    # Inside the body is never left behind.
+    assert not swept_clear(
+        make_grid(obstacles=[(0.0, 0.1, 0.0, 0.1)]),
+        0, 0, 0, -0.3, 0, leaving=True,
+    )
+
+
+def test_leaving_move_slides_out_along_a_wall_cutting_a_rear_corner():
+    # go2_sim: a straight wall cutting 0.09 m into the rear-right corner of
+    # the footprint at 45 degrees, unknown space behind it, open to the
+    # back-left. Backing straight up and sliding right run into the wall,
+    # but sliding back-left along it keeps it just as deep.
+    cut = 0.09 * math.sqrt(2)
+    grid = make_grid()
+    for gy in range(grid.info.height):
+        for gx in range(grid.info.width):
+            x = grid.info.origin.position.x + (gx + 0.5) * grid.info.resolution
+            y = grid.info.origin.position.y + (gy + 0.5) * grid.info.resolution
+            # Signed distance past the wall line x + y = -(0.45 + 0.2) + cut.
+            past = (-(x + y) - (0.65 - cut)) / math.sqrt(2)
+            i = gy * grid.info.width + gx
+            if 0 <= past < 0.1:
+                grid.data[i] = 100
+            elif past >= 0.1:
+                grid.data[i] = -1
+    d = 0.3 / math.sqrt(2)
+    assert not swept_clear(grid, 0, 0, 0, -0.3, 0, leaving=True)
+    assert not swept_clear(grid, 0, 0, 0, 0, -0.3, leaving=True)
+    assert swept_clear(grid, 0, 0, 0, -d, d, leaving=True)
+    move, leaving = choose_recovery_mode(grid, 0, 0, 0, 0.3, clear_scan())
+    assert leaving
+
+
+def test_leaving_scan_check_leaves_empty_rays_to_the_costmap():
+    # The front-left sector with no returns in go2_sim.
+    scan = clear_scan()
+    for degrees in range(36, 84):
+        scan.ranges[degrees + 180] = float('inf')
+    d = 0.3 / math.sqrt(2)
+    assert not scan_covers_move(scan, -d, d)
+    assert scan_covers_move(scan, -d, d, leaving=True)
+
+
+def test_leaving_moves_use_tight_drift_limits():
+    assert drift_limits(False) == (DRIFT_YAW_RAD, DRIFT_ACROSS_M)
+    yaw, across = drift_limits(True)
+    assert yaw < DRIFT_YAW_RAD and across < DRIFT_ACROSS_M
 
 
 def test_drift_envelope_covers_turning_and_sliding():
@@ -143,21 +242,21 @@ def test_boxed_in_stays_stopped():
         (-1, 1, 0.4, 1),
         (-1, 1, -1, -0.4),
     ])
-    move, reason = assess_recovery(
+    move, reason, leaving = assess_recovery(
         grid, 0, 0, 0, 0.3, clear_scan(), 0.1, SCAN_MAX_AGE_SEC
     )
-    assert move is None
+    assert move is None and not leaving
     assert 'no safe direction' in reason
 
 
 def test_stale_scan_is_unsafe():
     grid = make_grid()
-    move, reason = assess_recovery(
+    move, reason, _ = assess_recovery(
         grid, 0, 0, 0, 0.3, clear_scan(), 2.0, SCAN_MAX_AGE_SEC
     )
     assert move is None
     assert 'stale' in reason
-    move, reason = assess_recovery(
+    move, reason, _ = assess_recovery(
         grid, 0, 0, 0, 0.3, None, None, SCAN_MAX_AGE_SEC
     )
     assert move is None
