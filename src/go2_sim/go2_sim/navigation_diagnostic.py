@@ -99,7 +99,56 @@ def summarize(records):
     }
 
 
-def bag_records(directory):
+def goal_timeline(records):
+    """Associate observed odometry with event-owned goal windows, not action IDs.
+
+    Receipt timestamps define intervals. Distance is reported only while a
+    goal owns the window; scans/recovery without a goal are left unassigned.
+    """
+    goals, events, active = [], [], None
+    previous = None
+    for topic, msg, stamp in records:
+        timestamp = stamp / 1e9
+        if topic == '/odom':
+            xy = (msg.pose.pose.position.x, msg.pose.pose.position.y)
+            if previous is not None and active is not None:
+                step = math.hypot(xy[0] - previous[0], xy[1] - previous[1])
+                if step <= 1.0:
+                    active['distance_m'] += step
+                    active['moving_samples'] += int(step > .001)
+            previous = xy
+        elif topic == '/auto_mapper/events':
+            kind, sequence = msg.event_type, int(msg.goal_sequence)
+            events.append(dict(time_s=timestamp, kind=kind, sequence=sequence, detail=msg.detail))
+            if kind == 'goal_sent':
+                if active is not None:
+                    active['end_s'], active['outcome'] = timestamp, 'superseded_without_outcome'
+                active = dict(sequence=sequence, sent_s=timestamp, accepted_s=None,
+                              end_s=None, outcome='pending', detail=msg.detail,
+                              distance_m=0.0, moving_samples=0)
+                goals.append(active)
+            elif kind == 'goal_accepted' and active is not None and sequence == active['sequence']:
+                active['accepted_s'] = timestamp
+            elif kind in ('goal_reached', 'goal_failed', 'goal_cancelled'):
+                if active is not None and sequence == active['sequence']:
+                    active['end_s'], active['outcome'] = timestamp, kind
+                    active['detail'] = msg.detail
+                    active = None
+            elif kind == 'exploration_stopped' and active is not None:
+                active['end_s'], active['outcome'] = timestamp, 'run_stopped'
+                active = None
+        elif topic == '/rosout' and msg.name == 'frontier_explorer':
+            if any(term in msg.msg.lower() for term in ('stalled', 'ignoring result', 'recovery', 'scan complete', 'turning in place')):
+                events.append(dict(time_s=timestamp, kind='log', detail=msg.msg))
+    for goal in goals:
+        goal['duration_s'] = (goal['end_s'] - goal['sent_s']) if goal['end_s'] is not None else None
+    return dict(goals=goals, events=events, limitations=[
+        'Receipt-time attribution, not proof of Nav2 goal identity.',
+        'Motion outside active goal windows is not assigned to a goal.',
+        'A superseded goal window is not assumed to have been canceled.'])
+
+
+def bag_records(directory, wanted=None):
     """Read a bag offline. ROS imports are deliberately limited to this path."""
     import rosbag2_py
     from rclpy.serialization import deserialize_message
@@ -108,7 +157,8 @@ def bag_records(directory):
     reader = rosbag2_py.SequentialReader()
     reader.open(rosbag2_py.StorageOptions(uri=str(directory), storage_id=''),
                 rosbag2_py.ConverterOptions('', ''))
-    wanted = {'/scan', '/tf', '/tf_static', '/cmd_vel_out', '/local_costmap/costmap', '/rosout'}
+    if wanted is None:
+        wanted = {'/scan', '/tf', '/tf_static', '/cmd_vel_out', '/local_costmap/costmap', '/rosout'}
     types = {entry.name: get_message(entry.type)
              for entry in reader.get_all_topics_and_types() if entry.name in wanted}
     while reader.has_next():
@@ -120,13 +170,18 @@ def bag_records(directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('results_directory', type=Path)
+    parser.add_argument('--goals-only', action='store_true', help='extract goal/event/motion windows without scan processing')
     args = parser.parse_args()
     bags = sorted(args.results_directory.rglob('metadata.yaml'))
     if not bags:
         parser.error('No rosbag metadata.yaml found. Record the next smoke run with -RecordBag.')
     for metadata in bags:
-        result = summarize(bag_records(metadata.parent))
-        output = metadata.parent.parent / 'navigation_diagnostic.json'
+        if args.goals_only:
+            result = goal_timeline(bag_records(metadata.parent, {'/odom', '/auto_mapper/events', '/rosout'}))
+            output = metadata.parent.parent / 'goal_timeline.json'
+        else:
+            result = summarize(bag_records(metadata.parent))
+            output = metadata.parent.parent / 'navigation_diagnostic.json'
         output.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
         print(f'Wrote {output}')
 

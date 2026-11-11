@@ -63,6 +63,7 @@ from go2_auto_mapper.frontier_scoring import (
 )
 from go2_auto_mapper.social_space import line_crosses, parse_people, social_zones, zone_at
 from go2_auto_mapper.nav_log import NavLog, known_cell_count
+from go2_auto_mapper.goal_heading import goal_yaw, validate_heading_mode
 from go2_auto_mapper.vlm_ranking import (
     ViewMemory,
     VlmClient,
@@ -89,6 +90,9 @@ class FrontierExplorer(Node):
 
         self.declare_parameter('min_frontier_size', 5)
         self.declare_parameter('goal_distance', 0.8)
+        self.declare_parameter('goal_heading_mode', 'map_zero')
+        self.goal_heading_mode = validate_heading_mode(
+            self.get_parameter('goal_heading_mode').value)
         # Frontiers closer than this are only used once no farther one is
         # left, so each leg covers new ground instead of shuffling in place.
         self.declare_parameter('min_goal_distance', 1.5)
@@ -1169,6 +1173,13 @@ class FrontierExplorer(Node):
             )
             return False
 
+        mode = getattr(self, 'goal_heading_mode', 'map_zero')
+        pose = self.get_robot_pose(self.map_frame) if mode == 'toward_goal' else None
+        yaw = goal_yaw(mode, pose, x, y)
+        if yaw is None:
+            self.get_logger().warn('Deferring goal: map-frame robot pose unavailable.')
+            return False
+
         goal = NavigateToPose.Goal()
 
         goal.pose = PoseStamped()
@@ -1179,8 +1190,9 @@ class FrontierExplorer(Node):
         goal.pose.pose.position.x = x
         goal.pose.pose.position.y = y
 
-        # Keep robot orientation unchanged.
-        goal.pose.pose.orientation.w = 1.0
+        # map_zero retains the original behavior; toward_goal is experimental.
+        goal.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        goal.pose.pose.orientation.w = math.cos(yaw / 2.0)
 
         self.get_logger().info(
             f'Sending {"escape" if is_escape else "exploration"} goal: '
@@ -1192,6 +1204,8 @@ class FrontierExplorer(Node):
         self.goal_sequence += 1
         self.active_goal_sequence = self.goal_sequence
         sequence = self.active_goal_sequence
+        self.get_logger().info(
+            f'Goal orientation: sequence={sequence}, mode={mode}, yaw={yaw:.6f}')
         self.goal_outcome_emitted = False
         # Set by the caller for frontier goals once this returns True.
         self.goal_frontier = None
