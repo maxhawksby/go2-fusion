@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: 842d68e58057
+verified: b5240fd2e786
 ---
 
 # Simulator
@@ -30,6 +30,25 @@ Part of: [Lab setup](lab-setup.md)
 >    - Mac: `docker compose -f docker/mac/compose.yaml exec unitree_ros bash -ic 'ros2 run go2_sim trials'`
 >
 > No NVIDIA card is needed. Tested on 2026-10-28 with no GPU at all, software rendering, 4 CPUs and 6 GB: headless runs kept real-time speed (factor 1.0, about 2 CPUs, at most 1.8 GB). RViz-only watching ran at 0.9. The Gazebo window plus RViz ran at 0.55 and used up to 2.5 GB. The PowerShell and Mac lines are untested: TODO(Adib): try them on a Mac.
+
+## Paired heading reliability experiment
+
+The user-run `scripts/run_heading_comparison.ps1` first writes a ten-entry plan.
+Add `-Run` to execute five starts in both heading modes, alternating order.
+Every run is 300 s with bags, VLM off and the unchanged hallway world. A JSON
+manifest records attempts, source commit and session folders. Resume with
+`-Run -ResumeFrom <comparison.json>` only after reviewing any failed attempt;
+completed valid runs, including low scores, are never repeated. Collisions or
+measurement parity failures pause the schedule and preserve their valid rows.
+`-Seed 29` reserves five new starts for held-out testing after development.
+The underlying hallway wrapper accepts `-GoalHeadingMode map_zero|toward_goal`
+and stores image identity plus a world checksum with its existing metadata.
+
+The offline navigation diagnostic accepts `--goals-only` to extract event-owned
+goal windows, observed odometry and recovery/timeout logs into `goal_timeline.json`.
+It publishes nothing. Receipt-time motion attribution is approximate and is not
+proof of the identity of a Nav2 result. Preserve originals when sharing derived
+reports. See the experiment protocol in `docs/hallway-reliability-protocol.md`.
 
 ## How it works
 

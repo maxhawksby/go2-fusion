@@ -1,0 +1,52 @@
+{
+  "baseline_commit": "bca4295c9255b8b0d18b4e739abdb58f19b60159",
+  "master_commit": "6e005a800ab046e0060b8d5ae89771d8c99ab182",
+  "components": {
+    "recovery_original": "fd78cac5b83596c6fa2e9a38aa3f449d3b23db75",
+    "callback_repair": "8713c5fa10246ac74dbd043a435ceeacff7a8685",
+    "scoreboard_repair": "2a5d79043f5d7aaf6c5b4d579212d44bdb757707"
+  },
+  "world": "ite_hallways",
+  "world_sha256": "ba82cb4e01aba89c7d120054ca21c5cc47bb2ef0d80cb1d76d962787dc7f4a31",
+  "timeout_s": 300,
+  "batch_seed": 28,
+  "development_seeds": [
+    28000,
+    28001,
+    28002,
+    28003,
+    28004
+  ],
+  "held_out_seeds": [
+    29000,
+    29001,
+    29002,
+    29003,
+    29004
+  ],
+  "camera_enabled": false,
+  "vlm_mode": "off",
+  "heading_modes": [
+    "map_zero",
+    "toward_goal"
+  ],
+  "historical_results": {
+    "baseline": ".worktrees/noah-ite-hallways/src/go2_sim/results/ite_hallways/20261110-152833-246-baseline_five_seeds-batch",
+    "recovery_first_two": ".worktrees/noah-ite-jeth-recovery/src/go2_sim/results/ite_hallways/20261110-163137-772-jeth_recovery_five_seeds-batch",
+    "recovery_remaining": ".worktrees/noah-ite-jeth-recovery/src/go2_sim/results/ite_hallways/20261110-170610-967-jeth_recovery_remaining-batch",
+    "callback_sessions": [
+      "20261110-193928-352-goal_callback_seeds28000_28002-batch (first two only)",
+      "20261110-205533-234-goal_callback_seed28002_retry-batch",
+      "20261110-192312-727-goal_callback_seed28003-batch",
+      "20261110-200617-677-goal_callback_seed28004-batch"
+    ],
+    "scoreboard_validation": ".worktrees/noah-ite-scoreboard-check/src/go2_sim/results/ite_hallways/20261110-215445-496-scoreboard_distance_seed28003-batch"
+  },
+  "rules": [
+    "Source snapshots and original artifacts are immutable.",
+    "Zero-second infrastructure failures are retained separately and excluded from mapping means.",
+    "Never replace a valid low score.",
+    "A timeout is not mapping completion.",
+    "Per-attempt session manifests pin exact commit, image ID and world checksum."
+  ]
+}

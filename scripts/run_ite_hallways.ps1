@@ -9,6 +9,8 @@ param(
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_-]*$')]
     [string]$Variant = 'master_hallways',
     [string]$Image = 'go2scoreboard-unitree_ros:latest',
+    [ValidateSet('map_zero', 'toward_goal')]
+    [string]$GoalHeadingMode = 'map_zero',
     [switch]$RecordBag
 )
 
@@ -42,14 +44,17 @@ try {
         $command = @('ros2', 'run', 'go2_sim', 'trials', '--world', 'ite_hallways',
             '--runs', "$runCount", '--seed', "$Seed", '--timeout', "$runTimeout",
             '--stall-timeout', '180', '--startup-timeout', '180', '--variant', $Variant,
-            '--out', $containerOut)
+            '--out', $containerOut, '--explorer-param', "goal_heading_mode:=$GoalHeadingMode",
+            '--explorer-param', 'vlm_mode:=off')
         if ($StartIndex -gt 0) { $command += @('--start-index', "$StartIndex") }
         if (-not $RecordBag) { $command += '--no-scoreboard-bag' }
     }
     $metadata = [ordered]@{
-        mode = $Mode; variant = $Variant; seed = $Seed; start_index = $StartIndex; image = $Image
+        mode = $Mode; variant = $Variant; seed = $Seed; start_index = $StartIndex; image = $Image; goal_heading_mode = $GoalHeadingMode
         commit = (& git rev-parse HEAD); branch = (& git branch --show-current)
         changes = @(& git status --porcelain); command = $command
+        image_id = (& docker image inspect --format '{{.Id}}' $Image)
+        world_sha256 = (Get-FileHash 'src/go2_sim/worlds/ite_hallways.sdf' -Algorithm SHA256).Hash
         recorded_at = (Get-Date -Format o)
     }
     $metadata | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $sessionDir 'session.json') -Encoding UTF8

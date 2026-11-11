@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: e0ed4e45de67
+verified: 43c710dd81e3
 ---
 
 # Auto mapper
@@ -10,6 +10,18 @@ verified: e0ed4e45de67
 The auto mapper lets Oak map a room by itself: it keeps finding the edges of what it has already mapped and walks there to see more, until nothing is left to explore. **It moves the robot on its own, so only run it with a person watching Oak in a cleared area.**
 
 Part of: [Maps and navigation](maps-nav.md)
+
+## Goal-heading comparison
+
+`goal_heading_mode` defaults to `map_zero`, preserving the existing final
+map yaw of zero. Experimental `toward_goal` faces from Oak's current map pose
+toward the selected destination; coincident goals retain current yaw. Missing
+or invalid map poses defer submission without inventing a heading. Both
+exploration and escape goals use the selected policy. Logs record sequence,
+mode and yaw; obstacle rules and goal ownership are unchanged. This does not
+follow the planned path tangent around corners and is not a proven improvement.
+The shared experiment includes Jeth recovery, callback ownership and prepared
+scoreboard scoring; their independent PRs still require teammate approval.
 
 ## How it works
 
