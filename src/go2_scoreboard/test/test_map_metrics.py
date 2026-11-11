@@ -34,3 +34,42 @@ def test_completeness_ignores_larger_free_space_outside_building():
 
     assert score_completeness(
         truth, slam, (0.0, 0.0, 0.0), wall_margin=0.0) == 50.0
+
+
+def test_prepared_scorer_reuses_truth_but_samples_changed_slam_geometry(monkeypatch):
+    from go2_scoreboard import map_metrics
+
+    truth = Grid(np.zeros((2, 2), dtype=np.int16), 1.0, 0.0, 0.0)
+    scorer = map_metrics.CompletenessScorer(truth, (0.0, 0.0, 0.0), wall_margin=0)
+
+    def unexpected_rebuild(_grid):
+        raise AssertionError('fixed answer key was rebuilt during a map callback')
+
+    monkeypatch.setattr(map_metrics, '_interior_mask', unexpected_rebuild)
+    maps = [
+        (Grid(np.zeros((2, 2), dtype=np.int16), 1.0, 0.0, 0.0), 100.0),
+        (Grid(np.array([[0, -1], [0, -1]]), 1.0, 0.0, 0.0), 50.0),
+        (Grid(np.zeros((2, 1), dtype=np.int16), 1.0, 1.0, 0.0), 50.0),
+        (Grid(np.zeros((4, 4), dtype=np.int16), 0.5, 0.0, 0.0), 100.0),
+        (Grid(np.zeros((2, 2), dtype=np.int16), 1.0, 10.0, 0.0), 0.0),
+    ]
+    for slam, expected in maps:
+        assert scorer.score(slam) == expected
+
+
+def test_prepared_scorer_rotates_translates_and_excludes_unknown():
+    import math
+    from go2_scoreboard.map_metrics import CompletenessScorer
+
+    truth = Grid(np.zeros((2, 2), dtype=np.int16), 1.0, 2.0, 3.0)
+    scorer = CompletenessScorer(truth, (2.0, 3.0, math.pi / 2), wall_margin=0)
+    slam = Grid(np.array([[-1, -1], [0, -1]]), 1.0, 0.0, -2.0)
+    assert scorer.score(slam) == 25.0
+
+
+def test_prepared_scorer_empty_answer_key_stays_zero():
+    from go2_scoreboard.map_metrics import CompletenessScorer
+
+    truth = Grid(np.full((2, 2), 100), 1.0, 0.0, 0.0)
+    scorer = CompletenessScorer(truth, (0.0, 0.0, 0.0))
+    assert scorer.score(truth) == 0.0

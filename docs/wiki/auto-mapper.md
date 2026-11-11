@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: e0ed4e45de67
+verified: bff808272632
 ---
 
 # Auto mapper
@@ -10,6 +10,17 @@ verified: e0ed4e45de67
 The auto mapper lets Oak map a room by itself: it keeps finding the edges of what it has already mapped and walks there to see more, until nothing is left to explore. **It moves the robot on its own, so only run it with a person watching Oak in a cleared area.**
 
 Part of: [Maps and navigation](maps-nav.md)
+
+## Recovery candidate under review
+
+Jeth's recovery change (original commit fd78cac) is being reviewed separately
+from the Header repair. It adds backward diagonal moves and a bounded Nav2
+turn toward open scan space, and reduces false cancellation during turns.
+Some close-wall moves use a non-worsening clearance test rather than the old
+conservative envelope. Five matched hallway starts averaged 52.6% coverage
+versus 39.9% without this change, with zero collisions but no completed maps.
+This is simulation evidence, not physical Oak validation. Keep the callback
+ownership and scoring repairs separate when reviewing this recovery change.
 
 ## How it works
 

@@ -22,21 +22,23 @@ from sensor_msgs.msg import Image, LaserScan, PointCloud2
 from std_msgs.msg import String
 from go2_interfaces.msg import AutoMapperEvent
 from go2_auto_mapper.recovery import (
-    DRIFT_ACROSS_M,
-    DRIFT_YAW_RAD,
     RECOVERY_SPEED_MPS,
     RECOVERY_TIME_LIMIT_SEC,
     REFRESH_TIMEOUT_SEC,
+    ROBOT_FRONT_M,
     SCAN_MAX_AGE_SEC,
     SENSING_MAX_AGE_SEC,
     SLAM_MIN_TRAVEL_M,
     assess_recovery,
+    choose_turn,
+    drift_limits,
     latch_decision,
     refresh_status,
     scan_age,
     scan_covers_move,
     stale_sources,
     swept_clear,
+    translation_open,
 )
 
 from builtin_interfaces.msg import Duration
@@ -378,6 +380,16 @@ class FrontierExplorer(Node):
         self.blocked_since = None
         self.blocked_heading = None
         self.blocked_time = None
+        # Pose on the previous watch_ahead tick (frame, x, y, yaw, monotonic),
+        # to tell driving forward from turning in place.
+        self.last_watch_pose = None
+
+        # Turning in place when no translation is safe (see
+        # _try_recovery_turn): when the last one started, its angle, and the
+        # direction (1 left, -1 right) of one Nav2 aborted, tried last.
+        self.last_recovery_turn_time = None
+        self.recovery_turn_angle = 0.0
+        self.failed_turn_sign = 0
 
         # Getting unstuck (see request_escape / start_escape).
         self.consecutive_failures = 0
@@ -1540,11 +1552,13 @@ class FrontierExplorer(Node):
         distance = min(max(float(self.backup_distance), 0.05), 0.5)
         move = None
         if gap is not None:
-            move, _reason = assess_recovery(
+            move, _reason, leaving = assess_recovery(
                 *view[:4], distance, scan, age, SCAN_MAX_AGE_SEC
             )
         decision = latch_decision(gap is not None, move)
         if decision == 'hold':
+            if self._try_recovery_turn(scan):
+                return
             self.get_logger().info(
                 'Still stopped: no safe direction on the latest scan.',
                 throttle_duration_sec=10.0,
@@ -1560,15 +1574,18 @@ class FrontierExplorer(Node):
             return
         grid, x, y, yaw, _ = view
         self.recovery_move = (
-            x, y, yaw, move, grid.header.frame_id, time.monotonic()
+            x, y, yaw, move, grid.header.frame_id, time.monotonic(), leaving
         )
+        kind = 'leaving' if leaving else 'recovery'
         self.emit_event(
             'recovery_started',
-            f'latched recovery translation x={move[0]:.2f}, y={move[1]:.2f}',
+            f'latched {kind} translation x={move[0]:.2f}, y={move[1]:.2f}',
         )
         self.get_logger().info(
-            f'Fresh scan opened a way out: x={move[0]:.2f}, y={move[1]:.2f} m '
-            f'(was: {reason}).'
+            f'Fresh scan opened a way out: x={move[0]:.2f}, y={move[1]:.2f} m'
+            + (', moving away from a wall close beside the body'
+               if leaving else '')
+            + f' (was: {reason}).'
         )
 
     def _scan_age(self):
@@ -1663,22 +1680,86 @@ class FrontierExplorer(Node):
             )
             return
         distance = min(max(float(self.backup_distance), 0.05), 0.5)
-        move, reason = assess_recovery(
+        move, reason, leaving = assess_recovery(
             *view[:4], distance, scan, self._scan_age(), SCAN_MAX_AGE_SEC
         )
         if move is None:
+            if self._try_recovery_turn(scan):
+                return
             self._stop_for(reason)
             return
         grid, x, y, yaw, _ = view
-        self.recovery_move = (x, y, yaw, move, grid.header.frame_id, time.monotonic())
+        self.recovery_move = (
+            x, y, yaw, move, grid.header.frame_id, time.monotonic(), leaving
+        )
+        kind = 'leaving' if leaving else 'recovery'
         self.emit_event(
             'recovery_started',
-            f'recovery translation x={move[0]:.2f}, y={move[1]:.2f}',
+            f'{kind} translation x={move[0]:.2f}, y={move[1]:.2f}',
         )
         self.get_logger().info(
-            f'Recovery translation: x={move[0]:.2f}, y={move[1]:.2f} m.'
+            f'Recovery translation: x={move[0]:.2f}, y={move[1]:.2f} m'
+            + (', moving away from a wall close beside the body.'
+               if leaving else '.')
         )
         self.log_event(f'recovery move x={move[0]:.2f} y={move[1]:.2f}')
+
+    def _try_recovery_turn(self, scan):
+        """No translation is safe: turn in place toward the most open heading
+        on the scan with Nav2's Spin, which checks the footprint against the
+        local costmap while turning. True when the turn was sent.
+
+        Clears any latched stop first: the zero twist it publishes on the
+        mapper's mux input (priority 6) would override Spin on Nav2's
+        (priority 5). Not tried on a stale scan, and not again within
+        RECOVERY_TURN_RETRY_SEC, so a turn that doesn't help can't make Oak
+        swing back and forth.
+        """
+
+        now = time.monotonic()
+        if (
+            self.last_recovery_turn_time is not None
+            and now - self.last_recovery_turn_time < RECOVERY_TURN_RETRY_SEC
+        ):
+            return False
+        age = self._scan_age()
+        if (
+            scan is None or age is None or age > SCAN_MAX_AGE_SEC
+            or scan.header.frame_id != self.robot_frame
+        ):
+            return False
+        min_range = (
+            ROBOT_FRONT_M + self.obstacle_stop_distance + RECOVERY_TURN_ROOM_M
+        )
+        angle = choose_turn(scan, min_range, self.failed_turn_sign)
+        if angle is None and self.failed_turn_sign:
+            angle = choose_turn(scan, min_range)
+        if angle is None:
+            return False
+
+        goal = Spin.Goal()
+        goal.target_yaw = float(angle)
+        goal.time_allowance = Duration(sec=int(RECOVERY_TURN_TIME_SEC))
+        if not self.start_maneuver(
+            self.spin_client, goal, RECOVERY_TURN_NAME, RECOVERY_TURN_TIME_SEC
+        ):
+            return False
+
+        self.last_recovery_turn_time = now
+        self.recovery_turn_angle = angle
+        reason = self.recovery_fault
+        self.recovery_fault = None
+        self.fault_refresh = None
+        self.recovery_move = None
+        self.emit_event(
+            'recovery_started', f'recovery turn {math.degrees(angle):.0f} deg'
+        )
+        self.get_logger().info(
+            f'No safe translation; turning {math.degrees(angle):.0f} deg '
+            'in place toward open space'
+            + (f' (was: {reason}).' if reason else '.')
+        )
+        return True
 
     def _recovery_progress(self, pose, x, y, yaw, move, distance):
         """Distance along the commanded translation, and the cross-track error."""
@@ -1693,14 +1774,16 @@ class FrontierExplorer(Node):
         return along, across
 
     def _recovery_block_reason(self, pose, view, started, progress, distance,
-                               across, move, start_pose):
-        """Why the translation must stop, or None while it may continue."""
+                               across, move, start_pose, leaving=False):
+        """Why the translation must stop, or None while it may continue.
+        A leaving move keeps ignoring the walls it leaves behind, and must
+        stay within the tighter drift limits that makes safe."""
 
         if pose is None or view is None:
             return 'odometry transform or costmap went stale during the move'
         if time.monotonic() - started > RECOVERY_TIME_LIMIT_SEC:
             return f'time limit of {RECOVERY_TIME_LIMIT_SEC:.0f} s reached'
-        if across > DRIFT_ACROSS_M:
+        if across > drift_limits(leaving)[1]:
             return 'pose drifted off the commanded translation'
         if progress >= distance:
             return None
@@ -1716,8 +1799,9 @@ class FrontierExplorer(Node):
         # here, with the full drift allowance again (stricter).
         scale = max(0.10, distance - progress) / distance
         step = (move[0] * scale, move[1] * scale)
-        if not scan_covers_move(scan, *step) or not swept_clear(
-            view[0], *start_pose, *move, start=max(0.0, progress)
+        if not scan_covers_move(scan, *step, leaving=leaving) or not swept_clear(
+            view[0], *start_pose, *move, start=max(0.0, progress),
+            leaving=leaving,
         ):
             return 'clearance lost: obstacle or unknown coverage in the move'
         return None
@@ -1742,21 +1826,23 @@ class FrontierExplorer(Node):
         )
 
     def tick_recovery(self):
-        x, y, yaw, move, frame, started = self.recovery_move
+        x, y, yaw, move, frame, started, leaving = self.recovery_move
+        max_yaw, max_across = drift_limits(leaving)
         pose = self.get_robot_pose(frame)
         view = self.local_view()
         distance = math.hypot(*move)
         progress, across = self._recovery_progress(pose, x, y, yaw, move, distance)
         yaw_drift = (
-            pose is not None and angle_difference(pose[2], yaw) > DRIFT_YAW_RAD
+            pose is not None and angle_difference(pose[2], yaw) > max_yaw
         )
         if yaw_drift:
-            across = max(across, DRIFT_ACROSS_M + 0.01)
-        if pose is not None and progress >= distance and across <= DRIFT_ACROSS_M:
+            across = max(across, max_across + 0.01)
+        if pose is not None and progress >= distance and across <= max_across:
             self._finish_recovery(progress)
             return
         reason = self._recovery_block_reason(
-            pose, view, started, progress, distance, across, move, (x, y, yaw)
+            pose, view, started, progress, distance, across, move, (x, y, yaw),
+            leaving,
         )
         if reason is not None:
             self.recovery_move = None
@@ -1880,6 +1966,27 @@ class FrontierExplorer(Node):
 
         if self.maneuver_name == 'Scan' and status != 4:
             self._stop_for(f'scan maneuver ended with status {status}')
+        if self.maneuver_name == RECOVERY_TURN_NAME:
+            if status == 4:
+                self.failed_turn_sign = 0
+                self.emit_event(
+                    'recovery_finished',
+                    f'turned {math.degrees(self.recovery_turn_angle):.0f} deg',
+                )
+                # Like a translation: the next goal waits for fresh sensing.
+                # A turn alone doesn't make slam_toolbox publish a new /map.
+                self.refresh_after = (
+                    self.get_clock().now().nanoseconds * 1e-9,
+                    time.monotonic(),
+                    False,
+                )
+            else:
+                # Nav2 saw a collision ahead (or gave up): next time, try
+                # the other way first.
+                self.failed_turn_sign = (
+                    1 if self.recovery_turn_angle > 0 else -1
+                )
+                self._stop_for(f'recovery turn ended with status {status}')
         if status == 4:
             self.get_logger().info(f'{self.maneuver_name} complete.')
         elif not self.recovery_fault:
@@ -2034,6 +2141,7 @@ class FrontierExplorer(Node):
             if view is None:
                 return
             grid, x, y, yaw, _ = view
+            forward = self._forward_speed(grid.header.frame_id, x, y, yaw)
 
             gap = free_distance_ahead(
                 grid, x, y, yaw, self.obstacle_stop_distance
@@ -2048,6 +2156,23 @@ class FrontierExplorer(Node):
 
             if self.current_goal_handle is None:
                 return  # goal not accepted yet; nothing to cancel
+
+            distance = min(max(float(self.backup_distance), 0.05), 0.5)
+            if (
+                forward is not None and forward < FORWARD_MOTION_MPS
+                and translation_open(grid, x, y, yaw, distance)
+            ):
+                # Turning in place (or standing still): the nose swinging
+                # past a wall isn't a drive into it, and Nav2's controller
+                # checks the footprint for that turn itself. Abandoning the
+                # goal here left Oak crosswise in narrow passages, with no
+                # safe way back or sideways (found in go2_sim). But only
+                # while a recovery translation is still open: Nav2 checks
+                # the bare footprint, no margin, so it would turn Oak right
+                # up against the wall, where no turn, back-up or side step
+                # is allowed any more (found in go2_sim).
+                self.blocked_since = None
+                return
 
             now = time.monotonic()
             if self.blocked_since is None:
@@ -2117,6 +2242,24 @@ class FrontierExplorer(Node):
             return False
         self._hold_stop()
         return True
+
+    def _forward_speed(self, frame, x, y, yaw):
+        """Speed toward the nose since the previous watch_ahead tick, in m/s,
+        or None when that can't be told (first tick, frame change, or a gap
+        of ticks). None keeps the old behavior: an obstacle ahead counts."""
+
+        now = time.monotonic()
+        last = self.last_watch_pose
+        self.last_watch_pose = (frame, x, y, yaw, now)
+        if last is None or last[0] != frame:
+            return None
+        dt = now - last[4]
+        if dt <= 0.0 or dt > 3.0 * WATCH_PERIOD_SEC:
+            return None
+        return (
+            (x - last[1]) * math.cos(last[3])
+            + (y - last[2]) * math.sin(last[3])
+        ) / dt
 
     def back_away_while_idle(self, gap):
         """Something is right in front and the robot isn't driving anywhere:
@@ -2559,6 +2702,19 @@ BACKUP_TIME_ALLOWANCE_SEC = 10.0
 # Least time between automatic back-ups when idle, so a robot boxed in front
 # and behind doesn't retry (and get refused by Nav2) every quarter second.
 BACKUP_RETRY_SEC = 5.0
+
+# Turning in place when no translation is safe (_try_recovery_turn): the
+# maneuver's name, Nav2's time limit for it, the least time between two
+# such turns, and how much room past the stop distance the new heading must
+# have on the scan, so the turn doesn't end facing another close wall.
+RECOVERY_TURN_NAME = 'Recovery turn'
+RECOVERY_TURN_TIME_SEC = 15.0
+RECOVERY_TURN_RETRY_SEC = 10.0
+RECOVERY_TURN_ROOM_M = 0.2
+
+# Slower than this toward the nose counts as not driving forward: an
+# obstacle ahead then doesn't abandon the goal (see watch_ahead).
+FORWARD_MOTION_MPS = 0.03
 
 # Getting unstuck: how far from the robot to look for open space, the least
 # it must move to count, and the pause between escapes so a failed escape
