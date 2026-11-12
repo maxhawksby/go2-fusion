@@ -1,18 +1,27 @@
 # go2_llm_agent
 
-Turns a typed or spoken plain-English command ("walk forward then sit") into robot actions with an LLM. On master this is Riley Francis's GPT-4o-mini version, whose pip deps are not in the Docker image, so it builds but does not run; the team is moving it to a local Ollama model on `adib/feat/llm-agent`.
+Typed commands through a fast local parser or Ollama/Qwen, without a paid API key
+or extra Python libraries. Simulation is the default; speech input and output are outside this feature.
 
-## Run
+## Build and run
 
-Inside the container, with `OPENAI_API_KEY` set and `ROBOT_ENV=testing` (mock, the default) or `live`; never commit the key:
+Inside Docker, after following the [LLM agent setup](../../docs/wiki/llm-agent.md):
 
 ```bash
-ros2 run go2_llm_agent agent            # interactive text prompt
-ros2 run go2_llm_agent speech_bridge    # HTTP bridge on port 8000
-curl -X POST http://localhost:8000/command -H "Content-Type: application/json" \
-  -d '{"text":"walk forward for one second"}'
+cbs go2_llm_agent
+ros2 run go2_llm_agent agent --check
+ros2 run go2_llm_agent agent
+ros2 run go2_llm_agent agent --plan-only --command "walk forward for 3 seconds then turn left"
 ```
 
-For voice, run [host_tools/speech_to_text](../../host_tools/speech_to_text/README.md) on the host.
+Live publishing requires `--mode ros` and a separately running driver and twist_mux.
 
-Full explanation: [LLM agent wiki page](../../docs/wiki/llm-agent.md)
+## Test
+
+Inside Docker (no robot or model needed):
+
+```bash
+python3 -m unittest discover -s /ros2_ws/src/go2_llm_agent/test -p test_agent.py -v
+```
+
+Full explanation: [LLM agent wiki page](../../docs/wiki/llm-agent.md).
