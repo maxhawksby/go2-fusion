@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: bff808272632
+verified: 050d56c8071c
 ---
 
 # Auto mapper
@@ -11,16 +11,16 @@ The auto mapper lets Oak map a room by itself: it keeps finding the edges of wha
 
 Part of: [Maps and navigation](maps-nav.md)
 
-## Recovery candidate under review
+## Recovery changes
 
-Jeth's recovery change (original commit fd78cac) is being reviewed separately
-from the Header repair. It adds backward diagonal moves and a bounded Nav2
+Jeth's recovery change (original commit fd78cac) was merged through PR #65
+separately from the Header repair. It adds backward diagonal moves and a bounded Nav2
 turn toward open scan space, and reduces false cancellation during turns.
 Some close-wall moves use a non-worsening clearance test rather than the old
 conservative envelope. Five matched hallway starts averaged 52.6% coverage
 versus 39.9% without this change, with zero collisions but no completed maps.
 This is simulation evidence, not physical Oak validation. Keep the callback
-ownership and scoring repairs separate when reviewing this recovery change.
+ownership and scoring repairs separate when comparing behavior.
 
 ## How it works
 
@@ -31,11 +31,11 @@ ownership and scoring repairs separate when reviewing this recovery change.
 1. **Look around first.** At start and after each goal, Oak turns a full circle using Nav2's Spin behavior, so the lidar sees everything around it and SLAM can place it on the map.
 2. **Find frontiers.** It scans `/map` for frontier squares and groups neighbours into regions; regions under 5 squares are treated as noise. Since 2026-10-17 this is one fast numpy pass: about 4.4 ms instead of 0.5 s on a 40 x 40 m map.
 3. **Pick a goal.** For each region it picks spots 0.8 m back into known space and at least 0.5 m from walls. It skips directions it was just blocked in, spots closer than 1.5 m, and spots without a clear straight line. Of the rest, it picks the one that would reveal the most: it casts 48 imaginary rays from each spot out to 4 m and counts unknown squares they would uncover, minus a cost per meter of walking.
-   **Optionally, ask a vision-language model (VLM).** With `vlm_mode` on, the best 4 spots are also shown to a VLM (Qwen2.5-VL) running on a cloud GPU: one camera picture toward each, taken during the last 360 degree turn. It is also told what the map says about each spot (how far, how many unknown squares). It scores each from 0 to 1 for "will walking this way show a lot of new space" (a doorway or hallway scores high, a wall or dead end low), and that score is added to the reveal score. The VLM only reorders spots the map already found safe; lidar and Nav2 still decide where Oak can walk. See [Using the VLM](#using-the-vlm). In `active` mode with the panel's VLM view on, the VLM's suggested move also counts (it is told the lidar's distance each way when it suggests one): goals within 45 degrees of that direction are worth 300 more unknown squares (`vlm_suggest_weight`), unless the lidar sees something closer than 0.8 m that way or the suggestion is over 15 s old. A suggestion only picks among goals the map already found safe, and Nav2 still drives. "Stop" is not obeyed: it changes nothing.
+   **Optionally, ask a vision-language model (VLM).** With `vlm_mode` on, the best 4 spots are also shown to a VLM (Qwen2.5-VL) running on a cloud GPU, plus the best spot on the longest unexplored edge when none of those 4 is on it (the reveal score alone tends to rank a long edge a little farther away below short near ones): one camera picture toward each, taken during the last 360 degree turn. It is also told what the map says about each spot (how far, how many unknown squares, how long its unexplored edge is, roughly from its square count, and which one is the longest edge Oak can head for now). It scores each from 0 to 1 for "will walking this way show a lot of new space" (a doorway or hallway scores high, a wall or dead end low), and that score is added to the reveal score. The VLM only reorders spots the map already found safe; lidar and Nav2 still decide where Oak can walk. See [Using the VLM](#using-the-vlm). In `active` mode with the panel's VLM view on, the VLM's suggested move also counts (it is told the lidar's distance each way when it suggests one): goals within 45 degrees of that direction are worth 300 more unknown squares (`vlm_suggest_weight`), unless the lidar sees something closer than 0.8 m that way or the suggestion is over 15 s old. A suggestion only picks among goals the map already found safe, and Nav2 still drives. "Stop" is not obeyed: it changes nothing.
 4. **Go.** It sends the goal to [Nav2](nav2.md) on `/navigate_to_pose`, exactly like clicking "Nav2 Goal" in RViz, so Nav2's obstacle avoidance still applies.
 5. **Learn from it.** If a visit did not shrink the frontier (the opening can't be seen into), that frontier is skipped for 2 minutes. Failed goals are also skipped for 2 minutes.
-6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap, then slides 0.05 to 0.5 m at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If nothing is safe, it stays stopped and logs why.
-7. **Head for open space.** After 3 failed goals in a row (or similar signs of being stuck), it drives to the nearest spot with 0.8 m of room on every side, scans, and carries on.
+6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap. It tries the configured distance first, then bounded 0.15 m and 0.08 m fallbacks when the longer move cannot fit, sliding at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If nothing is safe, it stays stopped and logs why.
+7. **Head for open space.** After 3 failed goals in a row (or similar signs of being stuck), it first goes back to the closest spot (by walking distance on the map, up to 8 m) where it finished a 360 degree scan with at least 0.8 m of room on the lidar, if the map still shows that spot open. If there is none, or Nav2 can't get there, it drives to the nearest spot with 0.8 m of room on every side instead. Either way it scans there and carries on.
 8. **Let people pass.** While walking to a goal, if a person, where they are about to step, or a group is within 1.5 m straight ahead, Oak stands still (zero speed on `/cmd_vel_mapper`) for up to 6 s, then carries on and lets Nav2 steer around them. It waits again only after the way has been clear once, so someone standing in a hallway can't stop exploring.
 9. **Finish.** With no frontiers left it logs "Exploration complete" and waits, in case a door opens.
 
@@ -51,11 +51,20 @@ frontier, change a threshold or send motion.
 
 ### The finer details
 
+- **Replies belong to their own goal.** Each navigation submission and result
+  callback keeps the sequence number of the goal that created it. A late reply
+  from a timed-out or replaced goal cannot clear the new handle, blacklist the
+  new destination or count as its failure. A late accepted old submission goes
+  through the existing orphan-action cancellation/stop path until its end is
+  confirmed. This corrects action bookkeeping; it does not make unknown space
+  traversable or establish a complete map. See the
+  [callback investigation](navigation-goal-callback-investigation.md).
+
 - **Before SLAM is ready.** Until SLAM publishes the `map` frame, the explorer logs "Waiting for robot position" and does nothing else.
 - **Goal spots.** Each region offers its middle plus one spot about every meter along long regions. The "clear straight line" check uses Nav2's local costmap (`/local_costmap/costmap`). The reveal score subtracts `info_gain_cells_per_meter` (100) unknown squares per meter of travel; the logic lives in `frontier_scoring.py`.
 - **Unstuck moves, exactly.** It checks the whole padded body (0.36 m forward, 0.45 m back, 0.40 m wide, plus a 5 cm margin) everywhere it could be during the move: anywhere along the way, up to 0.05 m off the line and turned up to 0.10 rad (about 6 degrees), which are the limits that abort the move. They were 0.10 m and 0.15 rad; at those, the bigger envelope touched walls 0.17 m away and Oak never made a recovery move in the simulator. Only walls themselves (lethal costmap cells) block it, not their inflation. The one exception is the obstacle that stopped Oak: while backing straight away from it, anything past the nose is ignored. Unknown cells, a scan older than 0.75 s, and missing or infinite rays toward the space the move enters all count as unsafe. It picks the safe corridor with the most extra clearance, moves for at most 8 seconds, and rechecks 4 times a second. `/scan` must be in the `base_link` frame. If no direction is safe, the robot drifts, or clearance disappears, it stays stopped (a "latch"). A later fresh scan clears the latch when the way ahead is open, or starts another short move when a rear or side corridor has opened; **Scan** clears it at once.
 - **After a move** it stays stopped until a newer `/scan`, live `/point_cloud2`, local costmap and map/odom transforms arrive. A new SLAM `/map` is needed only when the move was at least 0.2 m (slam_toolbox's minimum travel). Obstacles that moved away are cleared by Nav2's costmap voxel layer tracing `/scan` (`clearing: true` in `nav2_params.yaml`); unknown local costmap cells stay unknown, so recovery never treats them as free. The scan's height filter also limits which obstacles recovery can see.
-- **Stuck** means 3 failed goals in a row (`stuck_failure_count`), an obstacle-ahead abort, or "No usable goal" twice running. The open-space search goes through free space up to 4 m away (so never through walls). A failed escape does not trigger another one, escapes are at least 30 s apart, and escape goals always trigger a scan, even with `scan_after_goal` off. A failed scan also leaves exploration stopped.
+- **Stuck** means 3 failed goals in a row (`stuck_failure_count`), an obstacle-ahead abort, or "No usable goal" twice running. The open-space search goes through free space up to 4 m away (so never through walls). A spot is only remembered after a full turn with a fresh scan that sees all around. Remembered spots (the last 10) are compared by the walk to them through known-free squares, so one just behind a wall isn't counted as close, and are checked against the current map before use, so one an obstacle has since appeared at is skipped. If Nav2 fails or times out on the way to a remembered spot, that spot is forgotten and the nearest open space is tried right away, the one exception to the 30 s gap below. If something comes within 0.3 m of the nose on the way to either kind of open spot, the trip only counts as interrupted: Oak backs up, the spot is not blacklisted, and a remembered spot is forgotten only after the second such interruption. Otherwise a failed escape does not trigger another one, escapes are at least 30 s apart, and escape goals always trigger a scan, even with `scan_after_goal` off. A failed scan also leaves exploration stopped.
 - **Stopping.** Ctrl+C (or `docker stop`, which sends SIGTERM) first stops the explorer's own timers, so nothing new starts moving Oak, and refuses new Scan requests. It sends a zero speed on `/cmd_vel_mapper` and cancels the goal Oak is walking to first, then any Spin or back-up still running, waiting up to 2 s for each cancel to reach Nav2, so Oak does not keep walking toward a goal nobody tracks. A goal Nav2 has not answered yet has nothing to cancel, so it waits up to 2 s for the answer; if Nav2 never answers, it cancels every goal on that action, other programs' too, because stopping the robot is the safe side. Publishing an empty Twist on `/cmd_vel_joy` works as an emergency stop because twist_mux gives it the highest priority (10), overriding Nav2.
 
 ### Settings
@@ -74,9 +83,11 @@ frontier, change a threshold or send motion.
 | `info_gain_cells_per_meter` | `100.0` | Unknown cells a meter of travel must be worth (400 cells = 1 square meter at 5 cm) |
 | `obstacle_stop_distance` | `0.3` | Gap (meters) in front of the nose that counts as blocked |
 | `blocked_timeout` | `0.0` | Seconds an obstacle must stay ahead before a goal is given up (0 = at once) |
-| `backup_distance` | `0.3` | How far (meters) the unstuck move goes, clamped to 0.05-0.5 m |
+| `backup_distance` | `0.3` | Preferred unstuck distance in meters, clamped to 0.05-0.5 m; shorter 0.15 m and 0.08 m moves are tried only when needed |
 | `open_space_clearance` | `0.8` | Room (meters) on every side that counts as open space when stuck |
 | `stuck_failure_count` | `3` | Failed goals in a row that count as stuck |
+| `use_spot_memory` | `true` | When stuck, try the closest remembered open spot it scanned from before the nearest open space |
+| `spot_memory_size` | `10` | How many scanned open spots to remember |
 | `scan_on_start` | `true` | Turn a full circle before exploring |
 | `scan_after_goal` | `true` | Turn a full circle after each goal it reaches |
 | `scan_yaw` | `6.283` (2 pi) | How far to turn per scan, in radians |
@@ -88,14 +99,23 @@ frontier, change a threshold or send motion.
 | `vlm_timeout` | `8.0` | Seconds to wait for the VLM before going with the map score alone |
 | `nav_log_dir` | empty | Folder for the navigation log; empty is off |
 | `vlm_candidates` | `4` | How many of the best spots to show the VLM |
+| `vlm_include_longest` | `true` | Also show the VLM the best spot on the longest unexplored edge when the best spots miss it |
 
 ### The navigation log
 
 Set `NAV_LOG_DIR` in the container's environment (or the `nav_log_dir` parameter) and the explorer keeps a diary in that folder: `goals.jsonl` has one line per goal, with where Oak was, the goal, how it ended (`reached`, `failed` or `paused`), how many new map squares it led to (`revealed_cells`), and any recovery moves or stuck moments. With the VLM on, it also saves the camera picture toward the goal. Off by default. It is there for reading a run afterwards, and as training data if the VLM is ever fine-tuned: a picture labeled by what walking that way really showed. Each goal is written when the next one is sent, and the last one when the explorer stops.
 
+With the VLM on (`shadow` or `active`), it also writes `decisions.jsonl`: one line per VLM ranking, with every candidate goal, the map score's pick, the VLM's pick, and the map at that moment saved beside it (`map_0001.npz` and so on). In `shadow` mode the VLM's pick is never driven to, so this is the only trace of what it would have done; the [Simulator](simulator.md#score-vlm-decisions) can score each pick against the true map.
+
 ### SocialNav paths (watch only)
 
 `ros2 run go2_auto_mapper socialnav_view` asks the [SocialNav](https://github.com/AMAP-EAI/SocialNav) model (CVPR 2026, Apache-2.0), served by `host_tools/socialnav/server.py` on a GPU server, which way to walk. Every 3 s it sends the last 5 camera pictures (1 s apart), where Oak was for each, and the goal: the explorer's current goal (`/frontier_explorer/goal`), or a point 3 m ahead (`goal_ahead_m`, `goal_left_m`) if the explorer is off. It publishes the 5 waypoints it gets back as `/socialnav/path` (add a Path display in RViz) and a line on `/socialnav/status` saying how many have room by the lidar. **It never drives Oak.** It needs `SOCIALNAV_URL` (default `http://localhost:8100/waypoints`). How well it works on Oak is unknown: the model's training prompt is private, `step_scale` is a guess (at least 0.3 m), and in a first test on fake pictures the goal barely changed its path.
+
+### SocialNav steps (`socialnav_mode:=active`)
+
+Off by default. When on, the explorer still picks **where** to go (a frontier on the lidar map), and SocialNav plans **how**: the explorer keeps the last 5 camera pictures with Oak's position (1 s apart), asks the SocialNav server for 5 waypoints toward the goal, and walks them itself instead of handing the goal to Nav2. Before each step it checks that the lidar sees room out to the waypoint (plus 0.3 m), that the padded body fits the costmap and the live scan along the way (the same check as the unstuck moves), and that Nav2's planner finds a path there (/compute_path_to_pose, which plans without driving). Then it slides straight there, sideways if needed and without turning, at most 0.5 m per step at `socialnav_speed` (0.10 m/s) on `/cmd_vel_mapper`, rechecking 4 times a second. After the 5 waypoints it asks again; within 0.5 m of the goal counts as reached (a scan follows, as after a Nav2 goal).
+
+**The lidar wins.** A step that fails any check, or a slide whose clearance disappears, drops the goal (blacklisted like a failed Nav2 goal), Oak backs up with an unstuck move, and the explorer picks another goal. Three answers in a row with nowhere to move also drop it. **If SocialNav doesn't answer for 30 s, Oak holds still** and keeps asking, and carries on by itself once it answers. It needs `SOCIALNAV_URL` (or `socialnav_url`) and the camera. Expect slower exploring than with Nav2 (0.10 m/s against up to 0.5 m/s); escapes to open space still use Nav2. TODO(Luis): how it compares in the simulator and on Oak.
 
 ### Using the VLM
 
@@ -103,7 +123,7 @@ The model needs an NVIDIA GPU, so it runs on a GPU server, not the laptop. **Cam
 
 1. **On the GPU server** (over SSH), start an OpenAI-style server. With vLLM: `vllm serve Qwen/Qwen2.5-VL-7B-Instruct --port 8000`. With Ollama: `ollama pull qwen2.5vl:7b`, then use port 11434 and `vlm_model:=qwen2.5vl:7b`. TODO(Luis): which server and model fit the cloud GPU's memory.
 2. **On the laptop**, open the tunnel and leave it running: `ssh -N -L 8000:localhost:8000 <user>@<gpu-server>`. Now `localhost:8000` on the laptop is the server.
-3. **Start the explorer in shadow mode first**, so Oak behaves exactly as before while you read what the VLM would have done:
+3. **Start the explorer in shadow mode first**: it keeps the map's ranking while you read what the VLM would have done. It pauses up to `vlm_timeout` at each goal choice to hear the answer, the same pause as `active` mode, so a run can still turn out a little differently from one with the VLM off:
    ```shell
    docker compose exec unitree_ros bash -ic 'ros2 run go2_auto_mapper explorer --ros-args -p vlm_mode:=shadow'
    ```
@@ -131,11 +151,11 @@ From the package README and Luis's commits (Oct 14-19):
 - **"No usable goal".** Press Scan: it re-looks and retries recently failed spots.
 - **Nibbling the nearest edge.** Ranking goals by distance made it creep along the closest frontier; replaced by "most revealed per meter" on 2026-10-16.
 - **Two motions at once.** Codex reviews on 2026-10-17 found cases where a late Nav2 reply or a recovery move could override a stop; each maneuver is now tracked until Nav2 confirms it ended, and a latched stop always wins.
-- **Latched stopped next to the first close wall.** The unstuck check used to look at Oak's whole padded body, including the nose. Once something was within about 0.25 m of the nose, its inflated cost already covered the body, so backing away and both side moves all looked blocked, and Oak waited forever ("no safe direction: rear and both sides lack clearance"). It also refused moves through Nav2's inscribed band (cells where the robot's *centre* would touch) on top of the padded body, which doubled the body's width, so backing out along a wall 0.2 m away looked blocked too. And it never accepted backing up at all: straight behind Oak is the scan's last-plus-one ray, which it read as "no measurement". Found in the [Simulator](simulator.md). Now the whole body is checked through the allowed drift against walls themselves (lethal cells), only the obstacle Oak backs away from is ignored, and the scan wraps around. A first version checked only the half of the body facing the move, which a review caught: a wall beside the front half could be hit if Oak turned while backing up. These fixes reached master in pull request #41 (2026-11-05). In the simulator Oak can still latch stopped beside a 1.2 m doorway (see [Simulator](simulator.md)). Not yet confirmed on Oak.
+- **Latched stopped next to the first close wall.** The unstuck check used to look at Oak's whole padded body, including the nose. Once something was within about 0.25 m of the nose, its inflated cost already covered the body, so backing away and both side moves all looked blocked, and Oak waited forever ("no safe direction: rear and both sides lack clearance"). It also refused moves through Nav2's inscribed band (cells where the robot's *centre* would touch) on top of the padded body, which doubled the body's width, so backing out along a wall 0.2 m away looked blocked too. And it never accepted backing up at all: straight behind Oak is the scan's last-plus-one ray, which it read as "no measurement". Found in the [Simulator](simulator.md). Now the whole body is checked through the allowed drift against walls themselves (lethal cells), only the obstacle Oak backs away from is ignored, and the scan wraps around. A first version checked only the half of the body facing the move, which a review caught: a wall beside the front half could be hit if Oak turned while backing up. These fixes reached master in pull request #41 (2026-11-05). Simulator runs still found a case where the normal 0.3 m move could not fit beside a doorway; the explorer now tries shorter moves through the same safety checks. The shorter-move behavior still needs a repeatable simulator comparison and supervised Oak confirmation.
 - **Backing up is new on the real Oak.** Before pull request #41 these moves were always refused, so Oak has never actually backed up or slid sideways on its own. Now it will. The first tries on the real floor need a spotter ready to stop it (an empty Twist on `/cmd_vel_joy`, or the gamepad).
 - **Ctrl+C did not stop cleanly.** ROS shut itself down before the auto mapper's stop step ran, so the final zero speed and the Nav2 goal cancel never went out. Fixed in pull request #41: ROS now stays up until that step is done.
 - **Waits for fresh data.** After every scan or move it waits up to 12 s for newer `/scan`, `/point_cloud2`, `/map`, costmap and TF. If they don't come, exploration stays stopped until Scan is pressed.
-- **The 3D cloud never forgets** moved objects; neither SLAM nor the 3D map is cleared during recovery.
+- **The 3D cloud forgets moved objects only where Oak looks** (see [Lidar](lidar.md)); neither SLAM nor the 3D map is cleared during recovery.
 - **People positions are rough.** They come from the camera's box-height guess (see [Object detection](object-detection.md)), so Oak can wait for a person who is farther away than they look, or steer around one who is not quite where they seem. The camera only looks forward, so people behind or beside Oak are not seen. TODO(Luis): test with people in the lab.
 - **Waiting too long gets the goal dropped.** Nav2 gives up a goal after 10 s without movement (`movement_time_allowance`); the 6 s wait stays under that, so don't raise one without the other.
 - **Big maps** make each step slower, because the whole map is rescanned every cycle.

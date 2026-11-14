@@ -342,7 +342,9 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
     from rclpy.executors import SingleThreadedExecutor
     from std_srvs.srv import Trigger
 
-    domain = 50 + (index % 40)   # a fresh ROS domain per run: no leftovers can talk to it
+    # A fresh ROS domain per run: no leftovers can talk to it. --domain pins one,
+    # so several runners can work side by side without sharing a domain.
+    domain = args.domain if args.domain is not None else 50 + (index % 40)
     env = os.environ.copy()
     env.update(ROS_DOMAIN_ID=str(domain), ROS_LOCALHOST_ONLY='1',
                IGN_PARTITION=f'go2_sim_trials_{os.getpid()}_{index}')
@@ -611,6 +613,12 @@ def main(argv=None):
                         help='score runs but skip rosbag recording')
     parser.add_argument('--variant', type=variant_name, default='frontier',
                         help='short experiment label stored with every run')
+    parser.add_argument('--first-index', type=int, default=0,
+                        help='start at this run number (0-based), so one start spot of a '
+                        'seed can be run on its own; with --runs 1, run seed*1000+index only')
+    parser.add_argument('--domain', type=int, default=None,
+                        help='ROS domain ID for every run (default: 50 + run number mod 40); '
+                        'give each runner working side by side its own')
     parser.add_argument('--explorer-param', action='append', default=[],
                         type=explorer_parameter, metavar='NAME:=VALUE',
                         help='temporary go2_auto_mapper ROS parameter; repeat as needed')
@@ -649,12 +657,12 @@ def main(argv=None):
 
 def run_all(args, world_path, gt, gt_path, out_dir, header, launch_extra, results):
     startup_failures = 0
-    for i in range(args.runs):
+    for i in range(args.first_index, args.first_index + args.runs):
         run_seed = args.seed * 1000 + i
         pose = world_tools.sample_start_pose(gt, np.random.default_rng(run_seed),
                                              clearance=args.clearance)
-        print(f'[trials] run {i + 1}/{args.runs}: start {pose[0]:.2f}, {pose[1]:.2f}, '
-              f'yaw {pose[2]:.2f}', flush=True)
+        print(f'[trials] run {i + 1}/{args.first_index + args.runs}: start {pose[0]:.2f}, '
+              f'{pose[1]:.2f}, yaw {pose[2]:.2f}', flush=True)
         r = run_one(args, i, world_path, gt, gt_path, pose, run_seed, out_dir, launch_extra)
         results.append(r)
         write_results(out_dir, results, header)

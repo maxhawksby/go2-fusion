@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: d339daf8a5fd
+verified: 669d6eb2be69
 ---
 
 # Simulator
@@ -161,7 +161,7 @@ This runs the auto mapper 10 times with no windows. Each run starts a fresh simu
 - **Distance**: how far Oak really walked.
 - **Finished**: yes if the auto mapper said it was done. Otherwise the note says why it stopped and where Oak ended up, so you can find the trouble spot.
 
-Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores it): `results.csv`, `results.md` (the table), each run's final map, and logs. Options: `--runs 3`, `--timeout 600`, `--stall-timeout 300` (0 = never), `--seed 2`, `--world <name or .sdf>`. Dials for the simulator go after `--`, for example `ros2 run go2_sim trials --runs 5 -- lidar_rate:=2.0 odom_noise_xy:=0.05`. An experiment can temporarily change an auto-mapper ROS parameter without editing its code, for example `--variant blocked_grace --explorer-param blocked_timeout:=2.0`. The variant and every override are saved with the scoreboard run so comparisons do not mix configurations.
+Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores it): `results.csv`, `results.md` (the table), each run's final map, and logs. Options: `--runs 3`, `--timeout 600`, `--stall-timeout 300` (0 = never), `--seed 2`, `--world <name or .sdf>`, `--first-index 3 --runs 1` (only the fourth start spot of that seed), `--domain 60` (a fixed ROS domain, so several runners can work side by side). Dials for the simulator go after `--`, for example `ros2 run go2_sim trials --runs 5 -- lidar_rate:=2.0 odom_noise_xy:=0.05`. An experiment can temporarily change an auto-mapper ROS parameter without editing its code, for example `--variant blocked_grace --explorer-param blocked_timeout:=2.0`. The variant and every override are saved with the scoreboard run so comparisons do not mix configurations.
 
 The trial runner also starts the [Scoreboard](scoreboard.md) before each auto
 mapper. Its independent artifacts are under the run's `scoreboard/` folder,
@@ -220,6 +220,16 @@ The first 10-run batch in the placeholder world, default dials, real-time factor
 Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the first version of those fixes, before the unstuck move learned to check Oak's whole body through its allowed drift. With the final version, one 8-minute run (seed 1, 2026-10-31) mapped 48.3 %, with 0 costmap timeouts and 0 collisions, but latched stopped next to the 1.2 m doorway after 44 s ("no safe direction: rear and both sides lack clearance") and never moved again. Master without the fixes maps 5.0 % in the same run. TODO(Max): re-run the 10-run batch with the final fixes.
 
 Every simulator experiment since 2026-11-06 (hypothesis, change, runs, why each run quit, verdict) is logged in the [experiments journal](experiments.md).
+
+## Score VLM decisions
+
+Comparing whole runs with the VLM on and off needs very many runs: where Oak happens to get stuck swings a run by 50 points either way. Scoring each decision instead turns one run into dozens of paired comparisons. Run the auto mapper in `shadow` mode with a navigation log (`--explorer-param vlm_mode:=shadow --explorer-param nav_log_dir:=<run>/nav`), then:
+
+```shell
+ros2 run go2_sim score_decisions <run folder> [<run folder> ...] --csv decisions.csv
+```
+
+Each run folder holds `nav/` and the trial runner's output (its `results.csv` gives the start pose; its `.gt.yaml` is the true map). For every logged ranking it sweeps 360 lidar rays out to 4 m from each candidate on the true map, stopping at real walls, and counts the cells that were still unknown then, minus the explorer's walking cost (100 cells per meter). It prints, where the VLM picked differently, how much better or worse its pick really was, and how often each pick was the truly best candidate. It only works in the simulator, where the true map exists, and it values a goal by what a full turn there would show, not by what Oak sees on the way.
 
 ## VLM test (2026-10-31)
 

@@ -7,10 +7,12 @@ from go2_auto_mapper.recovery import (
     DRIFT_YAW_RAD,
     SCAN_MAX_AGE_SEC,
     assess_recovery,
+    assess_recovery_steps,
     choose_recovery,
     choose_recovery_mode,
     drift_limits,
     latch_decision,
+    recovery_distances,
     refresh_status,
     scan_age,
     stale_sources,
@@ -232,7 +234,9 @@ def test_mid_move_check_is_anchored_at_the_start_pose():
 def test_unknown_and_off_grid_are_unsafe():
     grid = make_grid()
     grid.data[:] = [-1] * len(grid.data)
-    assert choose_recovery(grid, 0, 0, 0, 0.3, clear_scan()) is None
+    assert choose_recovery_mode(
+        grid, 0, 0, 0, 0.3, clear_scan(), modes=(False,)
+    )[0] is None
     assert not swept_clear(make_grid(), 2.9, 0, 0, 0.3, 0)
 
 
@@ -247,6 +251,41 @@ def test_boxed_in_stays_stopped():
     )
     assert move is None and not leaving
     assert 'no safe direction' in reason
+
+
+def test_recovery_distances_only_shorten_the_requested_move():
+    assert recovery_distances(0.3) == (0.3, 0.15, 0.08)
+    assert recovery_distances(0.10) == (0.10, 0.08)
+    assert recovery_distances(0.05) == (0.05,)
+
+
+def test_shorter_recovery_is_used_when_full_move_does_not_fit():
+    # The padded body starts inside a box with 15-25 cm of extra room. A
+    # 30 cm move reaches the walls in every candidate direction, while a
+    # 15 cm move stays inside the measured free corridor.
+    grid = make_grid(obstacles=[
+        (-0.82, -0.70, -1.0, 1.0),
+        (-1.0, 1.0, 0.50, 0.65),
+        (-1.0, 1.0, -0.65, -0.50),
+    ])
+    assert choose_recovery_mode(
+        grid, 0, 0, 0, 0.3, clear_scan(), modes=(False,)
+    )[0] is None
+    move, reason, _ = assess_recovery_steps(
+        grid, 0, 0, 0, recovery_distances(0.3), clear_scan(),
+        0.1, SCAN_MAX_AGE_SEC,
+    )
+    assert math.isclose(math.hypot(*move), 0.15)
+    assert reason == ''
+
+
+def test_shorter_recovery_keeps_stale_scan_stop():
+    move, reason, _ = assess_recovery_steps(
+        make_grid(), 0, 0, 0, recovery_distances(0.3), clear_scan(),
+        2.0, SCAN_MAX_AGE_SEC,
+    )
+    assert move is None
+    assert 'stale' in reason
 
 
 def test_stale_scan_is_unsafe():

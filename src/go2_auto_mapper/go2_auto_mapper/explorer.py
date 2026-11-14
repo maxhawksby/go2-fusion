@@ -29,10 +29,11 @@ from go2_auto_mapper.recovery import (
     SCAN_MAX_AGE_SEC,
     SENSING_MAX_AGE_SEC,
     SLAM_MIN_TRAVEL_M,
-    assess_recovery,
+    assess_recovery_steps,
     choose_turn,
     drift_limits,
     latch_decision,
+    recovery_distances,
     refresh_status,
     scan_age,
     scan_covers_move,
@@ -42,7 +43,7 @@ from go2_auto_mapper.recovery import (
 )
 
 from builtin_interfaces.msg import Duration
-from nav2_msgs.action import BackUp, NavigateToPose, Spin
+from nav2_msgs.action import BackUp, ComputePathToPose, NavigateToPose, Spin
 
 import tf2_ros
 from tf2_ros import TransformException
@@ -52,7 +53,18 @@ from go2_auto_mapper.obstacle_sensing import (
     free_distance_ahead,
     straight_line_clear,
 )
-from go2_auto_mapper.open_space import OCCUPIED_THRESHOLD, find_open_space
+from go2_auto_mapper.open_space import (
+    OCCUPIED_THRESHOLD,
+    find_open_space,
+    has_clearance,
+    walking_distances,
+)
+from go2_auto_mapper.spot_memory import (
+    SpotMemory,
+    choose_closest_spot,
+    scan_clearance,
+    scan_covers_circle,
+)
 from go2_auto_mapper.frontier_scoring import (
     count_revealed_unknown,
     find_frontier_clusters,
@@ -63,14 +75,28 @@ from go2_auto_mapper.frontier_scoring import (
 )
 from go2_auto_mapper.social_space import line_crosses, parse_people, social_zones, zone_at
 from go2_auto_mapper.nav_log import NavLog, known_cell_count
+from go2_auto_mapper.socialnav import History, lidar_room
+from go2_auto_mapper.socialnav_follow import (
+    ANSWER_TIMEOUT_SEC,
+    NO_PROGRESS_ANSWERS,
+    ROOM_MARGIN_M,
+    SocialNavClient,
+    body_offset,
+    goal_reached,
+    has_lidar_room,
+    next_step,
+    waypoints_to_map,
+)
 from go2_auto_mapper.vlm_ranking import (
     ViewMemory,
     VlmClient,
+    frontier_fact,
     match_score,
     suggestion_bonus,
     usable_heading,
     vlm_bonus,
     vlm_mode_name,
+    vlm_shortlist,
 )
 
 
@@ -106,8 +132,9 @@ class FrontierExplorer(Node):
 
         # A vision-language model on a GPU server re-ranks the best goals
         # from the camera's view toward each (vlm_ranking.py). 'off': not
-        # used. 'shadow': asked, and its pick logged next to ours, but ours
-        # is used. 'active': its score is added to ours, worth vlm_weight
+        # used. 'shadow': asked (waiting up to vlm_timeout for the answer),
+        # and its pick logged next to ours, but ours is used. 'active': the
+        # same wait, then its score is added to ours, worth vlm_weight
         # cells from a sure no to a sure yes. vlm_url is an OpenAI-compatible
         # chat endpoint (vLLM, Ollama); VLM_API_KEY in the environment is
         # sent if the server needs one.
@@ -125,9 +152,24 @@ class FrontierExplorer(Node):
         self.declare_parameter('vlm_weight', 400.0)
         self.declare_parameter('vlm_timeout', 8.0)
         self.declare_parameter('vlm_candidates', 4)
+        # Also ask about the best spot on the longest frontier when the best
+        # vlm_candidates goals miss it; the reveal score alone ranks long
+        # frontiers a little farther away below short near ones.
+        self.declare_parameter('vlm_include_longest', True)
         # In active mode, unknown cells a goal is worth extra for lying the way
         # vlm_view last suggested. Needs the panel's VLM view on.
         self.declare_parameter('vlm_suggest_weight', 300.0)
+        # SocialNav pipeline (socialnav_follow.py). 'off': goals go to Nav2 as
+        # before. 'active': the explorer still picks the goal, SocialNav plans
+        # the steps toward it, Nav2's planner and costmap and the lidar check
+        # each step, and the explorer slides there itself on /cmd_vel_mapper at
+        # socialnav_speed. SOCIALNAV_MODE and SOCIALNAV_URL set the defaults.
+        self.declare_parameter(
+            'socialnav_mode', os.environ.get('SOCIALNAV_MODE', 'off'),
+            ParameterDescriptor(dynamic_typing=True))
+        self.declare_parameter(
+            'socialnav_url', os.environ.get('SOCIALNAV_URL', 'http://localhost:8100/waypoints'))
+        self.declare_parameter('socialnav_speed', RECOVERY_SPEED_MPS)
         # Folder for the navigation log (nav_log.py); empty is off. NAV_LOG_DIR
         # sets the default, since the RViz panel's Start passes no parameters.
         self.declare_parameter('nav_log_dir', os.environ.get('NAV_LOG_DIR', ''))
@@ -153,6 +195,11 @@ class FrontierExplorer(Node):
         # side, scan there, then carry on exploring.
         self.declare_parameter('open_space_clearance', 0.8)
         self.declare_parameter('stuck_failure_count', 3)
+        # Before that, go back to the last spot it finished a 360 degree scan
+        # at with open_space_clearance of lidar room, if the map still shows
+        # it open (spot_memory.py). Remembers the last spot_memory_size.
+        self.declare_parameter('use_spot_memory', True)
+        self.declare_parameter('spot_memory_size', 10)
 
         # People from object_detection's /people (ideas from SocialNav):
         # don't pick goals in someone's personal space, across where they
@@ -204,6 +251,10 @@ class FrontierExplorer(Node):
         self.open_space_clearance = self.get_parameter(
             'open_space_clearance'
         ).value
+        self.use_spot_memory = bool(self.get_parameter('use_spot_memory').value)
+        self.spot_memory = SpotMemory(
+            self.get_parameter('spot_memory_size').value, self.open_space_clearance
+        )
         self.stuck_failure_count = self.get_parameter(
             'stuck_failure_count'
         ).value
@@ -397,6 +448,10 @@ class FrontierExplorer(Node):
         self.escape_pending = False
         self.goal_is_escape = False
         self.last_escape_time = None
+        # The remembered spot the current escape goal heads for, and whether
+        # the next escape must skip the memory (that spot just failed).
+        self.escape_spot = None
+        self.escape_skip_memory = False
 
         self.exploration_complete_logged = False
 
@@ -422,11 +477,15 @@ class FrontierExplorer(Node):
         # /frontier_explorer/scan: a 360 degree scan on request (the RViz
         # AutoMapper panel's Scan button, or `ros2 service call`).
         self.goal_cancelled_for_scan = False
+        # Set when watch_ahead cancels the goal for an obstacle in front, so
+        # its result can tell "interrupted on the way" from "can't get there".
+        self.goal_cancelled_for_obstacle = False
         self.scan_service = self.create_service(
             Trigger, '~/scan', self.handle_scan_request
         )
 
         self.setup_vlm()
+        self.setup_socialnav()
         nav_log_dir = self.get_parameter('nav_log_dir').value
         self.nav_log = None
         if nav_log_dir:
@@ -928,6 +987,7 @@ class FrontierExplorer(Node):
         self.vlm_weight = self.get_parameter('vlm_weight').value
         self.vlm_timeout = self.get_parameter('vlm_timeout').value
         self.vlm_candidates = max(1, self.get_parameter('vlm_candidates').value)
+        self.vlm_include_longest = bool(self.get_parameter('vlm_include_longest').value)
         self.vlm_client = VlmClient(
             url,
             self.get_parameter('vlm_model').value,
@@ -952,6 +1012,297 @@ class FrontierExplorer(Node):
                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
             )
         self.get_logger().info(f'VLM ranking in {self.vlm_mode} mode, asking {url}.')
+
+    # ==========================================================
+    # SOCIALNAV PIPELINE (socialnav_follow.py)
+    # ==========================================================
+
+    def setup_socialnav(self):
+        """Camera history, server client and planner check, if socialnav_mode is active."""
+        self.socialnav_mode = vlm_mode_name(self.get_parameter('socialnav_mode').value)
+        self.recovery_kind = 'recovery'
+        self.clear_socialnav()
+        if self.socialnav_mode == 'off':
+            return
+        if self.socialnav_mode != 'active':
+            self.get_logger().warn(
+                f"Unknown socialnav_mode '{self.socialnav_mode}' (off or active); not using it."
+            )
+            self.socialnav_mode = 'off'
+            return
+        url = self.get_parameter('socialnav_url').value
+        self.socialnav_speed = float(self.get_parameter('socialnav_speed').value)
+        self.socialnav_history = History()
+        self.socialnav_client = SocialNavClient(url, encode_jpeg)
+        self.path_client = ActionClient(self, ComputePathToPose, '/compute_path_to_pose')
+        self.socialnav_camera_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.socialnav_camera_callback,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        )
+        self.get_logger().info(
+            f'SocialNav pipeline active: asking {url}, sliding at {self.socialnav_speed:.2f} m/s.'
+        )
+
+    def socialnav_camera_callback(self, msg):
+        """Keep a frame with the robot's map pose about once a second."""
+        pose = self.get_robot_pose(self.map_frame)
+        if pose is not None:
+            self.socialnav_history.offer(time.monotonic(), *pose, msg)
+
+    def monotonic(self):
+        return time.monotonic()
+
+    def clear_socialnav(self):
+        # An answer still on its way belongs to the goal being dropped: discard it.
+        client = getattr(self, 'socialnav_client', None)
+        self.socialnav_discard_next = client is not None and client.busy()
+        if client is not None:
+            client.take_result()
+        self.socialnav_goal = None
+        self.socialnav_points = ()
+        self.socialnav_check = None
+        self.socialnav_asked_at = None
+        self.socialnav_waiting_since = None
+        self.socialnav_holding = False
+        self.socialnav_idle_answers = 0
+
+    def start_socialnav_goal(self, x, y):
+        """Take the explorer's goal; SocialNav plans the steps toward it."""
+        self.clear_socialnav()
+        self.socialnav_goal = (x, y)
+        self.current_goal = (x, y)
+        self.goal_is_escape = False
+        self.socialnav_waiting_since = self.monotonic()
+        self.goal_pub.publish(self.make_goal_pose(x, y))
+        self.emit_event('goal_sent', 'exploration goal (SocialNav steps)', x, y)
+        self.get_logger().info(f'Heading for x={x:.2f}, y={y:.2f} in SocialNav steps.')
+        return True
+
+    def tick_socialnav(self):
+        """
+        Advance the SocialNav pipeline by one loop.
+
+        In order: goal reached? a planner check finished? waypoints left to walk? a new answer?
+        Otherwise keep asking, holding still after ANSWER_TIMEOUT_SEC without an answer.
+        """
+        if self.socialnav_goal is None:
+            return
+        pose = self.get_robot_pose(self.map_frame)
+        if pose is None:
+            return
+        if goal_reached(pose[:2], self.socialnav_goal):
+            self.socialnav_reached()
+            return
+        now = self.monotonic()
+        if self.socialnav_check is not None:
+            self.finish_path_check(pose)
+            return
+        if self.socialnav_points:
+            self.plan_socialnav_step(pose, now)
+            return
+        answer = self.socialnav_client.take_result()
+        if answer is not None and self.socialnav_discard_next:
+            self.socialnav_discard_next = False
+            answer = None
+        if answer is not None:
+            self.socialnav_asked_at = None
+            if answer.waypoints is None:
+                self.get_logger().warn(f'SocialNav gave no waypoints ({answer.reason}).')
+            elif self.use_socialnav_answer(answer, pose, now):
+                return
+        self.wait_for_socialnav(now)
+
+    def finish_path_check(self, pose):
+        """Act on the planner's answer for the pending step, once it has one."""
+        check = self.socialnav_check
+        if check['result'] is None:
+            if self.monotonic() - check['started'] > SOCIALNAV_PATH_CHECK_SEC:
+                self.socialnav_blocked('the Nav2 planner did not answer')
+            return
+        self.socialnav_check = None
+        if not check['result']:
+            self.socialnav_blocked('the Nav2 planner found no path to the next waypoint')
+            return
+        moved = (
+            math.hypot(pose[0] - check['pose'][0], pose[1] - check['pose'][1])
+            > SOCIALNAV_SAME_POSE_M
+            or angle_difference(pose[2], check['pose'][2]) > SOCIALNAV_SAME_YAW_RAD
+        )
+        if moved:
+            # Something else moved Oak while the planner was thinking: that approval was for
+            # another start. The next loop checks the step again from here.
+            return
+        self.start_socialnav_step(check['move'])
+
+    def use_socialnav_answer(self, answer, pose, now):
+        """Take new waypoints; True if this loop is done (step planned or goal dropped)."""
+        if self.socialnav_holding:
+            self.get_logger().info('SocialNav answering again; carrying on.')
+            self.socialnav_holding = False
+        self.socialnav_waiting_since = None
+        points, move = next_step(waypoints_to_map(answer.waypoints, answer.pose), pose)
+        if move is None:
+            self.socialnav_idle_answers += 1
+            if self.socialnav_idle_answers >= NO_PROGRESS_ANSWERS:
+                self.socialnav_blocked("SocialNav's waypoints lead nowhere")
+                return True
+            self.socialnav_waiting_since = now
+            return False
+        self.socialnav_idle_answers = 0
+        self.socialnav_points = points
+        self.plan_socialnav_step(pose, now)
+        return True
+
+    def plan_socialnav_step(self, pose, now):
+        """Check the slide toward the next stored waypoint and ask the planner about it."""
+        points, move = next_step(self.socialnav_points, pose)
+        self.socialnav_points = points
+        if move is None:
+            return  # every waypoint walked: the next loop asks SocialNav again
+        ok, reason = self.socialnav_step_ok(move, body_offset(*points[0], *pose))
+        if not ok:
+            self.socialnav_blocked(reason)
+            return
+        x, y, yaw = pose
+        end_x = x + math.cos(yaw) * move[0] - math.sin(yaw) * move[1]
+        end_y = y + math.sin(yaw) * move[0] + math.cos(yaw) * move[1]
+        self.socialnav_check = {'move': move, 'pose': pose, 'started': now, 'result': None}
+        self.request_path_check(end_x, end_y)
+
+    def wait_for_socialnav(self, now):
+        """Ask for waypoints if no request is out; hold still after the timeout."""
+        if self.socialnav_waiting_since is None:
+            self.socialnav_waiting_since = now
+        if now - self.socialnav_waiting_since > ANSWER_TIMEOUT_SEC and not self.socialnav_holding:
+            self.socialnav_holding = True
+            self.get_logger().warn(
+                f'SocialNav has not answered for {ANSWER_TIMEOUT_SEC:.0f} s; '
+                'holding still until it does.'
+            )
+            self.emit_event('socialnav_holding', 'no SocialNav answer')
+        if self.socialnav_holding:
+            self._hold_stop()
+        if (
+            self.socialnav_asked_at is None
+            and not self.socialnav_client.busy()
+            and self.socialnav_history.full()
+        ):
+            if self.socialnav_client.submit(list(self.socialnav_history.samples),
+                                            *self.socialnav_goal):
+                self.socialnav_asked_at = now
+
+    def socialnav_obstacle_ahead(self):
+        """
+        Handle something right in front between slides.
+
+        While holding for SocialNav, Oak stays still. Otherwise the lidar wins: drop the goal and
+        back up, as for a blocked step.
+        """
+        if self.socialnav_holding:
+            return
+        self.socialnav_blocked('obstacle ahead')
+
+    def socialnav_step_ok(self, move, target):
+        """
+        Check the next slide with the lidar and the costmap; (ok, reason).
+
+        `move` is the (forward, left) slide; `target` is the waypoint itself, which may be farther
+        than one slide. The lidar wins: a stale scan, no lidar room out to the waypoint (plus
+        ROOM_MARGIN_M), or a body outline that doesn't fit the costmap and the live scan all block.
+        """
+        scan = self.latest_scan
+        age = self._scan_age()
+        if scan is None or age is None or age > SCAN_MAX_AGE_SEC:
+            return False, 'the laser scan is stale or missing'
+        if scan.header.frame_id != self.robot_frame:
+            return False, f'scan frame is {scan.header.frame_id}, not {self.robot_frame}'
+        room = lidar_room(scan.ranges, scan.angle_min, scan.angle_increment,
+                          -target[1], target[0], ROOM_MARGIN_M)
+        if not has_lidar_room(room):
+            return False, 'the lidar sees no room out to the next waypoint'
+        view = self.local_view()
+        if view is None:
+            return False, 'the costmap or transforms are stale'
+        if not self.body_clear(view, move):
+            return False, "the body outline doesn't fit the costmap and scan along the slide"
+        return True, ''
+
+    def body_clear(self, view, move):
+        """Check the padded body along the slide on costmap and scan, as unstuck moves do."""
+        return (
+            swept_clear(view[0], *view[1:4], *move)
+            and scan_covers_move(self.latest_scan, *move)
+        )
+
+    def request_path_check(self, x, y):
+        """
+        Ask Nav2's planner, without driving, for a path to (x, y).
+
+        The answer lands in socialnav_check['result'] as True or False.
+        """
+        check = self.socialnav_check
+        if not self.path_client.server_is_ready():
+            check['result'] = False
+            return
+        goal = ComputePathToPose.Goal()
+        goal.goal = self.make_goal_pose(x, y)
+        goal.use_start = False
+
+        def on_result(future):
+            try:
+                result = future.result()
+                check['result'] = result.status == 4 and len(result.result.path.poses) > 0
+            except Exception:
+                check['result'] = False
+
+        def on_response(future):
+            try:
+                handle = future.result()
+            except Exception:
+                check['result'] = False
+                return
+            if not handle.accepted:
+                check['result'] = False
+                return
+            handle.get_result_async().add_done_callback(on_result)
+
+        self.path_client.send_goal_async(goal).add_done_callback(on_response)
+
+    def start_socialnav_step(self, move):
+        """Slide (forward, left) on the mapper's mux input with the unstuck moves' checks."""
+        view = self.local_view()
+        if view is None:
+            self.socialnav_blocked('the costmap or transforms are stale')
+            return
+        grid, x, y, yaw, _ = view
+        self.recovery_move = (x, y, yaw, move, grid.header.frame_id, self.monotonic(), False)
+        self.recovery_kind = 'socialnav'
+        self.get_logger().info(
+            f'SocialNav step: {move[0]:.2f} m forward, {move[1]:.2f} m left.'
+        )
+
+    def socialnav_blocked(self, reason):
+        """Drop this goal and back up (the lidar wins); the explorer then picks another."""
+        self.get_logger().warn(f'SocialNav step blocked: {reason}; dropping this goal.')
+        self.recovery_move = None
+        self._hold_stop()
+        self.record_goal_failure(f'SocialNav step blocked: {reason}')
+        self.clear_socialnav()
+        self.backup_pending = True
+
+    def socialnav_reached(self):
+        """End the goal the way Nav2 reaching it would be handled."""
+        self.get_logger().info('Reached exploration goal in SocialNav steps.')
+        self.consecutive_failures = 0
+        self.emit_goal_outcome('goal_reached', 'SocialNav steps reached goal')
+        self.log_goal_ended('reached')
+        if self.scan_after_goal:
+            self.scan_pending = True
+        if self.goal_frontier is not None:
+            self.frontier_to_verify = self.goal_frontier
+            self.verify_not_before = None
+        self.goal_frontier = None
+        self.clear_socialnav()
 
     def suggestion_callback(self, msg):
         self.vlm_suggestion = msg.data
@@ -995,8 +1346,9 @@ class FrontierExplorer(Node):
 
     def rank_with_vlm(self, pool, robot_x, robot_y):
         """The pool with the VLM's opinion added to the best few scores, the
-        pool unchanged if the VLM can't help now, or None (active mode
-        only) to wait one more loop for an answer that is on its way.
+        pool unchanged if the VLM can't help now, or None to wait one more
+        loop (up to vlm_timeout per goal choice) for an answer on its way.
+        Shadow mode waits the same way but then keeps the map's pick.
         """
 
         now = time.monotonic()
@@ -1011,7 +1363,7 @@ class FrontierExplorer(Node):
             else:
                 self.vlm_ranking = result
 
-        top = sorted(pool, key=lambda c: c[0])[:self.vlm_candidates]
+        top = vlm_shortlist(pool, self.vlm_candidates, self.vlm_include_longest)
         fresh = (
             self.vlm_ranking is not None
             and now - self.vlm_ranking.finished_at < VLM_RESULT_MAX_AGE_SEC
@@ -1030,7 +1382,11 @@ class FrontierExplorer(Node):
             # with each map update must not keep the robot waiting.
             if self.vlm_wait_started is None:
                 self.vlm_wait_started = now
-            if self.vlm_mode == 'active' and now - self.vlm_wait_started < self.vlm_timeout:
+            # Shadow mode waits too: otherwise the goal is chosen before the
+            # answer comes, and by the next choice (minutes later) the answer
+            # is stale, so shadow never compared anything. Waiting the same way
+            # also makes shadow a fair control for active: only steering differs.
+            if now - self.vlm_wait_started < self.vlm_timeout:
                 self.get_logger().info(
                     'Waiting for the VLM ranking...', throttle_duration_sec=5.0
                 )
@@ -1052,9 +1408,38 @@ class FrontierExplorer(Node):
             f'with VLM ({theirs[1]:.2f}, {theirs[2]:.2f}). Scores '
             f'{[round(s, 2) for s in scores]}: {self.vlm_ranking.reason}'
         )
+        self.log_vlm_decision(robot_x, robot_y, top, scores, ours, theirs)
         # Spent: the next goal is asked about from wherever the robot is then.
         self.vlm_ranking = None
         return pool if self.vlm_mode == 'shadow' else ranked
+
+    def log_vlm_decision(self, robot_x, robot_y, top, scores, ours, theirs):
+        """
+        Note this ranking in the navigation log, with the map as it is now.
+
+        In shadow mode the VLM's pick is never driven to, so this record is the only trace of
+        it; a scorer can later count what each pick would have revealed. A logging failure must
+        not stop exploring.
+        """
+        if self.nav_log is None or self.map is None:
+            return
+        try:
+            info = self.map.info
+            candidates = [
+                {'x': round(c[1], 3), 'y': round(c[2], 3), 'map_score': round(c[0], 1),
+                 'vlm_score': round(s, 3), 'distance_m': round(c[7], 2)}
+                for c, s in zip(top, scores)
+            ]
+            self.nav_log.decision(
+                (robot_x, robot_y), candidates,
+                next(i for i, c in enumerate(top) if c[1:3] == ours[1:3]),
+                next(i for i, c in enumerate(top) if c[1:3] == theirs[1:3]),
+                self.vlm_mode,
+                (info.resolution, info.origin.position.x, info.origin.position.y,
+                 info.width, info.height, self.map.data),
+            )
+        except Exception as e:
+            self.get_logger().warn(f'Navigation log error: {e}')
 
     def ask_vlm(self, top, robot_x, robot_y):
         """Send the camera views toward the best goals; False if there are
@@ -1077,9 +1462,17 @@ class FrontierExplorer(Node):
             return False
         # The score is -(revealed - cells_per_meter * walk), so the cells can be
         # had back without casting the rays again.
+        # Frontier length from its cell count, and which goal is on the
+        # longest one (only said when the shortlist looks for it).
+        resolution = self.map.info.resolution
+        longest_cells = max(c[3] for c in top)
         facts = [
-            f'The map says it is {c[7]:.1f} m away and could show about '
-            f'{max(0, round(self.info_gain_cells_per_meter * c[7] - c[0]))} unknown cells.'
+            frontier_fact(
+                c[7],
+                max(0, round(self.info_gain_cells_per_meter * c[7] - c[0])),
+                c[3] * resolution,
+                self.vlm_include_longest and c[3] == longest_cells,
+            )
             for c in top
         ]
         self.vlm_client.submit([(c[1], c[2]) for c in top], frames, facts)
@@ -1160,6 +1553,16 @@ class FrontierExplorer(Node):
     # SEND NAVIGATION GOAL
     # ==========================================================
 
+    def make_goal_pose(self, x, y):
+        """Build a map-frame pose at (x, y), keeping the robot's orientation unchanged."""
+        pose = PoseStamped()
+        pose.header.frame_id = self.map_frame
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.orientation.w = 1.0
+        return pose
+
     def send_goal(self, x, y, is_escape=False):
         """Send a Nav2 goal; False if Nav2 isn't ready yet."""
 
@@ -1171,16 +1574,7 @@ class FrontierExplorer(Node):
 
         goal = NavigateToPose.Goal()
 
-        goal.pose = PoseStamped()
-
-        goal.pose.header.frame_id = self.map_frame
-        goal.pose.header.stamp = self.get_clock().now().to_msg()
-
-        goal.pose.pose.position.x = x
-        goal.pose.pose.position.y = y
-
-        # Keep robot orientation unchanged.
-        goal.pose.pose.orientation.w = 1.0
+        goal.pose = self.make_goal_pose(x, y)
 
         self.get_logger().info(
             f'Sending {"escape" if is_escape else "exploration"} goal: '
@@ -1189,8 +1583,10 @@ class FrontierExplorer(Node):
 
         self.goal_active = True
         self.goal_is_escape = is_escape
+        self.goal_cancelled_for_obstacle = False
         self.goal_sequence += 1
         self.active_goal_sequence = self.goal_sequence
+        sequence = self.active_goal_sequence
         self.goal_outcome_emitted = False
         # Set by the caller for frontier goals once this returns True.
         self.goal_frontier = None
@@ -1208,7 +1604,7 @@ class FrontierExplorer(Node):
         self._track_submission(future, 'navigate_to_pose')
 
         future.add_done_callback(
-            self.goal_response_callback
+            lambda result: self.goal_response_callback(result, sequence)
         )
 
         return True
@@ -1217,13 +1613,23 @@ class FrontierExplorer(Node):
     # NAV2 RESPONSE
     # ==========================================================
 
-    def goal_response_callback(self, future):
+    def _is_current_navigation_goal(self, sequence):
+        """Late action replies must not mutate a newer goal or a stopped run."""
+        return (
+            self.goal_active and not self.shutting_down
+            and (sequence is None or sequence == self.active_goal_sequence)
+        )
+
+    def goal_response_callback(self, future, sequence=None):
 
         try:
 
             goal_handle = future.result()
 
         except Exception as e:
+
+            if not self._is_current_navigation_goal(sequence):
+                return
 
             self.get_logger().error(
                 f'Navigation goal failed: {e}'
@@ -1232,6 +1638,18 @@ class FrontierExplorer(Node):
             self.record_goal_failure(f'goal response error: {e}')
             self.goal_active = False
             self.goal_sent_time = None
+            return
+
+        if not self._is_current_navigation_goal(sequence):
+            # A submission can be accepted after timeout or shutdown. Never
+            # attach it to the new goal; request cancellation of its own handle.
+            if goal_handle.accepted:
+                try:
+                    self._adopt_orphan(goal_handle, self.nav_client)
+                except Exception as error:
+                    self._stop_for(
+                        f'Could not cancel inactive goal {sequence}: {error}'
+                    )
             return
 
         if not goal_handle.accepted:
@@ -1256,7 +1674,7 @@ class FrontierExplorer(Node):
         result_future = goal_handle.get_result_async()
 
         result_future.add_done_callback(
-            self.navigation_result_callback
+            lambda result: self.navigation_result_callback(result, sequence)
         )
 
     def blacklist_current_goal(self):
@@ -1272,6 +1690,19 @@ class FrontierExplorer(Node):
         self.blacklist_current_goal()
         # Never reached, so there's no visit to judge the frontier by.
         self.goal_frontier = None
+
+        if self.goal_is_escape and self.escape_spot is not None:
+            # The remembered spot can't be reached now: forget it and try
+            # the nearest open space on the map instead, once.
+            self.spot_memory.forget(self.escape_spot)
+            self.escape_spot = None
+            self.get_logger().warn(
+                'Could not reach the remembered open spot; trying the '
+                'nearest open space instead.'
+            )
+            self.escape_skip_memory = True
+            self.escape_pending = True
+            return
 
         if self.goal_is_escape:
             # Don't escape from a failed escape (request_escape's cooldown
@@ -1292,7 +1723,13 @@ class FrontierExplorer(Node):
     # NAVIGATION RESULT
     # ==========================================================
 
-    def navigation_result_callback(self, future):
+    def navigation_result_callback(self, future, sequence=None):
+
+        if not self._is_current_navigation_goal(sequence):
+            self.get_logger().info(
+                f'Ignoring result for inactive navigation goal {sequence}.'
+            )
+            return
 
         try:
 
@@ -1310,6 +1747,7 @@ class FrontierExplorer(Node):
                 self.emit_goal_outcome('goal_reached', 'Nav2 reached goal')
                 if self.goal_is_escape:
                     self.emit_event('recovery_finished', 'reached open space')
+                    self.escape_spot = None
                 self.log_goal_ended('reached')
 
                 if self.scan_after_goal or self.goal_is_escape:
@@ -1324,10 +1762,18 @@ class FrontierExplorer(Node):
 
             elif self.goal_cancelled_for_scan:
 
-                # Interrupted for a requested scan: not the goal's fault.
+                # Interrupted for a requested scan: not the goal's fault. Checked
+                # first: once the scan cancel owns the goal, a later obstacle
+                # cancel of the same goal must not count as a strike.
                 self.get_logger().info('Goal paused for the requested scan.')
                 self.emit_goal_outcome('goal_cancelled', 'paused for requested scan')
                 self.log_goal_ended('paused')
+
+            elif self.goal_cancelled_for_obstacle and self.goal_is_escape:
+
+                # Something came close on the way: not proof the spot is
+                # unreachable. Back up (already queued) and keep exploring.
+                self.record_escape_interrupted()
 
             else:
 
@@ -1350,6 +1796,28 @@ class FrontierExplorer(Node):
         self.goal_active = False
         self.goal_sent_time = None
         self.goal_cancelled_for_scan = False
+        self.goal_cancelled_for_obstacle = False
+
+    def record_escape_interrupted(self):
+        """
+        Note an escape trip cut short by an obstacle in front.
+
+        The destination is neither blacklisted nor treated as unreachable. A
+        remembered spot gets a strike instead, and is forgotten after
+        OBSTACLE_STRIKES of them (spot_memory.py).
+        """
+        self.get_logger().warn(
+            'Trip to open space interrupted by an obstacle on the way; '
+            'not counting it against that spot.'
+        )
+        self.emit_goal_outcome('goal_cancelled', 'interrupted by obstacle ahead')
+        self.log_goal_ended('interrupted')
+        if self.escape_spot is not None and self.spot_memory.strike(self.escape_spot):
+            self.get_logger().info(
+                'Obstacles interrupted the trip to that remembered spot twice; '
+                'forgetting it.'
+            )
+        self.escape_spot = None
 
     # ==========================================================
     # SCAN ON REQUEST
@@ -1520,11 +1988,11 @@ class FrontierExplorer(Node):
         gap = free_distance_ahead(
             view[0], view[1], view[2], view[3], self.obstacle_stop_distance
         )
-        distance = min(max(float(self.backup_distance), 0.05), 0.5)
+        distances = recovery_distances(self.backup_distance)
         move = None
         if gap is not None:
-            move, _reason, leaving = assess_recovery(
-                *view[:4], distance, scan, age, SCAN_MAX_AGE_SEC
+            move, _reason, leaving = assess_recovery_steps(
+                *view[:4], distances, scan, age, SCAN_MAX_AGE_SEC
             )
         decision = latch_decision(gap is not None, move)
         if decision == 'hold':
@@ -1547,6 +2015,7 @@ class FrontierExplorer(Node):
         self.recovery_move = (
             x, y, yaw, move, grid.header.frame_id, time.monotonic(), leaving
         )
+        self.recovery_kind = 'recovery'
         kind = 'leaving' if leaving else 'recovery'
         self.emit_event(
             'recovery_started',
@@ -1650,9 +2119,9 @@ class FrontierExplorer(Node):
                 f'scan frame is {scan.header.frame_id}, not {self.robot_frame}'
             )
             return
-        distance = min(max(float(self.backup_distance), 0.05), 0.5)
-        move, reason, leaving = assess_recovery(
-            *view[:4], distance, scan, self._scan_age(), SCAN_MAX_AGE_SEC
+        distances = recovery_distances(self.backup_distance)
+        move, reason, leaving = assess_recovery_steps(
+            *view[:4], distances, scan, self._scan_age(), SCAN_MAX_AGE_SEC
         )
         if move is None:
             if self._try_recovery_turn(scan):
@@ -1663,6 +2132,7 @@ class FrontierExplorer(Node):
         self.recovery_move = (
             x, y, yaw, move, grid.header.frame_id, time.monotonic(), leaving
         )
+        self.recovery_kind = 'recovery'
         kind = 'leaving' if leaving else 'recovery'
         self.emit_event(
             'recovery_started',
@@ -1768,7 +2238,10 @@ class FrontierExplorer(Node):
         # envelope is the one the abort limits above enforce. The scan is in
         # the robot's current frame, so it checks the rest of the move from
         # here, with the full drift allowance again (stricter).
-        scale = max(0.10, distance - progress) / distance
+        # Keep the old 10 cm minimum look-ahead for normal moves, but never
+        # check farther than a deliberately shorter fallback move can travel.
+        look_ahead = max(min(0.10, distance), distance - progress)
+        scale = look_ahead / distance
         step = (move[0] * scale, move[1] * scale)
         if not scan_covers_move(scan, *step, leaving=leaving) or not swept_clear(
             view[0], *start_pose, *move, start=max(0.0, progress),
@@ -1815,13 +2288,19 @@ class FrontierExplorer(Node):
             pose, view, started, progress, distance, across, move, (x, y, yaw),
             leaving,
         )
+        socialnav = self.recovery_kind == 'socialnav'
         if reason is not None:
             self.recovery_move = None
+            if socialnav:
+                # The lidar wins: drop the goal and back up, rather than latch.
+                self.socialnav_blocked(reason)
+                return
             self._stop_for(reason)
             return
+        speed = self.socialnav_speed if socialnav else RECOVERY_SPEED_MPS
         command = Twist()
-        command.linear.x = RECOVERY_SPEED_MPS * move[0] / distance
-        command.linear.y = RECOVERY_SPEED_MPS * move[1] / distance
+        command.linear.x = speed * move[0] / distance
+        command.linear.y = speed * move[1] / distance
         self.recovery_pub.publish(command)
 
     def start_maneuver(self, client, goal, name, time_allowance):
@@ -1937,6 +2416,8 @@ class FrontierExplorer(Node):
 
         if self.maneuver_name == 'Scan' and status != 4:
             self._stop_for(f'scan maneuver ended with status {status}')
+        if self.maneuver_name == 'Scan' and status == 4:
+            self.remember_scan_spot()
         if self.maneuver_name == RECOVERY_TURN_NAME:
             if status == 4:
                 self.failed_turn_sign = 0
@@ -2010,7 +2491,7 @@ class FrontierExplorer(Node):
         )
 
     def _adopt_orphan(self, handle, client):
-        """Nav2 accepted a maneuver the explorer had already given up on.
+        """Nav2 accepted an action the explorer had already given up on.
         Cancel it and block motion until it's confirmed ended."""
 
         handle.cancel_goal_async()
@@ -2019,7 +2500,7 @@ class FrontierExplorer(Node):
         handle.get_result_async().add_done_callback(
             lambda f, o=orphan: self._orphan_result(f, o)
         )
-        reason = 'Nav2 accepted an abandoned turn/back-up late'
+        reason = 'Nav2 accepted an abandoned action late'
         if self.recovery_fault:
             # Keep the existing stop's reason and requirements.
             self.recovery_move = None
@@ -2036,7 +2517,7 @@ class FrontierExplorer(Node):
         if status in TERMINAL_ACTION_STATUSES and orphan in self.orphans:
             self.orphans.remove(orphan)
             self.get_logger().info(
-                f'Late turn/back-up ended in Nav2 (status {status}).'
+                f'Late action ended in Nav2 (status {status}).'
             )
 
     def _check_unresolved(self):
@@ -2050,7 +2531,7 @@ class FrontierExplorer(Node):
             )
             if ended:
                 self.orphans.remove(orphan)
-                self.get_logger().info(f'Late turn/back-up ended ({why}).')
+                self.get_logger().info(f'Late action ended ({why}).')
 
     def finish_maneuver(self):
         # Retire this maneuver's number: any reply that still arrives for it
@@ -2122,6 +2603,9 @@ class FrontierExplorer(Node):
                 return
 
             if not self.goal_active:
+                if self.socialnav_goal is not None:
+                    self.socialnav_obstacle_ahead()
+                    return
                 self.back_away_while_idle(gap)
                 return
 
@@ -2161,13 +2645,7 @@ class FrontierExplorer(Node):
                 f'Obstacle {gap:.2f} m ahead for {self.blocked_timeout:.1f} s; '
                 'abandoning this goal and heading somewhere open.'
             )
-            # The result callback then blacklists the goal and frees the loop.
-            # Dropping the handle stops the next ticks (before Nav2 confirms)
-            # from cancelling and asking to escape again.
-            self.current_goal_handle.cancel_goal_async()
-            self.current_goal_handle = None
-            self.backup_pending = True
-            self.request_escape('obstacle ahead')
+            self.cancel_for_obstacle()
 
         except Exception as e:
             # Same reason as exploration_loop: never let a callback error
@@ -2177,6 +2655,24 @@ class FrontierExplorer(Node):
                 self._stop_for(f'obstacle watch error: {e}')
             else:
                 self.get_logger().error(f'Obstacle watch error: {e}')
+
+    def cancel_for_obstacle(self):
+        """
+        Cancel the current goal because something stayed close in front.
+
+        The result callback then frees the loop: an exploration goal is
+        blacklisted as before, an escape trip only counts as interrupted
+        (record_escape_interrupted). Dropping the handle stops the next ticks
+        (before Nav2 confirms) from cancelling and asking to escape again.
+        """
+        self.goal_cancelled_for_obstacle = True
+        self.current_goal_handle.cancel_goal_async()
+        self.current_goal_handle = None
+        self.backup_pending = True
+        # An interrupted escape only backs up: heading off on another escape
+        # right away would undo "interrupted, not failed".
+        if not self.goal_is_escape:
+            self.request_escape('obstacle ahead')
 
     def yield_for_people(self):
         """While driving to a goal, hold still when a person, their next
@@ -2274,12 +2770,85 @@ class FrontierExplorer(Node):
         self.log_event(f'stuck: {reason}')
         self.escape_pending = True
 
-    def start_escape(self):
-        """Send a goal to the nearest roomy spot on the SLAM map. A scan
-        follows on arrival (scan_after_goal), then exploring resumes."""
+    def remember_scan_spot(self):
+        """
+        Remember this spot after a full scan turn, if it had room.
 
+        Room means the lidar saw at least open_space_clearance all around
+        (spot_memory.py).
+        """
+        position = self.get_robot_position()
+        scan = self.latest_scan
+        if position is None or scan is None:
+            return
+        # Only a full turn with a fresh scan that looks all the way around
+        # proves the room; an old or patchy scan could miss a close wall.
+        age = self._scan_age()
+        if (
+            self.scan_yaw < 0.95 * 2.0 * math.pi
+            or age is None or age > SCAN_MAX_AGE_SEC
+            or not scan_covers_circle(scan.angle_min, scan.angle_increment, scan.ranges)
+        ):
+            return
+        clearance = scan_clearance(scan.ranges, scan.range_min, scan.range_max)
+        if self.spot_memory.remember(*position, clearance, time.monotonic()):
+            self.get_logger().info(
+                f'Remembered open spot x={position[0]:.2f}, y={position[1]:.2f} '
+                f'({clearance:.2f} m of room).'
+            )
+
+    def spot_still_open(self, spot):
+        """
+        Check a remembered spot is still worth going back to.
+
+        The current SLAM map must still show open_space_clearance of room
+        there, and Nav2 must not have failed to reach it lately.
+        """
+        resolution = self.map.info.resolution
+        cell = tuple(int(math.floor(v)) for v in self.world_to_grid(spot.x, spot.y))
+        return (
+            has_clearance(
+                self.map.data, self.map.info.width, self.map.info.height, cell,
+                int(math.ceil(self.open_space_clearance / resolution)),
+            )
+            and not self.is_goal_blacklisted(spot.x, spot.y)
+        )
+
+    def closest_remembered_spot(self, start):
+        """
+        Return (spot, walk in m) for the closest usable remembered spot.
+
+        Closest means the shortest walk through known-free map cells from
+        `start` (a grid cell), up to SPOT_WALK_MAX_M; (None, None) if none.
+        """
+        resolution = self.map.info.resolution
+        steps = walking_distances(
+            self.map.data, self.map.info.width, self.map.info.height, start,
+            int(SPOT_WALK_MAX_M / resolution),
+        )
+
+        def walk(spot):
+            cell = tuple(int(math.floor(v)) for v in self.world_to_grid(spot.x, spot.y))
+            n = steps.get(cell)
+            return None if n is None else n * resolution
+
+        spot = choose_closest_spot(
+            self.spot_memory.spots, walk, OPEN_SPACE_MIN_MOVE_M, self.spot_still_open
+        )
+        return (None, None) if spot is None else (spot, walk(spot))
+
+    def start_escape(self):
+        """
+        Send a goal to a spot with room, to get unstuck.
+
+        First the last remembered open spot the map still shows open, else
+        the nearest roomy spot on the SLAM map. A scan follows on arrival
+        (scan_after_goal), then exploring resumes.
+        """
         self.escape_pending = False
         self.last_escape_time = time.monotonic()
+        skip_memory, self.escape_skip_memory = self.escape_skip_memory, False
+        self.escape_spot = None
 
         position = self.get_robot_position()
         if self.map is None or position is None:
@@ -2288,6 +2857,20 @@ class FrontierExplorer(Node):
 
         resolution = self.map.info.resolution
         start = tuple(int(math.floor(v)) for v in self.world_to_grid(*position))
+
+        if self.use_spot_memory and not skip_memory:
+            spot, walk = self.closest_remembered_spot(start)
+            if spot is not None:
+                self.get_logger().info(
+                    f'Going back to the closest open spot it scanned from: '
+                    f'x={spot.x:.2f}, y={spot.y:.2f} ({walk:.1f} m walk, '
+                    f'{spot.clearance:.2f} m of room).'
+                )
+                self.escape_spot = spot
+                if self.send_goal(spot.x, spot.y, is_escape=True):
+                    return
+                self.escape_spot = None
+
         found = find_open_space(
             self.map.data,
             self.map.info.width,
@@ -2328,6 +2911,46 @@ class FrontierExplorer(Node):
             # it. Log and skip this cycle instead; the next timer tick
             # tries again.
             self.get_logger().error(f'Exploration loop error: {e}')
+
+    def handle_stalled_goal(self):
+        """
+        Give up on a goal Nav2 never reported a result for; True if it did.
+
+        If a goal was accepted but Nav2 never reported a result (e.g. the
+        action server dropped the connection post-acceptance), neither
+        done-callback will ever fire, so exploration would stall forever.
+        """
+        if not (
+            self.goal_active
+            and self.goal_sent_time is not None
+            and time.monotonic() - self.goal_sent_time > self.goal_timeout_sec
+        ):
+            return False
+        self.get_logger().warn(
+            'No Nav2 result after '
+            f'{self.goal_timeout_sec:.0f}s, treating goal as stalled.'
+        )
+        # Cancel it in Nav2 too: just forgetting it would leave Nav2
+        # driving there while we start a turn, back-up or new goal.
+        if self.current_goal_handle is not None:
+            self.current_goal_handle.cancel_goal_async()
+        # Same order as navigation_result_callback: a requested scan owns the
+        # cancel, then an obstacle cancel of an escape is an interruption.
+        if self.goal_cancelled_for_scan:
+            self.get_logger().info('Goal paused for the requested scan.')
+            self.emit_goal_outcome('goal_cancelled', 'paused for requested scan')
+            self.log_goal_ended('paused')
+        elif self.goal_cancelled_for_obstacle and self.goal_is_escape:
+            # The obstacle cancel was never answered: still an interruption.
+            self.record_escape_interrupted()
+        else:
+            self.record_goal_failure()
+        self.current_goal_handle = None
+        self.goal_active = False
+        self.goal_sent_time = None
+        self.goal_cancelled_for_scan = False
+        self.goal_cancelled_for_obstacle = False
+        return True
 
     def _exploration_loop_impl(self):
 
@@ -2398,30 +3021,19 @@ class FrontierExplorer(Node):
             )
             return
 
-        # If a goal was accepted but Nav2 never reported a result (e.g. the
-        # action server dropped the connection post-acceptance), neither
-        # done-callback will ever fire. Force a reset so exploration doesn't
-        # stall forever.
-        if (
-            self.goal_active
-            and self.goal_sent_time is not None
-            and time.monotonic() - self.goal_sent_time > self.goal_timeout_sec
-        ):
-            self.get_logger().warn(
-                'No Nav2 result after '
-                f'{self.goal_timeout_sec:.0f}s, treating goal as stalled.'
-            )
-            # Cancel it in Nav2 too: just forgetting it would leave Nav2
-            # driving there while we start a turn, back-up or new goal.
-            if self.current_goal_handle is not None:
-                self.current_goal_handle.cancel_goal_async()
-            self.record_goal_failure()
-            self.current_goal_handle = None
-            self.goal_active = False
-            self.goal_sent_time = None
+        # A goal Nav2 never answered: reset so exploration doesn't stall.
+        if self.handle_stalled_goal():
+            # Stop this tick: the next one runs whatever the failure queued
+            # (back-up, escape fallback, scan) before picking a frontier.
+            return
 
         # Don't issue multiple goals simultaneously.
         if self.goal_active:
+            return
+
+        # A goal SocialNav is stepping toward: keep stepping (socialnav_mode active).
+        if self.socialnav_goal is not None:
+            self.tick_socialnav()
             return
 
         robot_position = self.get_robot_position()
@@ -2508,7 +3120,11 @@ class FrontierExplorer(Node):
             f'size={size}'
         )
 
-        if self.send_goal(x, y):
+        if self.socialnav_mode == 'active':
+            sent = self.start_socialnav_goal(x, y)
+        else:
+            sent = self.send_goal(x, y)
+        if sent:
             # Sized in keys, the unit verify_frontier_shrank measures in.
             keys = self.frontier_keys(frontier)
             self.goal_frontier = (keys, len(keys))
@@ -2550,6 +3166,7 @@ class FrontierExplorer(Node):
         self.timer.cancel()
         self.watch_timer.cancel()
         self.recovery_move = None
+        self.clear_socialnav()
         self.recovery_pub.publish(Twist())
         if not self.exploration_terminal_emitted:
             self.emit_goal_outcome('goal_cancelled', 'explorer stopped')
@@ -2627,12 +3244,6 @@ class FrontierExplorer(Node):
 # How long stop() waits for Nav2 to answer goals it hasn't accepted yet.
 SHUTDOWN_ACCEPT_WAIT_SEC = 2.0
 
-
-
-
-# How long stop() waits for Nav2 to answer goals it hasn't accepted yet.
-SHUTDOWN_ACCEPT_WAIT_SEC = 2.0
-
 PR_SET_PDEATHSIG = 1  # from <linux/prctl.h>
 
 # Final action_msgs/GoalStatus values: SUCCEEDED, CANCELED, ABORTED. Only
@@ -2692,6 +3303,8 @@ FORWARD_MOTION_MPS = 0.03
 # can't immediately trigger another one.
 OPEN_SPACE_SEARCH_RADIUS_M = 4.0
 OPEN_SPACE_MIN_MOVE_M = 0.5
+# Remembered spots farther than this walk are not considered when stuck.
+SPOT_WALK_MAX_M = 8.0
 ESCAPE_COOLDOWN_SEC = 30.0
 
 # "No usable goal" this many loops in a row counts as stuck.

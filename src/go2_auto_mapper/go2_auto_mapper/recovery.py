@@ -34,6 +34,10 @@ REFRESH_TIMEOUT_SEC = 12.0
 # mapper_params_online_async.yaml minimum_travel_distance. A shorter move
 # does not make slam_toolbox publish a new /map.
 SLAM_MIN_TRAVEL_M = 0.2
+# A wedged Oak may have a safe corridor that is shorter than the normal
+# 0.3 m recovery. Try bounded shorter moves rather than releasing the latch
+# or weakening the footprint and sensor-clearance checks.
+RECOVERY_FALLBACK_DISTANCES_M = (0.15, 0.08)
 
 
 # How far a recovery move may wander before tick_recovery aborts it:
@@ -378,7 +382,7 @@ def drift_limits(leaving):
     return DRIFT_YAW_RAD, DRIFT_ACROSS_M
 
 
-def choose_recovery_mode(grid, x, y, yaw, distance, scan):
+def choose_recovery_mode(grid, x, y, yaw, distance, scan, modes=(False, True)):
     """(move, leaving): the rear or side translation with the most extra
     free travel, and whether it is a leaving move.
 
@@ -386,12 +390,12 @@ def choose_recovery_mode(grid, x, y, yaw, distance, scan):
     (judged by leaving_ok, with the back diagonals too); it must
     run with the CLOSE_DRIFT limits. (None, False) when no corridor is both
     clear on the costmap and covered by a finite scan. A missing scan is
-    not treated as a clear one.
+    not treated as a clear one. `modes` limits which kinds are tried.
     """
 
     if scan is None:
         return None, False
-    for leaving in (False, True):
+    for leaving in modes:
         safe = [
             move for move in recovery_candidates(distance, leaving)
             if swept_clear(grid, x, y, yaw, *move, leaving=leaving)
@@ -481,6 +485,24 @@ def choose_turn(scan, min_range, exclude_sign=0):
     return best
 
 
+def recovery_distances(requested, fallbacks=RECOVERY_FALLBACK_DISTANCES_M):
+    """Unique recovery distances, longest first and never above requested.
+
+    The configured distance remains the first choice. Fallbacks only make a
+    move shorter; they cannot expand the requested motion or go below the
+    existing 5 cm minimum.
+    """
+
+    maximum = min(max(float(requested), 0.05), 0.5)
+    candidates = [maximum]
+    candidates.extend(
+        min(max(float(distance), 0.05), 0.5)
+        for distance in fallbacks
+        if float(distance) < maximum
+    )
+    return tuple(dict.fromkeys(candidates))
+
+
 def scan_age(received_mono, now_mono, stamp_sec, ros_now_sec):
     """Age of a scan for safety decisions, in seconds, or None if unusable.
 
@@ -514,6 +536,33 @@ def assess_recovery(grid, x, y, yaw, distance, scan, scan_age, max_age):
             'for the footprint plus margin'
         ), False
     return move, '', leaving
+
+
+def assess_recovery_steps(grid, x, y, yaw, distances, scan, scan_age, max_age):
+    """(move, reason, leaving): the first safe move from longest to shortest
+    distance, like assess_recovery but trying each distance in turn.
+
+    Every candidate goes through the same full-body costmap and live-scan
+    checks as the original recovery. A shorter move is not permission to
+    cross an obstacle; it is only useful when the longer endpoint does not
+    fit in the measured free corridor. Normal moves at every distance come
+    before any leaving move (choose_recovery_mode).
+    """
+
+    if scan is None or scan_age is None or scan_age > max_age:
+        return None, 'stale or missing laser scan', False
+    for leaving in (False, True):
+        for distance in distances:
+            move, _ = choose_recovery_mode(
+                grid, x, y, yaw, float(distance), scan, modes=(leaving,)
+            )
+            if move is not None:
+                return move, '', leaving
+    detail = ', '.join(f'{float(distance):.2f}' for distance in distances)
+    return None, (
+        'no safe direction: rear and both sides lack clearance '
+        f'for the footprint plus margin at {detail} m'
+    ), False
 
 
 def latch_decision(forward_blocked, move):
