@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: 53d738e31761
+verified: 050d56c8071c
 ---
 
 # Auto mapper
@@ -31,7 +31,7 @@ ownership and scoring repairs separate when comparing behavior.
 1. **Look around first.** At start and after each goal, Oak turns a full circle using Nav2's Spin behavior, so the lidar sees everything around it and SLAM can place it on the map.
 2. **Find frontiers.** It scans `/map` for frontier squares and groups neighbours into regions; regions under 5 squares are treated as noise. Since 2026-10-17 this is one fast numpy pass: about 4.4 ms instead of 0.5 s on a 40 x 40 m map.
 3. **Pick a goal.** For each region it picks spots 0.8 m back into known space and at least 0.5 m from walls. It skips directions it was just blocked in, spots closer than 1.5 m, and spots without a clear straight line. Of the rest, it picks the one that would reveal the most: it casts 48 imaginary rays from each spot out to 4 m and counts unknown squares they would uncover, minus a cost per meter of walking.
-   **Optionally, ask a vision-language model (VLM).** With `vlm_mode` on, the best 4 spots are also shown to a VLM (Qwen2.5-VL) running on a cloud GPU: one camera picture toward each, taken during the last 360 degree turn. It is also told what the map says about each spot (how far, how many unknown squares). It scores each from 0 to 1 for "will walking this way show a lot of new space" (a doorway or hallway scores high, a wall or dead end low), and that score is added to the reveal score. The VLM only reorders spots the map already found safe; lidar and Nav2 still decide where Oak can walk. See [Using the VLM](#using-the-vlm). In `active` mode with the panel's VLM view on, the VLM's suggested move also counts (it is told the lidar's distance each way when it suggests one): goals within 45 degrees of that direction are worth 300 more unknown squares (`vlm_suggest_weight`), unless the lidar sees something closer than 0.8 m that way or the suggestion is over 15 s old. A suggestion only picks among goals the map already found safe, and Nav2 still drives. "Stop" is not obeyed: it changes nothing.
+   **Optionally, ask a vision-language model (VLM).** With `vlm_mode` on, the best 4 spots are also shown to a VLM (Qwen2.5-VL) running on a cloud GPU, plus the best spot on the longest unexplored edge when none of those 4 is on it (the reveal score alone tends to rank a long edge a little farther away below short near ones): one camera picture toward each, taken during the last 360 degree turn. It is also told what the map says about each spot (how far, how many unknown squares, how long its unexplored edge is, roughly from its square count, and which one is the longest edge Oak can head for now). It scores each from 0 to 1 for "will walking this way show a lot of new space" (a doorway or hallway scores high, a wall or dead end low), and that score is added to the reveal score. The VLM only reorders spots the map already found safe; lidar and Nav2 still decide where Oak can walk. See [Using the VLM](#using-the-vlm). In `active` mode with the panel's VLM view on, the VLM's suggested move also counts (it is told the lidar's distance each way when it suggests one): goals within 45 degrees of that direction are worth 300 more unknown squares (`vlm_suggest_weight`), unless the lidar sees something closer than 0.8 m that way or the suggestion is over 15 s old. A suggestion only picks among goals the map already found safe, and Nav2 still drives. "Stop" is not obeyed: it changes nothing.
 4. **Go.** It sends the goal to [Nav2](nav2.md) on `/navigate_to_pose`, exactly like clicking "Nav2 Goal" in RViz, so Nav2's obstacle avoidance still applies.
 5. **Learn from it.** If a visit did not shrink the frontier (the opening can't be seen into), that frontier is skipped for 2 minutes. Failed goals are also skipped for 2 minutes.
 6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap. It tries the configured distance first, then bounded 0.15 m and 0.08 m fallbacks when the longer move cannot fit, sliding at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If nothing is safe, it stays stopped and logs why.
@@ -97,6 +97,7 @@ frontier, change a threshold or send motion.
 | `vlm_timeout` | `8.0` | Seconds to wait for the VLM before going with the map score alone |
 | `nav_log_dir` | empty | Folder for the navigation log; empty is off |
 | `vlm_candidates` | `4` | How many of the best spots to show the VLM |
+| `vlm_include_longest` | `true` | Also show the VLM the best spot on the longest unexplored edge when the best spots miss it |
 
 ### The navigation log
 

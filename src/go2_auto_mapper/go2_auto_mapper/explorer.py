@@ -67,11 +67,13 @@ from go2_auto_mapper.nav_log import NavLog, known_cell_count
 from go2_auto_mapper.vlm_ranking import (
     ViewMemory,
     VlmClient,
+    frontier_fact,
     match_score,
     suggestion_bonus,
     usable_heading,
     vlm_bonus,
     vlm_mode_name,
+    vlm_shortlist,
 )
 
 
@@ -127,6 +129,10 @@ class FrontierExplorer(Node):
         self.declare_parameter('vlm_weight', 400.0)
         self.declare_parameter('vlm_timeout', 8.0)
         self.declare_parameter('vlm_candidates', 4)
+        # Also ask about the best spot on the longest frontier when the best
+        # vlm_candidates goals miss it; the reveal score alone ranks long
+        # frontiers a little farther away below short near ones.
+        self.declare_parameter('vlm_include_longest', True)
         # In active mode, unknown cells a goal is worth extra for lying the way
         # vlm_view last suggested. Needs the panel's VLM view on.
         self.declare_parameter('vlm_suggest_weight', 300.0)
@@ -930,6 +936,7 @@ class FrontierExplorer(Node):
         self.vlm_weight = self.get_parameter('vlm_weight').value
         self.vlm_timeout = self.get_parameter('vlm_timeout').value
         self.vlm_candidates = max(1, self.get_parameter('vlm_candidates').value)
+        self.vlm_include_longest = bool(self.get_parameter('vlm_include_longest').value)
         self.vlm_client = VlmClient(
             url,
             self.get_parameter('vlm_model').value,
@@ -1014,7 +1021,7 @@ class FrontierExplorer(Node):
             else:
                 self.vlm_ranking = result
 
-        top = sorted(pool, key=lambda c: c[0])[:self.vlm_candidates]
+        top = vlm_shortlist(pool, self.vlm_candidates, self.vlm_include_longest)
         fresh = (
             self.vlm_ranking is not None
             and now - self.vlm_ranking.finished_at < VLM_RESULT_MAX_AGE_SEC
@@ -1113,9 +1120,17 @@ class FrontierExplorer(Node):
             return False
         # The score is -(revealed - cells_per_meter * walk), so the cells can be
         # had back without casting the rays again.
+        # Frontier length from its cell count, and which goal is on the
+        # longest one (only said when the shortlist looks for it).
+        resolution = self.map.info.resolution
+        longest_cells = max(c[3] for c in top)
         facts = [
-            f'The map says it is {c[7]:.1f} m away and could show about '
-            f'{max(0, round(self.info_gain_cells_per_meter * c[7] - c[0]))} unknown cells.'
+            frontier_fact(
+                c[7],
+                max(0, round(self.info_gain_cells_per_meter * c[7] - c[0])),
+                c[3] * resolution,
+                self.vlm_include_longest and c[3] == longest_cells,
+            )
             for c in top
         ]
         self.vlm_client.submit([(c[1], c[2]) for c in top], frames, facts)
