@@ -8,6 +8,7 @@ from go2_auto_mapper.vlm_ranking import (
     MOVE_CLEAR_M,
     Ranking,
     ViewMemory,
+    VlmClient,
     suggestion_message,
 )
 
@@ -41,7 +42,7 @@ def explorer_stub(mode, client, nav_log=None):
         data=[-1, 0])
     node = SimpleNamespace(
         vlm_mode=mode, vlm_client=client, vlm_weight=400.0, vlm_timeout=8.0,
-        vlm_candidates=4, vlm_ranking=None, vlm_wait_started=None,
+        vlm_candidates=4, vlm_include_longest=True, vlm_ranking=None, vlm_wait_started=None,
         vlm_retry_after=0.0, views=ViewMemory(bins=8), messages=messages,
         info_gain_cells_per_meter=100.0, nav_log=nav_log, map=grid,
     )
@@ -170,3 +171,89 @@ def test_no_views_means_map_score_alone():
     node.views = ViewMemory(bins=8)
     assert FrontierExplorer.rank_with_vlm(node, POOL, 0.0, 0.0) == POOL
     assert client.asked == []
+
+
+# Five goals: the best four by map score are on short frontiers; the fifth,
+# worst by map score, is on by far the longest frontier (60 cells).
+LONG_POOL = [(-500.0, 3.0, 0.0, 10, True, True, False, 10.0, []),
+             (-480.0, 0.0, 3.0, 10, True, True, False, 10.0, []),
+             (-460.0, -3.0, 0.0, 10, True, True, False, 10.0, []),
+             (-440.0, 0.0, -3.0, 10, True, True, False, 10.0, []),
+             (-300.0, 2.0, 2.0, 60, True, True, False, 10.0, [])]
+
+
+def test_vlm_is_also_asked_about_the_longest_frontier():
+    client = FakeClient()
+    FrontierExplorer.rank_with_vlm(explorer_stub('active', client), LONG_POOL, 0.0, 0.0)
+    goals, _ = client.asked[0]
+    assert goals[-1] == (2.0, 2.0)
+    assert len(goals) == 5
+    assert 'longest' in client.facts[-1]
+    assert '3.0 m long' in client.facts[-1]
+
+
+def test_active_vlm_can_send_the_robot_to_the_longest_frontier():
+    goals = [(c[1], c[2]) for c in LONG_POOL]
+    ranking = Ranking(goals, [0.1, 0.1, 0.1, 0.1, 1.0], 'open hallway', time.monotonic())
+    node = explorer_stub('active', FakeClient(result=ranking))
+    ranked = FrontierExplorer.rank_with_vlm(node, LONG_POOL, 0.0, 0.0)
+    assert min(ranked, key=lambda c: c[0])[1:3] == (2.0, 2.0)
+
+
+def test_longest_frontier_left_out_when_turned_off():
+    client = FakeClient()
+    node = explorer_stub('active', client)
+    node.vlm_include_longest = False
+    FrontierExplorer.rank_with_vlm(node, LONG_POOL, 0.0, 0.0)
+    goals, _ = client.asked[0]
+    assert (2.0, 2.0) not in goals
+
+
+def test_longest_frontier_goes_through_ask_reply_pick_and_decision_log():
+    decisions = []
+    nav_log = SimpleNamespace(decision=lambda *args: decisions.append(args))
+    client = FakeClient()
+    node = explorer_stub('active', client, nav_log)
+    # A camera view facing the fifth goal, north-east of the robot.
+    node.views.remember(0.0, 0.0, 0.7854, 'frame@0.7854', time.monotonic())
+
+    assert FrontierExplorer.rank_with_vlm(node, LONG_POOL, 0.0, 0.0) is None   # asked
+    goals, frames = client.asked[0]
+    assert frames[-1] == 'frame@0.7854'
+    assert len(frames) == len(goals) == 5
+
+    client.result = Ranking(goals, [0.1, 0.1, 0.1, 0.1, 1.0], 'open hallway',
+                            time.monotonic())
+    ranked = FrontierExplorer.rank_with_vlm(node, LONG_POOL, 0.0, 0.0)
+    assert min(ranked, key=lambda c: c[0])[1:3] == (2.0, 2.0)
+    assert any('VLM differs' in m for m in node.messages)
+
+    (_, candidates, map_pick, vlm_pick, mode, _), = decisions
+    assert (map_pick, vlm_pick, mode) == (0, 4, 'active')
+    assert [c['vlm_score'] for c in candidates] == [0.1, 0.1, 0.1, 0.1, 1.0]
+
+
+def test_longest_frontier_through_the_real_client_request_and_reply():
+    sent = {}
+
+    def fake_post(url, payload, timeout, api_key):
+        content = payload['messages'][0]['content']
+        sent['prompt'] = content[0]['text']
+        sent['images'] = sum(part['type'] == 'image_url' for part in content)
+        sent['facts'] = [part['text'] for part in content if part['type'] == 'text'][1:]
+        return '{"scores": [0.1, 0.1, 0.1, 0.1, 1.0], "reason": "open hallway"}'
+
+    client = VlmClient('http://x', 'm', 1.0, encode=lambda f: f.encode(), post=fake_post)
+    node = explorer_stub('active', client)
+    node.views.remember(0.0, 0.0, 0.7854, 'frame@0.7854', time.monotonic())
+
+    assert FrontierExplorer.rank_with_vlm(node, LONG_POOL, 0.0, 0.0) is None   # asked
+    deadline = time.monotonic() + 2.0
+    while client.busy() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    ranked = FrontierExplorer.rank_with_vlm(node, LONG_POOL, 0.0, 0.0)
+
+    assert 'exactly 5 scores' in sent['prompt']
+    assert sent['images'] == 5
+    assert 'longest' in sent['facts'][-1]
+    assert min(ranked, key=lambda c: c[0])[1:3] == (2.0, 2.0)
