@@ -11,7 +11,7 @@ Part of: [Lab setup](lab-setup.md). Related: [Simulator](simulator.md), [Test lo
 
 For the exact settings and source-identity limitations behind Noah's November 8
 comparison and November 10 hallway smoke run, see
-[simulation run settings](../simulation-run-settings.md). Archived results
+[simulation run settings](simulation-run-settings.md). Archived results
 are not interchangeable with a benchmark of today's master.
 
 World: placeholder_rooms, headless Gazebo, seed 1 (same start spots every time), stall rule: stuck if Oak moves < 0.25 m in 180 s.

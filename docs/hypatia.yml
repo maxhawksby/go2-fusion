@@ -22,7 +22,7 @@ people:
     github: maxhawksby
     color: "#ff4d5e"
     discord_id: ""
-    focus: Wiki organization, repository cleanup and agentic revision
+    focus: Recovery - sensor watchdog, save and resume the map, failure drills
     past: [object-detection]
 
   - id: luis
@@ -44,14 +44,14 @@ people:
     github: AdibRouf
     color: "#9aa7bd"
     discord_id: ""
-    focus: Local Ollama/Qwen agent, then odometry and turn accuracy
+    focus: Localization - TF tree, odometry timing, SLAM settings
 
   - id: jeth
     name: Jeth
     github: jevgome
     color: "#efe3c2"
     discord_id: ""
-    focus: Piper text-to-speech through Oak's speaker
+    focus: Simulator and answer key - lab room world, tape-measured floor plans
 only_listed: true   # the people above are the whole team (as docs/team.yml was)
 drift: error        # a page whose code changed since its verified: stamp fails the check
 coverage: src
