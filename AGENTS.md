@@ -24,6 +24,7 @@ All ROS packages live under `src/`.
 | `speech_processor` | Text to speech through the robot's speaker |
 | `front_leg_controller` | Leg/posture commands |
 | `go2_sim` | Gazebo Fortress simulator: a velocity-driven Oak running the real stack, and an auto mapper trial runner |
+| `go2_scoreboard` | Records and grades auto mapper runs (distance, map, events, collisions, CPU and RAM) without controlling Oak; can replay a rosbag into the same report |
 
 `host_tools/` holds tools that run on the host, outside Docker (not ROS packages): `speech_to_text/vad_listen.py` sends microphone transcripts to `go2_llm_agent`. [Decisions](docs/wiki/decisions.md) records what came from Riley Francis's ROS2-LLM-Nav and why.
 

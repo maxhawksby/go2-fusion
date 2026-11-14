@@ -1,8 +1,15 @@
+---
+title: Simulation run settings
+parent: experiments
+---
+
 # Simulation settings behind Noah's reported scores
+
+Part of: [Experiments](experiments.md)
 
 Recorded November 10, 2026. These are historical runs, not scores for today's
 master. Percentages mean mapped floor completeness, not mission success rate.
-See also the [experiments journal](wiki/experiments.md).
+See also the [experiments journal](experiments.md).
 
 ## November 8 comparison: placeholder rooms
 
