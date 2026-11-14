@@ -53,7 +53,18 @@ from go2_auto_mapper.obstacle_sensing import (
     free_distance_ahead,
     straight_line_clear,
 )
-from go2_auto_mapper.open_space import OCCUPIED_THRESHOLD, find_open_space
+from go2_auto_mapper.open_space import (
+    OCCUPIED_THRESHOLD,
+    find_open_space,
+    has_clearance,
+    walking_distances,
+)
+from go2_auto_mapper.spot_memory import (
+    SpotMemory,
+    choose_closest_spot,
+    scan_clearance,
+    scan_covers_circle,
+)
 from go2_auto_mapper.frontier_scoring import (
     count_revealed_unknown,
     find_frontier_clusters,
@@ -161,6 +172,11 @@ class FrontierExplorer(Node):
         # side, scan there, then carry on exploring.
         self.declare_parameter('open_space_clearance', 0.8)
         self.declare_parameter('stuck_failure_count', 3)
+        # Before that, go back to the last spot it finished a 360 degree scan
+        # at with open_space_clearance of lidar room, if the map still shows
+        # it open (spot_memory.py). Remembers the last spot_memory_size.
+        self.declare_parameter('use_spot_memory', True)
+        self.declare_parameter('spot_memory_size', 10)
 
         # People from object_detection's /people (ideas from SocialNav):
         # don't pick goals in someone's personal space, across where they
@@ -212,6 +228,10 @@ class FrontierExplorer(Node):
         self.open_space_clearance = self.get_parameter(
             'open_space_clearance'
         ).value
+        self.use_spot_memory = bool(self.get_parameter('use_spot_memory').value)
+        self.spot_memory = SpotMemory(
+            self.get_parameter('spot_memory_size').value, self.open_space_clearance
+        )
         self.stuck_failure_count = self.get_parameter(
             'stuck_failure_count'
         ).value
@@ -405,6 +425,10 @@ class FrontierExplorer(Node):
         self.escape_pending = False
         self.goal_is_escape = False
         self.last_escape_time = None
+        # The remembered spot the current escape goal heads for, and whether
+        # the next escape must skip the memory (that spot just failed).
+        self.escape_spot = None
+        self.escape_skip_memory = False
 
         self.exploration_complete_logged = False
 
@@ -430,6 +454,9 @@ class FrontierExplorer(Node):
         # /frontier_explorer/scan: a 360 degree scan on request (the RViz
         # AutoMapper panel's Scan button, or `ros2 service call`).
         self.goal_cancelled_for_scan = False
+        # Set when watch_ahead cancels the goal for an obstacle in front, so
+        # its result can tell "interrupted on the way" from "can't get there".
+        self.goal_cancelled_for_obstacle = False
         self.scan_service = self.create_service(
             Trigger, '~/scan', self.handle_scan_request
         )
@@ -1240,6 +1267,7 @@ class FrontierExplorer(Node):
 
         self.goal_active = True
         self.goal_is_escape = is_escape
+        self.goal_cancelled_for_obstacle = False
         self.goal_sequence += 1
         self.active_goal_sequence = self.goal_sequence
         sequence = self.active_goal_sequence
@@ -1347,6 +1375,19 @@ class FrontierExplorer(Node):
         # Never reached, so there's no visit to judge the frontier by.
         self.goal_frontier = None
 
+        if self.goal_is_escape and self.escape_spot is not None:
+            # The remembered spot can't be reached now: forget it and try
+            # the nearest open space on the map instead, once.
+            self.spot_memory.forget(self.escape_spot)
+            self.escape_spot = None
+            self.get_logger().warn(
+                'Could not reach the remembered open spot; trying the '
+                'nearest open space instead.'
+            )
+            self.escape_skip_memory = True
+            self.escape_pending = True
+            return
+
         if self.goal_is_escape:
             # Don't escape from a failed escape (request_escape's cooldown
             # also guards this); just go back to exploring.
@@ -1390,6 +1431,7 @@ class FrontierExplorer(Node):
                 self.emit_goal_outcome('goal_reached', 'Nav2 reached goal')
                 if self.goal_is_escape:
                     self.emit_event('recovery_finished', 'reached open space')
+                    self.escape_spot = None
                 self.log_goal_ended('reached')
 
                 if self.scan_after_goal or self.goal_is_escape:
@@ -1404,10 +1446,18 @@ class FrontierExplorer(Node):
 
             elif self.goal_cancelled_for_scan:
 
-                # Interrupted for a requested scan: not the goal's fault.
+                # Interrupted for a requested scan: not the goal's fault. Checked
+                # first: once the scan cancel owns the goal, a later obstacle
+                # cancel of the same goal must not count as a strike.
                 self.get_logger().info('Goal paused for the requested scan.')
                 self.emit_goal_outcome('goal_cancelled', 'paused for requested scan')
                 self.log_goal_ended('paused')
+
+            elif self.goal_cancelled_for_obstacle and self.goal_is_escape:
+
+                # Something came close on the way: not proof the spot is
+                # unreachable. Back up (already queued) and keep exploring.
+                self.record_escape_interrupted()
 
             else:
 
@@ -1430,6 +1480,28 @@ class FrontierExplorer(Node):
         self.goal_active = False
         self.goal_sent_time = None
         self.goal_cancelled_for_scan = False
+        self.goal_cancelled_for_obstacle = False
+
+    def record_escape_interrupted(self):
+        """
+        Note an escape trip cut short by an obstacle in front.
+
+        The destination is neither blacklisted nor treated as unreachable. A
+        remembered spot gets a strike instead, and is forgotten after
+        OBSTACLE_STRIKES of them (spot_memory.py).
+        """
+        self.get_logger().warn(
+            'Trip to open space interrupted by an obstacle on the way; '
+            'not counting it against that spot.'
+        )
+        self.emit_goal_outcome('goal_cancelled', 'interrupted by obstacle ahead')
+        self.log_goal_ended('interrupted')
+        if self.escape_spot is not None and self.spot_memory.strike(self.escape_spot):
+            self.get_logger().info(
+                'Obstacles interrupted the trip to that remembered spot twice; '
+                'forgetting it.'
+            )
+        self.escape_spot = None
 
     # ==========================================================
     # SCAN ON REQUEST
@@ -2020,6 +2092,8 @@ class FrontierExplorer(Node):
 
         if self.maneuver_name == 'Scan' and status != 4:
             self._stop_for(f'scan maneuver ended with status {status}')
+        if self.maneuver_name == 'Scan' and status == 4:
+            self.remember_scan_spot()
         if self.maneuver_name == RECOVERY_TURN_NAME:
             if status == 4:
                 self.failed_turn_sign = 0
@@ -2244,13 +2318,7 @@ class FrontierExplorer(Node):
                 f'Obstacle {gap:.2f} m ahead for {self.blocked_timeout:.1f} s; '
                 'abandoning this goal and heading somewhere open.'
             )
-            # The result callback then blacklists the goal and frees the loop.
-            # Dropping the handle stops the next ticks (before Nav2 confirms)
-            # from cancelling and asking to escape again.
-            self.current_goal_handle.cancel_goal_async()
-            self.current_goal_handle = None
-            self.backup_pending = True
-            self.request_escape('obstacle ahead')
+            self.cancel_for_obstacle()
 
         except Exception as e:
             # Same reason as exploration_loop: never let a callback error
@@ -2260,6 +2328,24 @@ class FrontierExplorer(Node):
                 self._stop_for(f'obstacle watch error: {e}')
             else:
                 self.get_logger().error(f'Obstacle watch error: {e}')
+
+    def cancel_for_obstacle(self):
+        """
+        Cancel the current goal because something stayed close in front.
+
+        The result callback then frees the loop: an exploration goal is
+        blacklisted as before, an escape trip only counts as interrupted
+        (record_escape_interrupted). Dropping the handle stops the next ticks
+        (before Nav2 confirms) from cancelling and asking to escape again.
+        """
+        self.goal_cancelled_for_obstacle = True
+        self.current_goal_handle.cancel_goal_async()
+        self.current_goal_handle = None
+        self.backup_pending = True
+        # An interrupted escape only backs up: heading off on another escape
+        # right away would undo "interrupted, not failed".
+        if not self.goal_is_escape:
+            self.request_escape('obstacle ahead')
 
     def yield_for_people(self):
         """While driving to a goal, hold still when a person, their next
@@ -2357,12 +2443,85 @@ class FrontierExplorer(Node):
         self.log_event(f'stuck: {reason}')
         self.escape_pending = True
 
-    def start_escape(self):
-        """Send a goal to the nearest roomy spot on the SLAM map. A scan
-        follows on arrival (scan_after_goal), then exploring resumes."""
+    def remember_scan_spot(self):
+        """
+        Remember this spot after a full scan turn, if it had room.
 
+        Room means the lidar saw at least open_space_clearance all around
+        (spot_memory.py).
+        """
+        position = self.get_robot_position()
+        scan = self.latest_scan
+        if position is None or scan is None:
+            return
+        # Only a full turn with a fresh scan that looks all the way around
+        # proves the room; an old or patchy scan could miss a close wall.
+        age = self._scan_age()
+        if (
+            self.scan_yaw < 0.95 * 2.0 * math.pi
+            or age is None or age > SCAN_MAX_AGE_SEC
+            or not scan_covers_circle(scan.angle_min, scan.angle_increment, scan.ranges)
+        ):
+            return
+        clearance = scan_clearance(scan.ranges, scan.range_min, scan.range_max)
+        if self.spot_memory.remember(*position, clearance, time.monotonic()):
+            self.get_logger().info(
+                f'Remembered open spot x={position[0]:.2f}, y={position[1]:.2f} '
+                f'({clearance:.2f} m of room).'
+            )
+
+    def spot_still_open(self, spot):
+        """
+        Check a remembered spot is still worth going back to.
+
+        The current SLAM map must still show open_space_clearance of room
+        there, and Nav2 must not have failed to reach it lately.
+        """
+        resolution = self.map.info.resolution
+        cell = tuple(int(math.floor(v)) for v in self.world_to_grid(spot.x, spot.y))
+        return (
+            has_clearance(
+                self.map.data, self.map.info.width, self.map.info.height, cell,
+                int(math.ceil(self.open_space_clearance / resolution)),
+            )
+            and not self.is_goal_blacklisted(spot.x, spot.y)
+        )
+
+    def closest_remembered_spot(self, start):
+        """
+        Return (spot, walk in m) for the closest usable remembered spot.
+
+        Closest means the shortest walk through known-free map cells from
+        `start` (a grid cell), up to SPOT_WALK_MAX_M; (None, None) if none.
+        """
+        resolution = self.map.info.resolution
+        steps = walking_distances(
+            self.map.data, self.map.info.width, self.map.info.height, start,
+            int(SPOT_WALK_MAX_M / resolution),
+        )
+
+        def walk(spot):
+            cell = tuple(int(math.floor(v)) for v in self.world_to_grid(spot.x, spot.y))
+            n = steps.get(cell)
+            return None if n is None else n * resolution
+
+        spot = choose_closest_spot(
+            self.spot_memory.spots, walk, OPEN_SPACE_MIN_MOVE_M, self.spot_still_open
+        )
+        return (None, None) if spot is None else (spot, walk(spot))
+
+    def start_escape(self):
+        """
+        Send a goal to a spot with room, to get unstuck.
+
+        First the last remembered open spot the map still shows open, else
+        the nearest roomy spot on the SLAM map. A scan follows on arrival
+        (scan_after_goal), then exploring resumes.
+        """
         self.escape_pending = False
         self.last_escape_time = time.monotonic()
+        skip_memory, self.escape_skip_memory = self.escape_skip_memory, False
+        self.escape_spot = None
 
         position = self.get_robot_position()
         if self.map is None or position is None:
@@ -2371,6 +2530,20 @@ class FrontierExplorer(Node):
 
         resolution = self.map.info.resolution
         start = tuple(int(math.floor(v)) for v in self.world_to_grid(*position))
+
+        if self.use_spot_memory and not skip_memory:
+            spot, walk = self.closest_remembered_spot(start)
+            if spot is not None:
+                self.get_logger().info(
+                    f'Going back to the closest open spot it scanned from: '
+                    f'x={spot.x:.2f}, y={spot.y:.2f} ({walk:.1f} m walk, '
+                    f'{spot.clearance:.2f} m of room).'
+                )
+                self.escape_spot = spot
+                if self.send_goal(spot.x, spot.y, is_escape=True):
+                    return
+                self.escape_spot = None
+
         found = find_open_space(
             self.map.data,
             self.map.info.width,
@@ -2411,6 +2584,46 @@ class FrontierExplorer(Node):
             # it. Log and skip this cycle instead; the next timer tick
             # tries again.
             self.get_logger().error(f'Exploration loop error: {e}')
+
+    def handle_stalled_goal(self):
+        """
+        Give up on a goal Nav2 never reported a result for; True if it did.
+
+        If a goal was accepted but Nav2 never reported a result (e.g. the
+        action server dropped the connection post-acceptance), neither
+        done-callback will ever fire, so exploration would stall forever.
+        """
+        if not (
+            self.goal_active
+            and self.goal_sent_time is not None
+            and time.monotonic() - self.goal_sent_time > self.goal_timeout_sec
+        ):
+            return False
+        self.get_logger().warn(
+            'No Nav2 result after '
+            f'{self.goal_timeout_sec:.0f}s, treating goal as stalled.'
+        )
+        # Cancel it in Nav2 too: just forgetting it would leave Nav2
+        # driving there while we start a turn, back-up or new goal.
+        if self.current_goal_handle is not None:
+            self.current_goal_handle.cancel_goal_async()
+        # Same order as navigation_result_callback: a requested scan owns the
+        # cancel, then an obstacle cancel of an escape is an interruption.
+        if self.goal_cancelled_for_scan:
+            self.get_logger().info('Goal paused for the requested scan.')
+            self.emit_goal_outcome('goal_cancelled', 'paused for requested scan')
+            self.log_goal_ended('paused')
+        elif self.goal_cancelled_for_obstacle and self.goal_is_escape:
+            # The obstacle cancel was never answered: still an interruption.
+            self.record_escape_interrupted()
+        else:
+            self.record_goal_failure()
+        self.current_goal_handle = None
+        self.goal_active = False
+        self.goal_sent_time = None
+        self.goal_cancelled_for_scan = False
+        self.goal_cancelled_for_obstacle = False
+        return True
 
     def _exploration_loop_impl(self):
 
@@ -2481,27 +2694,11 @@ class FrontierExplorer(Node):
             )
             return
 
-        # If a goal was accepted but Nav2 never reported a result (e.g. the
-        # action server dropped the connection post-acceptance), neither
-        # done-callback will ever fire. Force a reset so exploration doesn't
-        # stall forever.
-        if (
-            self.goal_active
-            and self.goal_sent_time is not None
-            and time.monotonic() - self.goal_sent_time > self.goal_timeout_sec
-        ):
-            self.get_logger().warn(
-                'No Nav2 result after '
-                f'{self.goal_timeout_sec:.0f}s, treating goal as stalled.'
-            )
-            # Cancel it in Nav2 too: just forgetting it would leave Nav2
-            # driving there while we start a turn, back-up or new goal.
-            if self.current_goal_handle is not None:
-                self.current_goal_handle.cancel_goal_async()
-            self.record_goal_failure()
-            self.current_goal_handle = None
-            self.goal_active = False
-            self.goal_sent_time = None
+        # A goal Nav2 never answered: reset so exploration doesn't stall.
+        if self.handle_stalled_goal():
+            # Stop this tick: the next one runs whatever the failure queued
+            # (back-up, escape fallback, scan) before picking a frontier.
+            return
 
         # Don't issue multiple goals simultaneously.
         if self.goal_active:
@@ -2769,6 +2966,8 @@ FORWARD_MOTION_MPS = 0.03
 # can't immediately trigger another one.
 OPEN_SPACE_SEARCH_RADIUS_M = 4.0
 OPEN_SPACE_MIN_MOVE_M = 0.5
+# Remembered spots farther than this walk are not considered when stuck.
+SPOT_WALK_MAX_M = 8.0
 ESCAPE_COOLDOWN_SEC = 30.0
 
 # "No usable goal" this many loops in a row counts as stuck.
