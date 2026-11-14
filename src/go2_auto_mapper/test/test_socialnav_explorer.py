@@ -10,6 +10,7 @@ from go2_auto_mapper.socialnav_follow import ANSWER_TIMEOUT_SEC, Answer
 # The explorer methods these tests run for real; SocialNav, Nav2 and sensors are faked.
 REAL_METHODS = (
     'start_socialnav_goal', 'tick_socialnav', 'use_socialnav_answer', 'wait_for_socialnav',
+    'finish_path_check', 'plan_socialnav_step', 'socialnav_obstacle_ahead',
     'socialnav_step_ok', 'start_socialnav_step',
     'socialnav_blocked', 'socialnav_reached', 'clear_socialnav', 'record_goal_failure',
     'request_escape', 'tick_recovery',
@@ -225,3 +226,55 @@ def test_a_slide_drives_at_the_socialnav_speed():
     node.tick_recovery()
     command = node.published[-1]
     assert math.isclose(math.hypot(command.linear.x, command.linear.y), 0.07)
+
+
+def test_all_five_waypoints_are_walked_before_asking_again():
+    node = explorer_stub()
+    node.start_socialnav_goal(3.0, 0.0)
+    node.socialnav_client.answer = answer([[0.0, 0.3 * (i + 1)] for i in range(5)])
+    node.tick_socialnav()                       # first answer: plan step 1
+    node.tick_socialnav()                       # slide 1
+    assert math.isclose(node.recovery_move[3][0], 0.3)
+    node.recovery_move = None                   # slide 1 done
+    node.pose = (0.3, 0.0, 0.0)
+    node.tick_socialnav()                       # step 2 from the stored waypoints
+    node.tick_socialnav()
+    assert math.isclose(node.recovery_move[3][0], 0.3)
+    assert len(node.socialnav_client.asked) == 1    # SocialNav not asked again yet
+
+
+def test_a_planner_approval_is_dropped_if_oak_moved_meanwhile():
+    node = explorer_stub()
+    node.start_socialnav_goal(3.0, 0.0)
+    node.socialnav_client.answer = answer([[0.0, 0.4]] * 5)
+    node.tick_socialnav()                       # step planned from (0, 0)
+    node.pose = (-0.3, 0.0, 0.0)                # a back-up ran meanwhile
+    node.tick_socialnav()
+    assert node.recovery_move is None           # old approval not used
+    node.tick_socialnav()                       # checked again from here
+    node.tick_socialnav()
+    assert math.isclose(node.recovery_move[3][0], 0.5)   # 0.7 m to go, capped at 0.5
+
+
+def test_lidar_room_is_checked_out_to_the_waypoint_not_the_short_step():
+    # Waypoint 2 m ahead, wall 1 m ahead: a 0.5 m step would fit, the waypoint doesn't.
+    node = blocked_by(lambda n: (setattr(n.latest_scan, 'ranges', [1.0] * 360),
+                                 setattr(n.socialnav_client, 'answer',
+                                         answer([[0.0, 2.0]] * 5))))
+    assert_goal_dropped(node)
+
+
+def test_holding_for_socialnav_ignores_an_obstacle_ahead():
+    node = explorer_stub()
+    node.start_socialnav_goal(3.0, 0.0)
+    node.socialnav_holding = True
+    node.socialnav_obstacle_ahead()
+    assert node.socialnav_goal == (3.0, 0.0)
+    assert not node.backup_pending and node.blacklist == []
+
+
+def test_an_obstacle_ahead_between_slides_drops_the_goal():
+    node = explorer_stub()
+    node.start_socialnav_goal(3.0, 0.0)
+    node.socialnav_obstacle_ahead()
+    assert_goal_dropped(node)

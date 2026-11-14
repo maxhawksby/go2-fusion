@@ -70,6 +70,7 @@ from go2_auto_mapper.socialnav_follow import (
     NO_PROGRESS_ANSWERS,
     ROOM_MARGIN_M,
     SocialNavClient,
+    body_offset,
     goal_reached,
     has_lidar_room,
     next_step,
@@ -1047,8 +1048,8 @@ class FrontierExplorer(Node):
         """
         Advance the SocialNav pipeline by one loop.
 
-        In order: goal reached? a planner check finished? an answer arrived (pick and check the
-        next step)? Otherwise keep asking, holding still after ANSWER_TIMEOUT_SEC without one.
+        In order: goal reached? a planner check finished? waypoints left to walk? a new answer?
+        Otherwise keep asking, holding still after ANSWER_TIMEOUT_SEC without an answer.
         """
         if self.socialnav_goal is None:
             return
@@ -1060,16 +1061,10 @@ class FrontierExplorer(Node):
             return
         now = self.monotonic()
         if self.socialnav_check is not None:
-            check = self.socialnav_check
-            if check['result'] is None:
-                if now - check['started'] > SOCIALNAV_PATH_CHECK_SEC:
-                    self.socialnav_blocked('the Nav2 planner did not answer')
-                return
-            self.socialnav_check = None
-            if not check['result']:
-                self.socialnav_blocked('the Nav2 planner found no path to the next waypoint')
-                return
-            self.start_socialnav_step(check['move'])
+            self.finish_path_check(pose)
+            return
+        if self.socialnav_points:
+            self.plan_socialnav_step(pose, now)
             return
         answer = self.socialnav_client.take_result()
         if answer is not None and self.socialnav_discard_next:
@@ -1081,12 +1076,32 @@ class FrontierExplorer(Node):
                 self.get_logger().warn(f'SocialNav gave no waypoints ({answer.reason}).')
             elif self.use_socialnav_answer(answer, pose, now):
                 return
-            elif self.socialnav_goal is None:
-                return
         self.wait_for_socialnav(now)
 
+    def finish_path_check(self, pose):
+        """Act on the planner's answer for the pending step, once it has one."""
+        check = self.socialnav_check
+        if check['result'] is None:
+            if self.monotonic() - check['started'] > SOCIALNAV_PATH_CHECK_SEC:
+                self.socialnav_blocked('the Nav2 planner did not answer')
+            return
+        self.socialnav_check = None
+        if not check['result']:
+            self.socialnav_blocked('the Nav2 planner found no path to the next waypoint')
+            return
+        moved = (
+            math.hypot(pose[0] - check['pose'][0], pose[1] - check['pose'][1])
+            > SOCIALNAV_SAME_POSE_M
+            or angle_difference(pose[2], check['pose'][2]) > SOCIALNAV_SAME_YAW_RAD
+        )
+        if moved:
+            # Something else moved Oak while the planner was thinking: that approval was for
+            # another start. The next loop checks the step again from here.
+            return
+        self.start_socialnav_step(check['move'])
+
     def use_socialnav_answer(self, answer, pose, now):
-        """Pick and check the next step from an answer; True if this loop is done."""
+        """Take new waypoints; True if this loop is done (step planned or goal dropped)."""
         if self.socialnav_holding:
             self.get_logger().info('SocialNav answering again; carrying on.')
             self.socialnav_holding = False
@@ -1101,16 +1116,24 @@ class FrontierExplorer(Node):
             return False
         self.socialnav_idle_answers = 0
         self.socialnav_points = points
-        ok, reason = self.socialnav_step_ok(move)
+        self.plan_socialnav_step(pose, now)
+        return True
+
+    def plan_socialnav_step(self, pose, now):
+        """Check the slide toward the next stored waypoint and ask the planner about it."""
+        points, move = next_step(self.socialnav_points, pose)
+        self.socialnav_points = points
+        if move is None:
+            return  # every waypoint walked: the next loop asks SocialNav again
+        ok, reason = self.socialnav_step_ok(move, body_offset(*points[0], *pose))
         if not ok:
             self.socialnav_blocked(reason)
-            return True
+            return
         x, y, yaw = pose
         end_x = x + math.cos(yaw) * move[0] - math.sin(yaw) * move[1]
         end_y = y + math.sin(yaw) * move[0] + math.cos(yaw) * move[1]
-        self.socialnav_check = {'move': move, 'started': now, 'result': None}
+        self.socialnav_check = {'move': move, 'pose': pose, 'started': now, 'result': None}
         self.request_path_check(end_x, end_y)
-        return True
 
     def wait_for_socialnav(self, now):
         """Ask for waypoints if no request is out; hold still after the timeout."""
@@ -1134,12 +1157,24 @@ class FrontierExplorer(Node):
                                             *self.socialnav_goal):
                 self.socialnav_asked_at = now
 
-    def socialnav_step_ok(self, move):
+    def socialnav_obstacle_ahead(self):
+        """
+        Handle something right in front between slides.
+
+        While holding for SocialNav, Oak stays still. Otherwise the lidar wins: drop the goal and
+        back up, as for a blocked step.
+        """
+        if self.socialnav_holding:
+            return
+        self.socialnav_blocked('obstacle ahead')
+
+    def socialnav_step_ok(self, move, target):
         """
         Check the next slide with the lidar and the costmap; (ok, reason).
 
-        The lidar wins: a stale scan, no lidar room out to the waypoint, or a body outline that
-        doesn't fit the costmap and the live scan all block the step.
+        `move` is the (forward, left) slide; `target` is the waypoint itself, which may be farther
+        than one slide. The lidar wins: a stale scan, no lidar room out to the waypoint (plus
+        ROOM_MARGIN_M), or a body outline that doesn't fit the costmap and the live scan all block.
         """
         scan = self.latest_scan
         age = self._scan_age()
@@ -1148,7 +1183,7 @@ class FrontierExplorer(Node):
         if scan.header.frame_id != self.robot_frame:
             return False, f'scan frame is {scan.header.frame_id}, not {self.robot_frame}'
         room = lidar_room(scan.ranges, scan.angle_min, scan.angle_increment,
-                          -move[1], move[0], ROOM_MARGIN_M)
+                          -target[1], target[0], ROOM_MARGIN_M)
         if not has_lidar_room(room):
             return False, 'the lidar sees no room out to the next waypoint'
         view = self.local_view()
@@ -2479,6 +2514,9 @@ class FrontierExplorer(Node):
                 return
 
             if not self.goal_active:
+                if self.socialnav_goal is not None:
+                    self.socialnav_obstacle_ahead()
+                    return
                 self.back_away_while_idle(gap)
                 return
 
@@ -3055,6 +3093,9 @@ OPEN_SPACE_SEARCH_RADIUS_M = 4.0
 OPEN_SPACE_MIN_MOVE_M = 0.5
 # How long the Nav2 planner may take to check a SocialNav step before it counts as blocked.
 SOCIALNAV_PATH_CHECK_SEC = 5.0
+# A planner approval only counts if Oak is still this close to where it was asked from.
+SOCIALNAV_SAME_POSE_M = 0.05
+SOCIALNAV_SAME_YAW_RAD = 0.05
 ESCAPE_COOLDOWN_SEC = 30.0
 
 # "No usable goal" this many loops in a row counts as stuck.
