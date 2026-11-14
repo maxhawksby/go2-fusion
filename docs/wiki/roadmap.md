@@ -24,8 +24,8 @@ He grades six things: **map completeness, mapping accuracy, exploration time, na
 ## The scorecard
 
 Every lab run should fill one row of this table. The measurement backend is the
-[Scoreboard](scoreboard.md); team tracking remains in
-[#24](https://github.com/maxhawksby/go2-fusion/issues/24) and implementation in
+[Scoreboard](scoreboard.md); team tracking is the pinned goal issue
+[#58](https://github.com/maxhawksby/go2-fusion/issues/58) and implementation in
 [#27](https://github.com/maxhawksby/go2-fusion/issues/27).
 
 | Grade | How we measure it | Pass mark |
