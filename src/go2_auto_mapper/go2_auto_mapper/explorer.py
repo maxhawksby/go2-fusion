@@ -43,7 +43,7 @@ from go2_auto_mapper.recovery import (
 )
 
 from builtin_interfaces.msg import Duration
-from nav2_msgs.action import BackUp, NavigateToPose, Spin
+from nav2_msgs.action import BackUp, ComputePathToPose, NavigateToPose, Spin
 
 import tf2_ros
 from tf2_ros import TransformException
@@ -64,6 +64,17 @@ from go2_auto_mapper.frontier_scoring import (
 )
 from go2_auto_mapper.social_space import line_crosses, parse_people, social_zones, zone_at
 from go2_auto_mapper.nav_log import NavLog, known_cell_count
+from go2_auto_mapper.socialnav import History, lidar_room
+from go2_auto_mapper.socialnav_follow import (
+    ANSWER_TIMEOUT_SEC,
+    NO_PROGRESS_ANSWERS,
+    ROOM_MARGIN_M,
+    SocialNavClient,
+    goal_reached,
+    has_lidar_room,
+    next_step,
+    waypoints_to_map,
+)
 from go2_auto_mapper.vlm_ranking import (
     ViewMemory,
     VlmClient,
@@ -130,6 +141,17 @@ class FrontierExplorer(Node):
         # In active mode, unknown cells a goal is worth extra for lying the way
         # vlm_view last suggested. Needs the panel's VLM view on.
         self.declare_parameter('vlm_suggest_weight', 300.0)
+        # SocialNav pipeline (socialnav_follow.py). 'off': goals go to Nav2 as
+        # before. 'active': the explorer still picks the goal, SocialNav plans
+        # the steps toward it, Nav2's planner and costmap and the lidar check
+        # each step, and the explorer slides there itself on /cmd_vel_mapper at
+        # socialnav_speed. SOCIALNAV_MODE and SOCIALNAV_URL set the defaults.
+        self.declare_parameter(
+            'socialnav_mode', os.environ.get('SOCIALNAV_MODE', 'off'),
+            ParameterDescriptor(dynamic_typing=True))
+        self.declare_parameter(
+            'socialnav_url', os.environ.get('SOCIALNAV_URL', 'http://localhost:8100/waypoints'))
+        self.declare_parameter('socialnav_speed', RECOVERY_SPEED_MPS)
         # Folder for the navigation log (nav_log.py); empty is off. NAV_LOG_DIR
         # sets the default, since the RViz panel's Start passes no parameters.
         self.declare_parameter('nav_log_dir', os.environ.get('NAV_LOG_DIR', ''))
@@ -429,6 +451,7 @@ class FrontierExplorer(Node):
         )
 
         self.setup_vlm()
+        self.setup_socialnav()
         nav_log_dir = self.get_parameter('nav_log_dir').value
         self.nav_log = None
         if nav_log_dir:
@@ -955,6 +978,258 @@ class FrontierExplorer(Node):
             )
         self.get_logger().info(f'VLM ranking in {self.vlm_mode} mode, asking {url}.')
 
+    # ==========================================================
+    # SOCIALNAV PIPELINE (socialnav_follow.py)
+    # ==========================================================
+
+    def setup_socialnav(self):
+        """Camera history, server client and planner check, if socialnav_mode is active."""
+        self.socialnav_mode = vlm_mode_name(self.get_parameter('socialnav_mode').value)
+        self.recovery_kind = 'recovery'
+        self.clear_socialnav()
+        if self.socialnav_mode == 'off':
+            return
+        if self.socialnav_mode != 'active':
+            self.get_logger().warn(
+                f"Unknown socialnav_mode '{self.socialnav_mode}' (off or active); not using it."
+            )
+            self.socialnav_mode = 'off'
+            return
+        url = self.get_parameter('socialnav_url').value
+        self.socialnav_speed = float(self.get_parameter('socialnav_speed').value)
+        self.socialnav_history = History()
+        self.socialnav_client = SocialNavClient(url, encode_jpeg)
+        self.path_client = ActionClient(self, ComputePathToPose, '/compute_path_to_pose')
+        self.socialnav_camera_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.socialnav_camera_callback,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        )
+        self.get_logger().info(
+            f'SocialNav pipeline active: asking {url}, sliding at {self.socialnav_speed:.2f} m/s.'
+        )
+
+    def socialnav_camera_callback(self, msg):
+        """Keep a frame with the robot's map pose about once a second."""
+        pose = self.get_robot_pose(self.map_frame)
+        if pose is not None:
+            self.socialnav_history.offer(time.monotonic(), *pose, msg)
+
+    def monotonic(self):
+        return time.monotonic()
+
+    def clear_socialnav(self):
+        # An answer still on its way belongs to the goal being dropped: discard it.
+        client = getattr(self, 'socialnav_client', None)
+        self.socialnav_discard_next = client is not None and client.busy()
+        if client is not None:
+            client.take_result()
+        self.socialnav_goal = None
+        self.socialnav_points = ()
+        self.socialnav_check = None
+        self.socialnav_asked_at = None
+        self.socialnav_waiting_since = None
+        self.socialnav_holding = False
+        self.socialnav_idle_answers = 0
+
+    def start_socialnav_goal(self, x, y):
+        """Take the explorer's goal; SocialNav plans the steps toward it."""
+        self.clear_socialnav()
+        self.socialnav_goal = (x, y)
+        self.current_goal = (x, y)
+        self.goal_is_escape = False
+        self.socialnav_waiting_since = self.monotonic()
+        self.goal_pub.publish(self.make_goal_pose(x, y))
+        self.emit_event('goal_sent', 'exploration goal (SocialNav steps)', x, y)
+        self.get_logger().info(f'Heading for x={x:.2f}, y={y:.2f} in SocialNav steps.')
+        return True
+
+    def tick_socialnav(self):
+        """
+        Advance the SocialNav pipeline by one loop.
+
+        In order: goal reached? a planner check finished? an answer arrived (pick and check the
+        next step)? Otherwise keep asking, holding still after ANSWER_TIMEOUT_SEC without one.
+        """
+        pose = self.get_robot_pose(self.map_frame)
+        if pose is None:
+            return
+        if goal_reached(pose[:2], self.socialnav_goal):
+            self.socialnav_reached()
+            return
+        now = self.monotonic()
+        if self.socialnav_check is not None:
+            check = self.socialnav_check
+            if check['result'] is None:
+                if now - check['started'] > SOCIALNAV_PATH_CHECK_SEC:
+                    self.socialnav_blocked('the Nav2 planner did not answer')
+                return
+            self.socialnav_check = None
+            if not check['result']:
+                self.socialnav_blocked('the Nav2 planner found no path to the next waypoint')
+                return
+            self.start_socialnav_step(check['move'])
+            return
+        answer = self.socialnav_client.take_result()
+        if answer is not None and self.socialnav_discard_next:
+            self.socialnav_discard_next = False
+            answer = None
+        if answer is not None:
+            self.socialnav_asked_at = None
+            if answer.waypoints is None:
+                self.get_logger().warn(f'SocialNav gave no waypoints ({answer.reason}).')
+            elif self.use_socialnav_answer(answer, pose, now):
+                return
+            elif self.socialnav_goal is None:
+                return
+        self.wait_for_socialnav(now)
+
+    def use_socialnav_answer(self, answer, pose, now):
+        """Pick and check the next step from an answer; True if this loop is done."""
+        if self.socialnav_holding:
+            self.get_logger().info('SocialNav answering again; carrying on.')
+            self.socialnav_holding = False
+        self.socialnav_waiting_since = None
+        points, move = next_step(waypoints_to_map(answer.waypoints, answer.pose), pose)
+        if move is None:
+            self.socialnav_idle_answers += 1
+            if self.socialnav_idle_answers >= NO_PROGRESS_ANSWERS:
+                self.socialnav_blocked("SocialNav's waypoints lead nowhere")
+                return True
+            self.socialnav_waiting_since = now
+            return False
+        self.socialnav_idle_answers = 0
+        self.socialnav_points = points
+        ok, reason = self.socialnav_step_ok(move)
+        if not ok:
+            self.socialnav_blocked(reason)
+            return True
+        x, y, yaw = pose
+        end_x = x + math.cos(yaw) * move[0] - math.sin(yaw) * move[1]
+        end_y = y + math.sin(yaw) * move[0] + math.cos(yaw) * move[1]
+        self.socialnav_check = {'move': move, 'started': now, 'result': None}
+        self.request_path_check(end_x, end_y)
+        return True
+
+    def wait_for_socialnav(self, now):
+        """Ask for waypoints if no request is out; hold still after the timeout."""
+        if self.socialnav_waiting_since is None:
+            self.socialnav_waiting_since = now
+        if now - self.socialnav_waiting_since > ANSWER_TIMEOUT_SEC and not self.socialnav_holding:
+            self.socialnav_holding = True
+            self.get_logger().warn(
+                f'SocialNav has not answered for {ANSWER_TIMEOUT_SEC:.0f} s; '
+                'holding still until it does.'
+            )
+            self.emit_event('socialnav_holding', 'no SocialNav answer')
+        if self.socialnav_holding:
+            self._hold_stop()
+        if (
+            self.socialnav_asked_at is None
+            and not self.socialnav_client.busy()
+            and self.socialnav_history.full()
+        ):
+            if self.socialnav_client.submit(list(self.socialnav_history.samples),
+                                            *self.socialnav_goal):
+                self.socialnav_asked_at = now
+
+    def socialnav_step_ok(self, move):
+        """
+        Check the next slide with the lidar and the costmap; (ok, reason).
+
+        The lidar wins: a stale scan, no lidar room out to the waypoint, or a body outline that
+        doesn't fit the costmap and the live scan all block the step.
+        """
+        scan = self.latest_scan
+        age = self._scan_age()
+        if scan is None or age is None or age > SCAN_MAX_AGE_SEC:
+            return False, 'the laser scan is stale or missing'
+        if scan.header.frame_id != self.robot_frame:
+            return False, f'scan frame is {scan.header.frame_id}, not {self.robot_frame}'
+        room = lidar_room(scan.ranges, scan.angle_min, scan.angle_increment,
+                          -move[1], move[0], ROOM_MARGIN_M)
+        if not has_lidar_room(room):
+            return False, 'the lidar sees no room out to the next waypoint'
+        view = self.local_view()
+        if view is None:
+            return False, 'the costmap or transforms are stale'
+        if not self.body_clear(view, move):
+            return False, "the body outline doesn't fit the costmap and scan along the slide"
+        return True, ''
+
+    def body_clear(self, view, move):
+        """The unstuck moves' check: the padded body along the slide, on costmap and scan."""
+        return (
+            swept_clear(view[0], *view[1:4], *move)
+            and scan_covers_move(self.latest_scan, *move)
+        )
+
+    def request_path_check(self, x, y):
+        """Ask Nav2's planner (without driving) for a path to (x, y); the answer lands in
+        socialnav_check['result'] as True or False."""
+        check = self.socialnav_check
+        if not self.path_client.server_is_ready():
+            check['result'] = False
+            return
+        goal = ComputePathToPose.Goal()
+        goal.goal = self.make_goal_pose(x, y)
+        goal.use_start = False
+
+        def on_result(future):
+            try:
+                result = future.result()
+                check['result'] = result.status == 4 and len(result.result.path.poses) > 0
+            except Exception:
+                check['result'] = False
+
+        def on_response(future):
+            try:
+                handle = future.result()
+            except Exception:
+                check['result'] = False
+                return
+            if not handle.accepted:
+                check['result'] = False
+                return
+            handle.get_result_async().add_done_callback(on_result)
+
+        self.path_client.send_goal_async(goal).add_done_callback(on_response)
+
+    def start_socialnav_step(self, move):
+        """Slide (forward, left) on the mapper's mux input with the unstuck moves' checks."""
+        view = self.local_view()
+        if view is None:
+            self.socialnav_blocked('the costmap or transforms are stale')
+            return
+        grid, x, y, yaw, _ = view
+        self.recovery_move = (x, y, yaw, move, grid.header.frame_id, self.monotonic(), False)
+        self.recovery_kind = 'socialnav'
+        self.get_logger().info(
+            f'SocialNav step: {move[0]:.2f} m forward, {move[1]:.2f} m left.'
+        )
+
+    def socialnav_blocked(self, reason):
+        """The lidar wins: drop this goal and back up; the explorer then picks another."""
+        self.get_logger().warn(f'SocialNav step blocked: {reason}; dropping this goal.')
+        self.recovery_move = None
+        self._hold_stop()
+        self.record_goal_failure(f'SocialNav step blocked: {reason}')
+        self.clear_socialnav()
+        self.backup_pending = True
+
+    def socialnav_reached(self):
+        """The goal is reached the way Nav2 reaching it would be handled."""
+        self.get_logger().info('Reached exploration goal in SocialNav steps.')
+        self.consecutive_failures = 0
+        self.emit_goal_outcome('goal_reached', 'SocialNav steps reached goal')
+        self.log_goal_ended('reached')
+        if self.scan_after_goal:
+            self.scan_pending = True
+        if self.goal_frontier is not None:
+            self.frontier_to_verify = self.goal_frontier
+            self.verify_not_before = None
+        self.goal_frontier = None
+        self.clear_socialnav()
+
     def suggestion_callback(self, msg):
         self.vlm_suggestion = msg.data
 
@@ -1196,6 +1471,16 @@ class FrontierExplorer(Node):
     # SEND NAVIGATION GOAL
     # ==========================================================
 
+    def make_goal_pose(self, x, y):
+        """A map-frame pose at (x, y), keeping the robot's orientation unchanged."""
+        pose = PoseStamped()
+        pose.header.frame_id = self.map_frame
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.orientation.w = 1.0
+        return pose
+
     def send_goal(self, x, y, is_escape=False):
         """Send a Nav2 goal; False if Nav2 isn't ready yet."""
 
@@ -1207,16 +1492,7 @@ class FrontierExplorer(Node):
 
         goal = NavigateToPose.Goal()
 
-        goal.pose = PoseStamped()
-
-        goal.pose.header.frame_id = self.map_frame
-        goal.pose.header.stamp = self.get_clock().now().to_msg()
-
-        goal.pose.pose.position.x = x
-        goal.pose.pose.position.y = y
-
-        # Keep robot orientation unchanged.
-        goal.pose.pose.orientation.w = 1.0
+        goal.pose = self.make_goal_pose(x, y)
 
         self.get_logger().info(
             f'Sending {"escape" if is_escape else "exploration"} goal: '
@@ -1612,6 +1888,7 @@ class FrontierExplorer(Node):
         self.recovery_move = (
             x, y, yaw, move, grid.header.frame_id, time.monotonic(), leaving
         )
+        self.recovery_kind = 'recovery'
         kind = 'leaving' if leaving else 'recovery'
         self.emit_event(
             'recovery_started',
@@ -1728,6 +2005,7 @@ class FrontierExplorer(Node):
         self.recovery_move = (
             x, y, yaw, move, grid.header.frame_id, time.monotonic(), leaving
         )
+        self.recovery_kind = 'recovery'
         kind = 'leaving' if leaving else 'recovery'
         self.emit_event(
             'recovery_started',
@@ -1883,13 +2161,19 @@ class FrontierExplorer(Node):
             pose, view, started, progress, distance, across, move, (x, y, yaw),
             leaving,
         )
+        socialnav = self.recovery_kind == 'socialnav'
         if reason is not None:
             self.recovery_move = None
+            if socialnav:
+                # The lidar wins: drop the goal and back up, rather than latch.
+                self.socialnav_blocked(reason)
+                return
             self._stop_for(reason)
             return
+        speed = self.socialnav_speed if socialnav else RECOVERY_SPEED_MPS
         command = Twist()
-        command.linear.x = RECOVERY_SPEED_MPS * move[0] / distance
-        command.linear.y = RECOVERY_SPEED_MPS * move[1] / distance
+        command.linear.x = speed * move[0] / distance
+        command.linear.y = speed * move[1] / distance
         self.recovery_pub.publish(command)
 
     def start_maneuver(self, client, goal, name, time_allowance):
@@ -2492,6 +2776,11 @@ class FrontierExplorer(Node):
         if self.goal_active:
             return
 
+        # A goal SocialNav is stepping toward: keep stepping (socialnav_mode active).
+        if self.socialnav_goal is not None:
+            self.tick_socialnav()
+            return
+
         robot_position = self.get_robot_position()
 
         if robot_position is None:
@@ -2576,7 +2865,11 @@ class FrontierExplorer(Node):
             f'size={size}'
         )
 
-        if self.send_goal(x, y):
+        if self.socialnav_mode == 'active':
+            sent = self.start_socialnav_goal(x, y)
+        else:
+            sent = self.send_goal(x, y)
+        if sent:
             # Sized in keys, the unit verify_frontier_shrank measures in.
             keys = self.frontier_keys(frontier)
             self.goal_frontier = (keys, len(keys))
@@ -2618,6 +2911,7 @@ class FrontierExplorer(Node):
         self.timer.cancel()
         self.watch_timer.cancel()
         self.recovery_move = None
+        self.clear_socialnav()
         self.recovery_pub.publish(Twist())
         if not self.exploration_terminal_emitted:
             self.emit_goal_outcome('goal_cancelled', 'explorer stopped')
@@ -2754,6 +3048,8 @@ FORWARD_MOTION_MPS = 0.03
 # can't immediately trigger another one.
 OPEN_SPACE_SEARCH_RADIUS_M = 4.0
 OPEN_SPACE_MIN_MOVE_M = 0.5
+# How long the Nav2 planner may take to check a SocialNav step before it counts as blocked.
+SOCIALNAV_PATH_CHECK_SEC = 5.0
 ESCAPE_COOLDOWN_SEC = 30.0
 
 # "No usable goal" this many loops in a row counts as stuck.
