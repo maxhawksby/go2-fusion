@@ -107,6 +107,7 @@ def test_submission_binds_response_to_sequence_at_send_time():
     response = Future()
     node.map_frame = 'map'
     node.get_clock = lambda: NS(now=lambda: NS(to_msg=lambda: Time()))
+    node.make_goal_pose = MethodType(FrontierExplorer.make_goal_pose, node)
     node.goal_pub = NS(publish=lambda _msg: None)
     node._track_submission = lambda *_args: None
     node.nav_client = NS(server_is_ready=lambda: True, send_goal_async=lambda _goal: response)

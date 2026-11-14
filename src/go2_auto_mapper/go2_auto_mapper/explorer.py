@@ -1050,6 +1050,8 @@ class FrontierExplorer(Node):
         In order: goal reached? a planner check finished? an answer arrived (pick and check the
         next step)? Otherwise keep asking, holding still after ANSWER_TIMEOUT_SEC without one.
         """
+        if self.socialnav_goal is None:
+            return
         pose = self.get_robot_pose(self.map_frame)
         if pose is None:
             return
@@ -1157,15 +1159,18 @@ class FrontierExplorer(Node):
         return True, ''
 
     def body_clear(self, view, move):
-        """The unstuck moves' check: the padded body along the slide, on costmap and scan."""
+        """Check the padded body along the slide on costmap and scan, as unstuck moves do."""
         return (
             swept_clear(view[0], *view[1:4], *move)
             and scan_covers_move(self.latest_scan, *move)
         )
 
     def request_path_check(self, x, y):
-        """Ask Nav2's planner (without driving) for a path to (x, y); the answer lands in
-        socialnav_check['result'] as True or False."""
+        """
+        Ask Nav2's planner, without driving, for a path to (x, y).
+
+        The answer lands in socialnav_check['result'] as True or False.
+        """
         check = self.socialnav_check
         if not self.path_client.server_is_ready():
             check['result'] = False
@@ -1208,7 +1213,7 @@ class FrontierExplorer(Node):
         )
 
     def socialnav_blocked(self, reason):
-        """The lidar wins: drop this goal and back up; the explorer then picks another."""
+        """Drop this goal and back up (the lidar wins); the explorer then picks another."""
         self.get_logger().warn(f'SocialNav step blocked: {reason}; dropping this goal.')
         self.recovery_move = None
         self._hold_stop()
@@ -1217,7 +1222,7 @@ class FrontierExplorer(Node):
         self.backup_pending = True
 
     def socialnav_reached(self):
-        """The goal is reached the way Nav2 reaching it would be handled."""
+        """End the goal the way Nav2 reaching it would be handled."""
         self.get_logger().info('Reached exploration goal in SocialNav steps.')
         self.consecutive_failures = 0
         self.emit_goal_outcome('goal_reached', 'SocialNav steps reached goal')
@@ -1472,7 +1477,7 @@ class FrontierExplorer(Node):
     # ==========================================================
 
     def make_goal_pose(self, x, y):
-        """A map-frame pose at (x, y), keeping the robot's orientation unchanged."""
+        """Build a map-frame pose at (x, y), keeping the robot's orientation unchanged."""
         pose = PoseStamped()
         pose.header.frame_id = self.map_frame
         pose.header.stamp = self.get_clock().now().to_msg()
