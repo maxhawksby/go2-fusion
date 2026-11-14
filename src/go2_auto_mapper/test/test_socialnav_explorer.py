@@ -240,7 +240,7 @@ def test_all_five_waypoints_are_walked_before_asking_again():
     node.tick_socialnav()                       # step 2 from the stored waypoints
     node.tick_socialnav()
     assert math.isclose(node.recovery_move[3][0], 0.3)
-    assert len(node.socialnav_client.asked) == 1    # SocialNav not asked again yet
+    assert node.socialnav_client.asked == []    # not asked again while waypoints remain
 
 
 def test_a_planner_approval_is_dropped_if_oak_moved_meanwhile():
