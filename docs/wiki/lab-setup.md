@@ -75,7 +75,7 @@ Ask a teammate for them, then follow the [Lab checklist](lab-checklist.md).
 
 - Every program page (for example [Keyboard teleop](keyboard-teleop.md) or [Nav2](nav2.md)) assumes the container from this hub is running.
 - The [Driver](driver.md) is what Docker starts by default: `robot.launch.py`, the full robot stack.
-- The [Test log](test-log.md) feeds the open issues on the [Oak](../../README.md) front page and the [Roadmap](roadmap.md).
+- The [Test log](test-log.md) records each session; anything still broken becomes a GitHub issue, and the results feed the [Roadmap](roadmap.md) scorecard.
 
 ## Who's on it
 

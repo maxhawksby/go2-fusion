@@ -101,6 +101,10 @@ ros2 run go2_scoreboard replay /path/to/bag --out /path/to/replays
 - Ctrl+C finalizes a partial report. A hard container or power failure leaves the last atomic checkpoint.
 - Reusing one Docker build volume across unrelated branches can leave stale build metadata. Use a separate Compose project or build volume for clean comparison runs.
 
+## Investigations
+
+- [Scoreboard distance investigation](scoreboard-distance-investigation.md): why the live distance once undercounted, and the fix.
+
 ## Who's on it and what's next
 
 **Noah** owns the scoreboard ([issue #27](https://github.com/maxhawksby/go2-fusion/issues/27)).
