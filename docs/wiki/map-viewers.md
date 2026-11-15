@@ -55,5 +55,3 @@ docker compose exec unitree_ros bash -ic 'ros2 run go2_map_viewer_cpp map_viewer
 ```
 
 After a C++ change, rebuild with `docker compose exec unitree_ros bash -ic 'cbs go2_map_viewer_cpp'`.
-
-<!-- sources: src/go2_map_viewer_cpp/README.md, src/go2_map_viewer_cpp/src/map_viewer_node.cpp, docs/USEFUL_COMMANDS.md, docs/FUSION.md row 7, docs/TEST_LOG.md -->

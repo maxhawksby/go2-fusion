@@ -103,25 +103,3 @@ Max Hawksby, Luis (LuisMend12), Noah Steinberg, Adib Rouf, and Jeth. Meet everyo
 Built on [go2_ros2_sdk](https://github.com/abizovnuralem/go2_ros2_sdk) by @abizovnuralem, using [@tfoldi](https://github.com/tfoldi)'s [go2-webrtc](https://github.com/tfoldi/go2-webrtc), with thanks to its contributors and the TheRoboVerse community. Includes Riley Francis's [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav) and [J. Francis's COCO detector](https://github.com/jfrancis71/ros2_coco_detector).
 
 BSD 2-clause License. See [LICENSE](LICENSE).
-
-<!--
-Sources:
-- Team 48, vision, $3,000 figure, current-work list, issue labels, merge rules, wiki rule: Max's answers via coordinator, 2026-10-22 (not in repo yet)
-- Humble, Docker, 5-person team: AGENTS.md intro. Robot name "Oak": docs/wiki/decisions.md, docs/wiki/mac-setup.md
-- Images: original README.md "Real time Go2 Air/PRO/EDU joints sync" and "lidar point cloud" (URLs unchanged)
-- Features verified working on the robot 2026-10-11 (connect, camera, RViz, lidar ~6.8 Hz, YOLO ~4.5 fps, twist_mux priority): docs/wiki/test-log.md. Gamepad (Xbox) LB test no longer required: the team uses the Oak ROS2 pad (docs/wiki/decisions.md follow-up 5). SLAM/Nav2 left out: Nav2 goal failed on old code, retest pending.
-- twist_mux referee and priorities: docs/wiki/decisions.md "twist_mux priorities"
-- 16 GB RAM: inferred from the docs/wiki/test-log.md build note (7.4 GB WSL ran out of memory at 16 parallel compiles). TODO(Max): confirm minimum.
-- Clone, build, aliases: CONTRIBUTING.md; docker/entrypoint.sh; docker/dev_aliases.sh; docker/Dockerfile:87-89
-- ~15 min first build: docs/wiki/lab-checklist.md
-- Keyboard publishes only while held, then one stop: docs/wiki/keyboard-teleop.md; docs/wiki/decisions.md row 16
-- Access details kept out: docs/wiki/decisions.md row 14
-- Auto mapper work: git log Oct 14-19 (LuisMend12, PRs #2-#8); docs/wiki/auto-mapper.md
-- TTS: origin/jeth/feat/tts (jevgome), origin/noah/tts-piper-review
-- AI agent: origin/adib/feat/llm-agent ("ollama agent instead of riley gpt")
-- Dashboard: origin/feat/desktop-app-prototype (Noah Steinberg; host_tools/control_dashboard, go2_dashboard_bridge, docs/DASHBOARD_LAB_GUIDE.md)
-- Computer vision memory: origin/feat/yolo-map-memory (Max Hawksby)
-- Current work: not kept here since 2026-11-11; see GitHub issues (goal issue #58) and docs/wiki/roadmap.md
-- Automatic checks: .github/workflows/ros_build.yaml
-- Credits/license: original README.md "Thanks" and "License"; LICENSE
--->

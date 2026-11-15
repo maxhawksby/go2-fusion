@@ -97,5 +97,3 @@ docker compose exec unitree_ros bash -ic 'ros2 topic echo /detected_objects_dict
 ```
 
 Try other weights without rebuilding: add `--ros-args -p model_path:=/path/to/weights.pt`. Python edits need only a node restart, no rebuild. On a Windows host add `-f docker-compose.windows.yml` after `docker compose`.
-
-<!-- sources: src/object_detection/README.md, src/object_detection/object_detection/detector_node.py, src/coco_detector/coco_detector/coco_detector_node.py, src/coco_detector/README.md, docs/FUSION.md (rows 1, follow-up 3), docs/TEST_LOG.md (2026-10-11), coco_detector README parameters and origin (2026-10-22 README trim), AGENTS.md, src/go2_llm_agent/README.md, src/object_navigation/README.md, origin/feat/yolo-map-memory commits b078372 2e66325 3ac8bce and its object_detection README, contract team updates week of 2026-10-18 -->

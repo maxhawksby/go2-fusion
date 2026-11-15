@@ -102,5 +102,3 @@ curl -X POST http://localhost:8000/command -H "Content-Type: application/json" \
 ```
 
 Adib's version only publishes to ROS with `--mode ros`. Do that only in the lab, next to Oak, with the keyboard ready.
-
-<!-- sources: src/go2_llm_agent/README.md (folded in 2026-10-22); docs/FUSION.md rows 2, 3, 11 and "Decided after the fusion"; docs/plans/pending/2026-10-08-claude-llm-agent.md; origin/adib/feat/llm-agent (38a6980: go2_llm_agent/README.md, commands.py, agent.py, FUSION.md and plan-file diffs); AGENTS.md; team update (Adib) week of 2026-10-18 -->

@@ -62,9 +62,3 @@ The three most common lab problems, from the records:
 1. **Not on the robot's network** (the `con_notify` error). Always ping first.
 2. **Phone app still connected**, so the dog refuses or drops you.
 3. **Missing AES key** on newer firmware (RSA or key error).
-
-## Who's on it and what's next
-
-Noah documented a repeatable lab-testing workflow for his dashboard (`docs/DASHBOARD_LAB_GUIDE.md` on branch `feat/desktop-app-prototype`). TODO(owner): merge the useful parts into this checklist once that branch lands.
-
-<!-- sources: docker/LAB_CHECKLIST.md (folded in here and deleted 2026-10-22); docs/WINDOWS_SETUP.md (lab details: ask the lab, never commit); docs/FUSION.md row 14; README.md step 3; src/go2_robot_sdk/go2_robot_sdk/main.py (retry with backoff); infrastructure/webrtc/connection_health.py (5 s stall); docs/TEST_LOG.md data stall note; origin/feat/desktop-app-prototype docs/DASHBOARD_LAB_GUIDE.md. Lab network name and robot IP deliberately omitted. -->

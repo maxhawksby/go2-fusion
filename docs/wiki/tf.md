@@ -62,5 +62,3 @@ cd docker
 docker compose exec unitree_ros bash -ic 'ros2 run tf2_ros tf2_echo map base_link'
 docker compose exec unitree_ros bash -ic 'ros2 run tf2_tools view_frames'   # writes frames.pdf
 ```
-
-<!-- sources: src/go2_robot_sdk/urdf/go2.urdf (links, joints, front_camera_joint, radar_joint, map_joint, odom_joint), launch/robot.launch.py (robot_state_publisher), go2_robot_sdk/infrastructure/ros2/ros2_publisher.py (odom transform), config/mapper_params_online_async.yaml (transform_timeout), config/nav2_params.yaml (voxel layer comments), go2_map_viewer_julia/README.md, docs/TEST_LOG.md, contract team updates (Adib) -->

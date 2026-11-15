@@ -33,7 +33,7 @@ Part of: [Team](team.md)
 
 - **GitHub:** [noahsteinberg](https://github.com/noahsteinberg). Noah Steinberg.
 - **Lane:** the scoreboard: run logger, recordings and replay ([Roadmap](roadmap.md), issue [#27](https://github.com/maxhawksby/go2-fusion/issues/27)).
-- **Pages to ask about:** [Voice](voice.md) (Piper review), [Posture](posture.md) (dashboard quick actions), [Lab setup](lab-setup.md). He also moved the packages into `src/` and organized the root docs (pull requests #7 and #9).
+- **Pages to ask about:** [Voice](voice.md) (Piper review), [Lab setup](lab-setup.md). He also moved the packages into `src/` and organized the root docs (pull requests #7 and #9).
 - **Current work:** their open [issues and pull requests](https://github.com/maxhawksby/go2-fusion/issues?q=is%3Aopen+involves%3Anoahsteinberg) on GitHub.
 
 ## Jeth
@@ -62,5 +62,3 @@ Part of: [Team](team.md)
 - **Riley Francis** wrote [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav): the YOLO detector, [Object navigation](object-navigation.md), the first [LLM agent](llm-agent.md) and the speech-to-text tool. See [Decisions](decisions.md).
 - **@abizovnuralem** and contributors wrote [go2_ros2_sdk](https://github.com/abizovnuralem/go2_ros2_sdk), the base of the driver. Go there for upstream support.
 - **@tfoldi** wrote [go2-webrtc](https://github.com/tfoldi/go2-webrtc), used to connect over Wi-Fi.
-
-<!-- sources: team updates week of 2026-10-18 (contract); git log --all authors; gh pr list (PRs #6, #7, #9, #10, #11, #13, #14 and authors); origin/feat/desktop-app-prototype host_tools/control_dashboard/README.md and src/go2_dashboard_bridge/README.md; origin/jeth/feat/tts (jevgome); origin/adib/feat/llm-agent; docs/FUSION.md; README.md credits -->

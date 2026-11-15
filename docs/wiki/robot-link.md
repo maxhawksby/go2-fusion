@@ -74,5 +74,3 @@ Unit tests for the stall detector and the per-stream watch (in a container shell
 ```shell
 cd /ros2_ws && python3 -m pytest src/go2_robot_sdk/test/test_connection_health.py
 ```
-
-<!-- sources: src/go2_robot_sdk/go2_robot_sdk/infrastructure/webrtc/go2_connection.py (handshake, data2==3, AES key errors); http_client.py (/con_notify, /con_ing_); webrtc_adapter.py is_connected; connection_health.py; main.py backoff; presentation/go2_driver_node.py (cyclonedds callbacks pass); .gitmodules; docker/entrypoint.sh; docker/LAB_CHECKLIST.md "Reading the result"; docs/WINDOWS_SETUP.md troubleshooting and Ethernet section; docs/FUSION.md row 15 and follow-up 2; team update 2026-10-18 (Jeth). TODO(owner): confirm the pytest command runs in the image. -->

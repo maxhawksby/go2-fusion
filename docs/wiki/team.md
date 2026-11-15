@@ -55,5 +55,3 @@ Every hub has a "Who's on it" section that points back here.
 ## Thanks
 
 Oak stands on other people's work: the open-source [go2_ros2_sdk](https://github.com/abizovnuralem/go2_ros2_sdk) by @abizovnuralem and its contributors, and Riley Francis's [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav), which brought the YOLO detector, object navigation, the first LLM agent and the speech-to-text tool. See [People](people.md).
-
-<!-- sources: team updates week of 2026-10-18 (contract); AGENTS.md (Git, Wiki, design rules); README.md "Team and how we work"; origin/feat/desktop-app-prototype index.html title "Oak Control | UConn Team 48"; docs/FUSION.md; README.md credits -->

@@ -66,5 +66,3 @@ docker compose up -d
 docker compose exec unitree_ros bash -ic 'ros2 topic hz /map'                 # about once a second
 docker compose exec unitree_ros bash -ic 'ros2 run tf2_ros tf2_echo map odom'
 ```
-
-<!-- sources: src/go2_robot_sdk/config/mapper_params_online_async.yaml (comments), launch/robot.launch.py (slam_toolbox node, respawn), launch/mapping.launch.py, src/go2_rviz_plugins/src/auto_mapper_panel.cpp (Reset maps), src/go2_auto_mapper/README.md, docs/USEFUL_COMMANDS.md, git log Oct 14-19 (Luis), contract team updates -->

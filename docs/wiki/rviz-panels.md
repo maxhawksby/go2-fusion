@@ -65,5 +65,3 @@ docker compose exec unitree_ros bash -ic 'cbs go2_rviz_plugins'
 ```
 
 To add a panel by hand: RViz **Panels > Add New Panel > go2_rviz_plugins**, then **File > Save Config**.
-
-<!-- sources: src/go2_rviz_plugins/README.md; src/go2_rviz_plugins/src/*.cpp (/map, /navigate_to_pose, /frontier_explorer/scan, /lidar_to_pointcloud/reset, kPublishRateHz 20); src/go2_robot_sdk/config/single_robot_conf.rviz Panels; docs/FUSION.md rows 7, 9, 16; docs/TEST_LOG.md 2026-10-11 and open issue 1; git log e1bdf14, 264939b, a51627d; team update 2026-10-18 (Luis) -->

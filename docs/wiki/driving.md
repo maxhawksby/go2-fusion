@@ -64,5 +64,3 @@ The full story, and why each lane sits where it does, is on the [twist_mux](twis
 - Luis made the RViz KeyboardTeleop panel react instantly to key presses (merged 2026-10-19) and added the AutoMapper panel's Scan and Reset maps buttons.
 - Max fixed the "idle zeros" bug (both keyboard tools used to send stop commands nonstop, which blocked Nav2 and the agent) on 2026-10-11.
 - TODO(owner): a person who owns Driving as a whole, and the next step after the open retest of keyboard driving feel.
-
-<!-- sources: src/go2_robot_sdk/config/twist_mux.yaml; docs/FUSION.md rows 2, 13, 16 and "twist_mux priorities"; AGENTS.md "Design rules"; CONTRIBUTING.md "Design rules"; docs/TEST_LOG.md 2026-10-11 (stop-at-end fail, keyboard partial, open issue 2); src/go2_robot_sdk/go2_robot_sdk/presentation/go2_driver_node.py (subscribes cmd_vel_out); git log e1bdf14, 264939b, a51627d, c18ca87 -->

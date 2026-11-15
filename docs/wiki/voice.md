@@ -27,7 +27,6 @@ Example: publishing `ros2 topic pub --once /tts std_msgs/String "data: 'Hello, I
 
 - [LLM agent](llm-agent.md): the receiver for speech in. Note that Adib's new Ollama agent disables the old `speech_bridge` server, so speech in has nothing to talk to on that branch yet.
 - [Go2 driver](go2-driver.md): carries `/webrtc_req` audio commands to the robot.
-- The Oak Control dashboard (Noah, branch `feat/desktop-app-prototype`; pull request #14 was closed without merging on 2026-10-26) has its own push-to-talk button in the browser and can publish `/tts`. See [People](people.md).
 
 | Topic or address | What travels on it |
 | --- | --- |
@@ -72,5 +71,3 @@ Speech out, inside the container (with the robot connected and an ElevenLabs key
 ```shell
 ros2 run speech_processor tts_node
 ```
-
-<!-- sources: host_tools/speech_to_text/README.md and vad_listen.py; src/speech_processor/speech_processor/tts_node.py; src/go2_robot_sdk/launch/robot.launch.py (ELEVENLABS_API_KEY); src/go2_llm_agent/README.md; docs/FUSION.md row 5; docs/TEST_LOG.md 2026-10-11; origin/jeth/feat/tts (43c242d); origin/noah/tts-piper-review (60fbe57, PR #13); origin/feat/desktop-app-prototype host_tools/control_dashboard/README.md (PR #14); origin/adib/feat/llm-agent README; team updates (Jeth, Noah) week of 2026-10-18 -->

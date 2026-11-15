@@ -96,5 +96,3 @@ docker image inspect docker-unitree_ros:latest --format '{{.Created}}'
 
 - [Docker](docker.md): the edit loop and everyday compose commands.
 - [WSL and Windows](wsl.md) and [Mac setup](mac-setup.md): getting a display.
-
-<!-- sources: docs/USEFUL_COMMANDS.md and docs/RUNNING_TOOLS.md (folded in here and deleted 2026-10-22; one teammate's machine-specific G: drive paths left out); docker/dev_aliases.sh (cbs) -->

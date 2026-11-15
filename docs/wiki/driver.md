@@ -60,7 +60,4 @@ Rates measured in the lab: IMU about 19 Hz, odometry about 13 Hz, camera about 1
 
 - Luis ported the driver's auto-reconnect, drop detection and the "explicit stop" fix from the team fork (2026-10-09 to 10-11).
 - Adib's next task is driver-adjacent: why position data (odometry) sometimes stops, and why a requested turn differs from the measured one.
-- Noah's Oak Control dashboard and Jeth's speaker work both talk to Oak over WebRTC too, so they compete for the single connection.
 - TODO(owner): an overall owner for the driver.
-
-<!-- sources: AGENTS.md packages and Design rules (sensor topics, /webrtc_req); src/go2_robot_sdk/go2_robot_sdk/presentation/go2_driver_node.py (publishers, subscribers); go2_robot_sdk/main.py (backoff 5 s to 60 s); infrastructure/webrtc/connection_health.py (5 s stall); infrastructure/ros2/ros2_publisher.py (TransformBroadcaster odom->base_link); docker/LAB_CHECKLIST.md (one connection); docs/WINDOWS_SETUP.md topic rates; docs/TEST_LOG.md lidar 6.8 Hz; macos_setup.md (node list is not proof); docs/FUSION.md row 15; team update 2026-10-18 -->

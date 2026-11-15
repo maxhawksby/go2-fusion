@@ -65,5 +65,3 @@ All of it runs on the laptop, inside Docker, as part of the normal robot stack (
 ## Safety
 
 Nav2, the map viewer click and the auto mapper all move the robot. Only use them with a person watching Oak, and know the stop: Ctrl+C the explorer, cancel the Nav2 goal, or hold the gamepad / press a key to override (see [Auto mapper](auto-mapper.md)).
-
-<!-- sources: launch/robot.launch.py, config/twist_mux.yaml, config/nav2_params.yaml, config/mapper_params_online_async.yaml, src/go2_auto_mapper/README.md, src/go2_map_viewer_cpp/README.md, go2_map_viewer_julia/README.md, docs/TEST_LOG.md, contract team updates (Luis), the four Maps and navigation program pages -->

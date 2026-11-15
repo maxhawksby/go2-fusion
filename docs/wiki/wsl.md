@@ -142,5 +142,3 @@ Only one of the Docker container or the native launch can hold the robot's conne
 ## Who's on it and what's next
 
 TODO(owner): no owner.
-
-<!-- sources: docs/RUNNING_IN_WSL.md and docs/WINDOWS_SETUP.md (folded in here and deleted 2026-10-22; one teammate's machine-specific G: drive paths and the lab network name and robot IP deliberately left out); docs/RUNNING_TOOLS.md; docs/USEFUL_COMMANDS.md (rviz from PowerShell, exit 139); docker/docker-compose.yml and docker-compose.windows.yml; docs/FUSION.md row 7; docs/TEST_LOG.md open issue 5 -->

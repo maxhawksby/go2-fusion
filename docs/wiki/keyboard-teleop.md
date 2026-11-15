@@ -70,5 +70,3 @@ docker exec -it oak-dry bash -ic 'ros2 topic echo /cmd_vel_keyboard'
 ```
 
 With the robot stack already running, use `docker compose exec unitree_ros bash -ic teleop` instead.
-
-<!-- sources: src/keyboard_teleop/README.md; src/keyboard_teleop/keyboard_teleop/keyboard_teleop.py (speeds, AXIS_HOLD_TIMEOUT 0.4, PUBLISH_RATE_HZ 10, publish-only-while-moving); docker/dev_aliases.sh (teleop alias, cbs); README.md dry run; docs/FUSION.md row 16; docs/TEST_LOG.md 2026-10-11 keyboard partial and idle fail; docs/USEFUL_COMMANDS.md "Rebuilding after a source change"; git log c18ca87 -->

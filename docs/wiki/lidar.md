@@ -86,5 +86,3 @@ docker compose run --rm unitree_ros ros2 launch go2_robot_sdk robot_cpp.launch.p
 ```
 
 `lidar_processor/test/` holds its tests; the robot build check on GitHub runs them on every pull request.
-
-<!-- sources: src/lidar_processor/lidar_processor/lidar_to_pointcloud_node.py, frame_transform.py, pointcloud_aggregator_node.py, src/lidar_processor_cpp/README.md and src/*.cpp, src/go2_robot_sdk/go2_robot_sdk/infrastructure/sensors/lidar_decoder.py, ros2_publisher.py (frame odom), launch/robot.launch.py, robot_cpp.launch.py, mapping.launch.py, navigation.launch.py, config/nav2_params.yaml comments, src/go2_auto_mapper/README.md, docs/TEST_LOG.md, docs/FUSION.md, git log Oct 14-19 (Luis) -->

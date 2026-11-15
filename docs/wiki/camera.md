@@ -42,7 +42,7 @@ With more than one robot, each gets a prefix, for example `/robot0/camera/image_
 
 ## Who's on it and what's next
 
-Noah verified the live camera feed over WebRTC and Foxglove and added camera feed selection to the Oak Control dashboard. TODO(owner): who owns the camera code, and whether the detector should start using the calibration.
+Noah verified the live camera feed over WebRTC and Foxglove. TODO(owner): who owns the camera code, and whether the detector should start using the calibration.
 
 ## The code
 
@@ -56,5 +56,3 @@ cd docker
 docker compose exec unitree_ros bash -ic 'ros2 topic hz /camera/image_raw'
 docker compose exec unitree_ros bash -ic 'ros2 topic echo /camera/camera_info --once'
 ```
-
-<!-- sources: src/go2_robot_sdk/go2_robot_sdk/infrastructure/sensors/camera_config.py, src/go2_robot_sdk/calibration/front_camera_720.yaml, src/go2_robot_sdk/go2_robot_sdk/infrastructure/ros2/ros2_publisher.py (publish_camera_data), src/go2_robot_sdk/go2_robot_sdk/presentation/go2_driver_node.py (topic names), src/go2_robot_sdk/urdf/go2.urdf (front_camera_joint), src/go2_robot_sdk/config/single_robot_conf.rviz, docs/TEST_LOG.md, docs/FUSION.md row 15, contract team updates (Noah) -->

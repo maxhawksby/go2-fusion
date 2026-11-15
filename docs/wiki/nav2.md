@@ -62,5 +62,3 @@ docker compose exec unitree_ros bash -ic 'ros2 service call /navigate_to_pose/_a
 ```
 
 Only send goals with a person watching the robot.
-
-<!-- sources: src/go2_robot_sdk/config/nav2_params.yaml (comments, costmaps, DWB, SmacPlannerHybrid, velocity_smoother, behavior_server), launch/robot.launch.py, launch/navigation.launch.py (AMCL, map arg), config/twist_mux.yaml, docs/TEST_LOG.md, docs/FUSION.md, src/go2_auto_mapper/README.md, contract team updates (Luis) -->

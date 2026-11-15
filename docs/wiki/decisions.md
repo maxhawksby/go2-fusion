@@ -109,5 +109,3 @@ No code from these projects is included in the first scoreboard change.
 ## Add a decision
 
 When the team decides something that changes how code works, add a new numbered file in `docs/adr/` with the date, the context, what was chosen and what follows from it. Add one line for it under "Decided since".
-
-<!-- sources: docs/FUSION.md (whole file: What this repo is, Decisions 1-16, twist_mux priorities, Left out, Decided after the fusion, Follow-ups; folded in here and deleted 2026-10-22); docs/plans/pending/2026-10-08-claude-llm-agent.md (deleted 2026-10-22); origin/adib/feat/llm-agent FUSION.md diff (2026-10-12 Ollama decision); 2026-10-22 decisions: Max via coordinator (contract), AGENTS.md Git and Wiki sections, scripts/wiki/README.md -->

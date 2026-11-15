@@ -84,5 +84,3 @@ Add a new `## <date> - <place>, Oak, <Wi-Fi or Ethernet>` section above the newe
 ## Who's on it and what's next
 
 Max keeps the log. Next: the retests above, and Luis's full exploration tests with the auto mapper.
-
-<!-- sources: docs/TEST_LOG.md (whole file, folded in here and deleted 2026-10-22); docs/FUSION.md "Follow-ups for the team" 4; README.md open issues; team update 2026-10-18 (Luis next: full exploration tests); git log c18ca87 -->

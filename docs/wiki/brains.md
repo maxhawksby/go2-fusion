@@ -56,7 +56,6 @@ Higher priority wins in twist_mux: the gamepad (10) and keyboard (9) beat Nav2 (
 
 - **Adib**: the LLM agent, now on a local Ollama model. Next he moves on to odometry (position tracking) and turn accuracy.
 - **Jeth**: Piper text-to-speech, with Noah reviewing.
-- **Noah**: the Oak Control dashboard, which also has voice input and robot actions (see [Voice](voice.md)).
 - **Max**: object detection memory, which object navigation reads.
 
 See [People](people.md) for how to reach everyone.
@@ -64,5 +63,3 @@ See [People](people.md) for how to reach everyone.
 ## Safety first
 
 There is one Oak, and it accepts one connection at a time. Test with mock modes and `ros2 topic echo <topic>` first. Only send real moves when you are in the lab, next to Oak, with the keyboard or gamepad ready to take over.
-
-<!-- sources: AGENTS.md (packages, topics, design rules); docs/FUSION.md (decisions 2-5, 11, twist_mux table, "Decided after the fusion"); docs/TEST_LOG.md 2026-10-11; package READMEs for go2_llm_agent, object_navigation, front_leg_controller, host_tools/speech_to_text; src/speech_processor/speech_processor/tts_node.py; origin/adib/feat/llm-agent README (/odom heading); origin/jeth/feat/tts, origin/noah/tts-piper-review; origin/feat/desktop-app-prototype; team updates week of 2026-10-18 -->

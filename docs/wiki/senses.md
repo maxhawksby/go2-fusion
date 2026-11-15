@@ -59,5 +59,3 @@ A topic (the names starting with `/`) is a named channel: one program publishes 
 - Luis retuned the lidar scan in October so Nav2 stops seeing the floor as a wall.
 - Max's branch `max/feat/yolo-map-memory` moves the object memory onto the room map; its pull request was closed without merging on 2026-10-26.
 - Adib is next looking at odometry reliability and turn accuracy.
-
-<!-- sources: AGENTS.md (packages, sensor topics), src/go2_llm_agent/README.md (known issues), src/object_navigation/README.md, docs/FUSION.md, docs/TEST_LOG.md (2026-10-11), launch/robot.launch.py, go2_robot_sdk presentation/go2_driver_node.py (topics), the four Senses program pages, origin/feat/yolo-map-memory, contract team updates week of 2026-10-18 -->

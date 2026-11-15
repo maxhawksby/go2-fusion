@@ -151,5 +151,3 @@ Mac credential tests, which use throwaway fake credentials: `python3 -m unittest
 ## Who's on it and what's next
 
 Adib wrote the Mac setup (`docker/mac/`).
-
-<!-- sources: macos_setup.md (folded in here and deleted 2026-10-22; previous lab IP deliberately left out, and its "Current Branch is feat/macos_setup" note dropped as stale); docker/mac/; docs/wiki/lab-setup.md (Adib wrote it); docs/wiki/llm-agent.md (8 GB Mac note) -->

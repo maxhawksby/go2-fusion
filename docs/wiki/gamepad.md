@@ -63,5 +63,3 @@ docker compose exec unitree_ros bash -ic 'ros2 topic echo /cmd_vel_joy'
 ```
 
 Press buttons to learn their numbers in the first; hold button 4 and move a stick to see commands in the second.
-
-<!-- sources: src/go2_robot_sdk/config/joystick.yaml (joy_node); src/go2_robot_sdk/config/twist_mux.yaml (go2_teleop_node: require_enable_button, enable_button 4, axes, scales); src/go2_robot_sdk/launch/robot.launch.py, robot_cpp.launch.py, navigation.launch.py, mapping.launch.py (joy_node parameters=joystick, teleop_node parameters=twist_mux); src/go2_robot_sdk/application/services/robot_control_service.py handle_joy_command; presentation/go2_driver_node.py joy subscription; docker/docker-compose.yml devices; docs/WINDOWS_SETUP.md "Why a separate compose file"; docs/FUSION.md row 13 and follow-up 5; docs/TEST_LOG.md "Gamepad LB deadman: not run" and open issue 6; Max 2026-10-22: team uses the Oak ROS2 pad, LB deadman not required -->

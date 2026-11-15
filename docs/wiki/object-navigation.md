@@ -61,5 +61,3 @@ ros2 topic pub /navigate_to_object std_msgs/String "data: 'chair_1'" --once
 ```
 
 To stop it, drive with the keyboard or gamepad, or press Ctrl+C on the node. Only run it with someone watching Oak.
-
-<!-- sources: src/object_navigation/README.md; src/object_navigation/object_navigation/navigation_node.py; docs/FUSION.md rows 2, 4, 13, 16 and twist_mux table; docs/TEST_LOG.md 2026-10-11; AGENTS.md; PR #11 / origin/feat/yolo-map-memory (2e66325) -->

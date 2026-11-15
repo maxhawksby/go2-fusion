@@ -84,5 +84,3 @@ TODO(owner): no single owner. Luis restored the Foxglove port; Noah moved packag
 ## The code
 
 https://github.com/maxhawksby/go2-fusion/tree/master/docker
-
-<!-- sources: docker/Dockerfile; docker/entrypoint.sh; docker/dev_aliases.sh; docker/docker-compose.yml; docker/docker-compose.windows.yml; docker/docker-compose.gpu.yml; docker/LAB_CHECKLIST.md "Build habits"; CONTRIBUTING.md "The edit loop"; AGENTS.md build and dependencies; docs/USEFUL_COMMANDS.md rebuilding; docs/TEST_LOG.md build row; docs/FUSION.md rows 6 and 15; git log cc38921 -->

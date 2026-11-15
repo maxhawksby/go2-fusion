@@ -76,5 +76,3 @@ ros2 topic echo /cmd_vel_out
 ```
 
 Then drive with `teleop` in a second shell and watch your commands come through.
-
-<!-- sources: src/go2_robot_sdk/config/twist_mux.yaml; src/go2_robot_sdk/launch/robot.launch.py create_teleop_nodes; navigation.launch.py and mapping.launch.py twist_mux condition; webrtc_web.launch.py remap cmd_vel_out->cmd_vel; docs/FUSION.md rows 2, 13, 15(b), 16, "twist_mux priorities", follow-up 6; docs/TEST_LOG.md twist_mux priority pass; AGENTS.md Design rules -->

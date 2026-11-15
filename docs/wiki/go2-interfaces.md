@@ -66,5 +66,3 @@ This is a CMake package. After editing a `.msg` file, rebuild in a running conta
 docker compose exec unitree_ros bash -ic 'cbs go2_interfaces go2_robot_sdk'
 docker compose exec unitree_ros bash -ic 'ros2 interface show go2_interfaces/msg/WebRtcReq'
 ```
-
-<!-- sources: src/go2_interfaces/CMakeLists.txt (message list, unitree_go merge); src/go2_interfaces/msg/WebRtcReq.msg, Go2State.msg, IMU.msg; imports in src/go2_robot_sdk (go2_driver_node.py, ros2_publisher.py), src/front_leg_controller/sit_controller.py, src/go2_llm_agent/ros2_motion.py, src/speech_processor/tts_node.py; go2_robot_sdk/domain/constants/robot_commands.py (1004, 1009, 1016); application/services/robot_control_service.py (Invalid JSON); docs/WINDOWS_SETUP.md (webrtc_req example); docs/FUSION.md row 11 -->

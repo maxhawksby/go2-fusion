@@ -82,7 +82,6 @@ The source of truth is `ROBOT_CMD` in the driver's `go2_robot_sdk/domain/constan
 - [Go2 driver](go2-driver.md): delivers `/webrtc_req` to the robot.
 - [LLM agent](llm-agent.md): Riley's version sends sit, stand up, stand down, recovery stand and stretch the same way.
 - [Voice](voice.md): speech out also travels on `/webrtc_req`, on the audio channel instead.
-- The Oak Control dashboard (Noah, pull request #14) has quick-action buttons for posture and gestures. See [People](people.md).
 
 ## How it breaks
 
@@ -113,5 +112,3 @@ Or send any move from the command line, for example FingerHeart (1036):
 ros2 topic pub --once /webrtc_req go2_interfaces/msg/WebRtcReq \
   "{id: 0, topic: 'rt/api/sport/request', api_id: 1036, parameter: '{}', priority: 0}"
 ```
-
-<!-- sources: src/front_leg_controller/README.md; src/front_leg_controller/front_leg_controller/front_leg_controller.py; src/go2_auto_mapper/README.md "Known limitations"; src/go2_llm_agent/README.md; docs/FUSION.md rows 11, 15; docs/TEST_LOG.md 2026-10-11; origin/feat/desktop-app-prototype (PR #14) -->

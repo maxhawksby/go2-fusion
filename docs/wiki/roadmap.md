@@ -54,11 +54,11 @@ Claim your issue by assigning yourself.
 
 - **Luis - exploration brain:** the [Auto mapper](auto-mapper.md), frontier choice, [Nav2](nav2.md) tuning. [#25](https://github.com/maxhawksby/go2-fusion/issues/25)
 - **Adib - localization:** the [TF tree](tf.md), odometry timing, [SLAM](slam.md) settings, drift and turns; later leads Phase 3. [#26](https://github.com/maxhawksby/go2-fusion/issues/26)
-- **Noah - scoreboard:** run logger, recordings, replay; the Oak Control dashboard as mission control. [#27](https://github.com/maxhawksby/go2-fusion/issues/27)
+- **Noah - scoreboard:** run logger, recordings, replay. [#27](https://github.com/maxhawksby/go2-fusion/issues/27)
 - **Jeth - simulator and answer key:** Gazebo world of the lab room, tape-measured floor plans. [#28](https://github.com/maxhawksby/go2-fusion/issues/28)
 - **Max - recovery, plan, report:** sensor watchdog, save and resume the map, failure drills, the technical report. [#29](https://github.com/maxhawksby/go2-fusion/issues/29)
 
-**Parked until Phase 2 passes:** speech output, driving from the dashboard, voice commands, the general LLM agent, wiki polish. Each comes back when it serves a scorecard row.
+**Parked until Phase 2 passes:** speech output, voice commands, the general LLM agent, wiki polish. Each comes back when it serves a scorecard row.
 
 **Weekly rhythm:** one lab session (record every run), then a 20-minute scorecard review; each person picks the worst number they own. A change merges only if a recording or replay shows it did not make a number worse.
 
@@ -73,5 +73,3 @@ These come from [Decisions](decisions.md) follow-ups, not from a team plan yet:
 - A faster lidar decoder (about 2 Hz to about 62 Hz claimed), if a slow lidar hurts mapping.
 - Retire the older `coco_detector` once YOLO publishes the standard detection message.
 - Semantic maps (maps that know what things are) would need a GPU; Riley's experiments were left out for now.
-
-<!-- sources: project brief, grades, deliverables, demo month: Dr. Ji's Senior Design brief via Max 2026-10-25; scorecard, phases, lanes: Max's decisions 2026-10-25 (issues #24-#29); vision, $3,000 figure and milestone: Max via coordinator 2026-10-22 (README.md "Why we're building it"); team updates week of 2026-10-18; gh pr list (#11, #14) and gh issue list (no open issues, 2026-10-22); docs/TEST_LOG.md "Open issues" 1-4; docs/plans/pending/2026-10-08-claude-llm-agent.md; origin/adib/feat/llm-agent plan-file note; docs/FUSION.md "Follow-ups" 2-3 and "Left out" -->
