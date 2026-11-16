@@ -62,6 +62,7 @@ You are set up. From here, the [Docker](docker.md) page explains the daily edit 
 3. [Mac setup](mac-setup.md) - running the container on a Mac, with RViz through XQuartz.
 4. [Command cheat sheet](commands.md) - copy-paste commands for RViz, the map viewers, keyboard driving, auto mapping and rebuilds.
 5. [Lab checklist](lab-checklist.md) - what to do before and at the lab to connect to the real Oak.
+   - [Next lab visit](lab-visit.md) - the run sheet for the next visit: what to record and measure, in order.
 6. [Test log](test-log.md) - what we tested on Oak, what passed, and what is still open.
 7. [Simulator](simulator.md) - a pretend Oak in Gazebo: watch the auto mapper with no robot, or run it 10 times and get a score table.
 8. [Experiments](experiments.md) - the lab notebook of every simulator experiment: what we changed, the numbers, why runs quit, and what we learned.
