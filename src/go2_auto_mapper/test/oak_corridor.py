@@ -1,7 +1,8 @@
 """The real explorer in a fake world: Oak in a 1.0 m corridor that opens
 into a half-mapped room, Nav2 replaced by a stand-in that answers every Spin
 with a chosen status. The lidar cloud can die part-way and the Spin server
-can stay down. No robot, no Docker, no ROS install.
+can stay down, and Oak can ignore walking commands slower than its deadband.
+No robot, no Docker, no ROS install.
 
     python src/go2_auto_mapper/test/oak_corridor.py \
         [seconds] [spin_status] [start_yaw_deg] [scan_turn_deg]
@@ -97,8 +98,9 @@ class Clock:
 class Sim:
     def __init__(self, spin_status=6, start=(0.0, 0.0, math.radians(60)),
                  scan_turns_before_abort=0.0, cloud_dies_at=None,
-                 spin_ready=True):
+                 spin_ready=True, min_walk_speed=0.0):
         self.scan_cache = {}
+        self.min_walk_speed = min_walk_speed
         self.cloud_dies_at = cloud_dies_at
         self.spin_ready = spin_ready
         self.scan_turns_before_abort = scan_turns_before_abort
@@ -212,6 +214,8 @@ class Sim:
             return
         x, y, yaw = self.pose
         vx, vy = cmd.linear.x, cmd.linear.y
+        if math.hypot(vx, vy) < self.min_walk_speed:
+            vx = vy = 0.0
         x += (vx * math.cos(yaw) - vy * math.sin(yaw)) * dt
         y += (vx * math.sin(yaw) + vy * math.cos(yaw)) * dt
         yaw += cmd.angular.z * dt

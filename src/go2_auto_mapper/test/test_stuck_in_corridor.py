@@ -43,3 +43,15 @@ def test_a_stop_holds_while_the_spin_server_is_down():
     report = sim.run(30.0)
     assert report['still_stopped'], report
     assert report['navigation_goals'] == 0, report
+
+
+def test_a_recovery_move_walks_oak_past_its_deadband():
+    # Oak stands still for walking commands under about 0.15 m/s
+    # (go2_sim/config/sim.yaml min_walk_speed, from the 2026-11-16 rosbags).
+    sim = Sim(spin_status=SUCCEEDED, start=(0.0, 0.0, 0.0), min_walk_speed=0.15)
+    sim.run(3.0)
+    sim.node.start_backup()
+    report = sim.run(20.0)
+    assert not report['collided'], report
+    assert report['pose'][0] <= -0.25, report
+    assert not any('time limit' in msg for _, msg in sim.node.log), sim.node.log
