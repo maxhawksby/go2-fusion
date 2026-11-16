@@ -33,6 +33,7 @@ setup(
             'trials = go2_sim.trials:main',
             'ground_truth = go2_sim.ground_truth:main',
             'watch = go2_sim.watch:main',
+            'score_decisions = go2_sim.decision_score:main',
         ],
     },
 )

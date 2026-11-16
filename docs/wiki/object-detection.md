@@ -1,8 +1,8 @@
 ---
 title: Object detection
 parent: senses
-code: [src/object_detection/**, src/coco_detector/**]
-verified: 6c9a3c4cce8e
+code: [src/object_detection/**, src/coco_detector/**, host_tools/yolo_server/**]
+verified: 916c5a848d56
 ---
 
 # Object detection
@@ -41,10 +41,14 @@ Part of: [Senses](senses.md)
 | `fixed_frame`, `fallback_frame` | `map`, `odom` | Where the memory lives, and the frame used while `map` is missing |
 | `classes` | empty | Comma-separated names to look for; needs YOLOE weights. Empty keeps the model's own classes |
 | `track_people` | `True` | Track people, forecast their walk and find groups (`/people`) |
+| `inference_url` | `YOLO_URL`, else empty | Address of a YOLO server; empty runs YOLO here on the CPU |
+| `inference_timeout_sec` | `1.0` | How long to wait for the server before using the CPU instead |
 
 To change the default weights, add the file to `models/`, list it in `setup.py` `data_files`, and update the default in `detector_node.py`. It needs `ultralytics` from pip, which is in the repo's `requirements.txt`, so the Docker image has it.
 
 `coco_detector` comes from [jfrancis71/ros2_coco_detector](https://github.com/jfrancis71/ros2_coco_detector) (demo: https://www.youtube.com/watch?v=emUs0nwwde8), chosen for its simple code and standard ROS messages. Its parameters: `publish_annotated_image` (default `True`), `device` (default `auto`, which uses a GPU if one is available and else the CPU; `cpu` or `cuda` forces one, and the node logs which it runs on), `detection_rate_hz` (default 10, the most pictures per second it runs on; 0 or less means every picture), and `detection_threshold` (default 0.5, between 0.0 and 1.0; higher rejects more detections, so raise it if you get too many false ones). It puts the class name straight into the message's `class_id` (for example `dog`) instead of an ID to look up. The first run downloads the MobileNet network (`fasterrcnn_mobilenet_v3_large_320_fpn`), then it is cached.
+
+**YOLO on the GPU server (optional).** YOLO can run on the team's GPU server instead of the laptop CPU, the same way as the auto mapper's VLM. `host_tools/yolo_server/server.py` runs there; set `YOLO_URL` (for example `http://host.docker.internal:8200/detect` on Windows) and the node sends each camera picture, shrunk to 640 pixels wide, through an SSH tunnel and gets the boxes back. Everything else (positions, memory, people) still happens on the laptop. If the server does not answer within `inference_timeout_sec`, the node loads YOLO on the CPU and uses it for 30 s before asking the server again, so detection carries on while the server is down. If the CPU model cannot load either (for example the weights are missing), the node logs it, reports no objects and tries again 30 s later. Without a server, a CPU model that cannot load still stops the node at start-up, as before. The picture on `/detections/image_annotated` looks plainer with the server: orange boxes and labels, no YOLOE masks. The server refuses pictures over about 8.8 million pixels, more than 4 requests or 8 connections at once, and closes any connection still open 15 s after it started. **Camera pictures leave the robot** when this is on. Setup and the tunnel: `host_tools/yolo_server/README.md`.
 
 ## Connects to
 
@@ -72,7 +76,8 @@ Topics (a topic is a named channel that ROS programs publish messages to and lis
 
 - **Positions are rough.** No depth camera and no use of the camera calibration: distance is the box-height guess above, so TF only moves a rough guess onto the map. A chair half out of view looks shorter, so it looks farther away.
 - **Speed.** About 4.5 pictures a second on CPU, 55 to 130 ms each, measured on Oak on 2026-10-11 ([Test log](test-log.md)). Results lag the camera by about one picture.
-- **First run needs internet.** `ultralytics` downloads a font the first time it draws boxes, and `coco_detector` downloads its network.
+- **YOLO server down or slow** (tunnel closed, server off, wrong address): the log says "YOLO server not answering" once, then the CPU model takes over, which takes a few seconds to load the first time. "YOLO server answering again" means it is back. A slow network adds its delay to every picture; each wait is limited to `inference_timeout_sec`. TODO(Luis): measure pictures per second and delay through the tunnel to the GPU server.
+- **First run needs internet.** `ultralytics` downloads a font the first time it draws boxes on the laptop (not with the YOLO server), and `coco_detector` downloads its network.
 - **People forecasts are only as good as the positions.** They use the same rough distance guess. A person partly out of the picture seems to jump away, which looks like a fast walk for a moment. The straight line ignores turns and other people.
 - **No people without TF.** People need the `odom` pose from the driver; without it the node warns every 5 s ("No odom pose, people not tracked") and `/people` stays quiet. Objects still work.
 - **YOLOE is untested on Oak.** TODO(Luis): confirm `yoloe-26s-seg.pt` downloads and runs in the container (it also downloads a text model for `classes`), and how many pictures a second it manages on the CPU.

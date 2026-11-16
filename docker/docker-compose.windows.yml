@@ -9,6 +9,7 @@ services:
       - ROBOT_AES_KEY=${ROBOT_AES_KEY:-}  # Required for Go2 firmware >= 1.1.15
       - WEBRTC_SERVER_HOST=${WEBRTC_SERVER_HOST:-0.0.0.0}
       - WEBRTC_SERVER_PORT=${WEBRTC_SERVER_PORT:-9991}
+      - YOLO_URL=${YOLO_URL:-}  # object_detection asks this YOLO server (host_tools/yolo_server); empty runs YOLO here
     volumes:
       - ../src:/ros2_ws/src  # Live ROS packages: host edits show up in the container
       - ros2_build:/ros2_ws/build  # colcon output persists between runs,
