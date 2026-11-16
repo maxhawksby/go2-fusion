@@ -2224,6 +2224,12 @@ class FrontierExplorer(Node):
                 f'Obstacle {gap:.2f} m ahead for {self.blocked_timeout:.1f} s; '
                 'abandoning this goal and heading somewhere open.'
             )
+            # Diagnostic only (issue #136): where Oak was when the watch fired.
+            if map_pose:
+                self.get_logger().info(
+                    f'Watch cancel pose: x={map_pose[0]:.2f}, y={map_pose[1]:.2f}, '
+                    f'yaw={map_pose[2]:.2f}, forward={forward}'
+                )
             # The result callback then blacklists the goal and frees the loop.
             # Dropping the handle stops the next ticks (before Nav2 confirms)
             # from cancelling and asking to escape again.
