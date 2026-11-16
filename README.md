@@ -93,7 +93,7 @@ The goal, the scorecard and every open task are GitHub issues: start at the pinn
 Max Hawksby, Luis (LuisMend12), Noah Steinberg, Adib Rouf, and Jeth. Meet everyone, and see what each person works on, on [People](docs/wiki/people.md). TODO(Max): Luis's full name, and confirm Jeth is GitHub user jevgome.
 
 - **Branches are your sandbox.** Push whatever you like; no review needed.
-- **Merging into `master`** needs one teammate's approval and green automatic checks. Only changes to Oak's software need it; wiki, guides and team tooling skip it and Max merges them once checks pass.
+- **Merging into `master`** needs a pull request with green automatic checks. The `review-gate` check reads the files a pull request changes and labels it. `tier:high` is Oak's software (`src/`, `docker/`, `host_tools/`, the build check) and needs one teammate's approval on the latest commit, even when it is confirmed working on Oak. `tier:medium` is team tooling, CI and agent rules and needs one approval, or Max merges it. `tier:low` is wiki pages, guides and images and merges by itself once the checks pass.
 - **Keep the wiki true:** if you change a program's code, update its wiki page in the same pull request.
 - Test without the robot first. There is one Oak and it accepts one connection at a time.
 - Never commit keys, passwords, or lab Wi-Fi details.
