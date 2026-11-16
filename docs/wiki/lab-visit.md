@@ -75,7 +75,7 @@ No ROS command needed. The bag is already recording.
 - [ ] Put Oak, standing, in the middle of an empty hallway. Nobody within 2 m.
 - [ ] Wait 10 s. Write down the clock time.
 - [ ] In RViz, look for any dots within 0.5 m of Oak. Take a screenshot.
-- [ ] Turn Oak (controller) to face the long end of the hallway. Wait 10 s. Write down the time, and the distance to the far wall if you know it. This shows how far the real lidar sees (the simulator assumes 12 m, the stack is set for 20 m).
+- [ ] Turn Oak (controller) to face the long end of the hallway. Wait 10 s. Write down the time, and the distance to the far wall if you know it. This shows how far the real lidar sees (the simulator and the stack both assume 20 m; nobody has measured Oak's).
 
 ## 5. Measure the body
 
