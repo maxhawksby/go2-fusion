@@ -2,7 +2,7 @@
 title: Scoreboard
 parent: maps-nav
 code: [src/go2_scoreboard/**]
-verified: 8d317800c468
+verified: ce2fd2ec4169
 ---
 
 # Scoreboard
@@ -58,6 +58,13 @@ Git. It contains `run.json`, `scorecard.csv`, `report.md`, `timeline.csv`,
 `resources.csv`, `final_map.yaml`, `final_map.pgm` and `bag/`. The parent
 `index.csv` has one row per run. Files are replaced atomically, so an interrupted
 run keeps its last complete checkpoint.
+
+The rosbag in `bag/` holds the map, odometry, the laser scan, the raw lidar
+point cloud (`/point_cloud2`), the local costmap, the velocity commands from
+Nav2 (`/cmd_vel`), from the auto mapper's recoveries (`/cmd_vel_mapper`) and the
+one sent to Oak (`/cmd_vel_out`), auto mapper events, goal status, TF and the
+log. The point cloud makes the bag much larger. TODO(Max): write the size of a
+5 minute run here after the next Oak run.
 
 ## Run it
 
