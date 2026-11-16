@@ -33,7 +33,7 @@ ARGS = [
     ('rviz', '', 'Open RViz (default: same as gui)'),
     ('explore', 'false', 'Start the auto mapper right away'),
     ('lidar_rate', '5.0', 'Lidar scans per second (real Oak: about 3-7)'),
-    ('lidar_range', '12.0', 'Lidar maximum range (m)'),
+    ('lidar_range', '20.0', 'Lidar maximum range (m)'),
     ('lidar_samples', '720', 'Lidar points per ring (16 rings); fewer leaves holes in /scan'),
     ('lidar_noise', '0.01', 'Lidar range noise, standard deviation (m)'),
     ('camera_rate', '', 'Front camera pictures per second on /camera/image_raw; 0 = no '

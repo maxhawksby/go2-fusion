@@ -25,7 +25,7 @@ go2_sim_driver:
     lidar_x: 0.28945
     lidar_y: 0.0
     lidar_z: -0.046825
-    lidar_range: 12.0
+    lidar_range: 20.0
     self_filter_x: 0.32      # drop points of Oak's own head and legs
     self_filter_y: 0.18
     seed: 0                  # 0 = different noise every run
