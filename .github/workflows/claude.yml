@@ -40,8 +40,13 @@ jobs:
           # Opus, so a teammate who asks "@claude fix this" gets the same model and
           # pstack playbooks as a ready-for-agent run. Without this line the action
           # picks Sonnet.
+          # Python, pytest and the wiki check are allowed so an "@claude review"
+          # can prove findings with a run; without them both reviews on #94 and
+          # #108 could only read code. Merging stays blocked.
           claude_args: |
             --model opus
+            --allowedTools "Bash(python3:*),Bash(python3 -m pytest:*),Bash(pytest:*),Bash(pip install:*),Bash(python3 -m pip install:*),Bash(npx hypatia:*),Bash(git fetch:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git merge-tree:*)"
+            --disallowedTools "Bash(gh pr merge:*)"
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
