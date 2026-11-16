@@ -82,7 +82,13 @@ jobs:
           fi
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
+      # Claude can edit files in the workspace, so the receipt runs from a copy
+      # taken before Claude starts. A run cannot change how it is reported.
+      - name: Keep a clean copy of the receipt script
+        run: cp .github/scripts/pstack_receipt.py "$RUNNER_TEMP/pstack_receipt.py"
+
       - name: Run Claude Code
+        id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -117,3 +123,17 @@ jobs:
 
             Open the pull request with `gh pr create`. Fill every section of `.github/pull_request_template.md`, and put `Closes #${{ github.event.issue.number }}` in it.
             Never merge. Never push to master. Never send motion commands.
+
+      # Posts what the run did, counted from its transcript: skills called,
+      # subagents started, whether a test ran before the first source edit.
+      # Only names and counts are posted. The transcript stays on the runner.
+      - name: Post the pstack receipt
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          python3 "$RUNNER_TEMP/pstack_receipt.py" "$EXECUTION_FILE" > "$RUNNER_TEMP/receipt.md"
+          cat "$RUNNER_TEMP/receipt.md" >> "$GITHUB_STEP_SUMMARY"
+          gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/receipt.md"
