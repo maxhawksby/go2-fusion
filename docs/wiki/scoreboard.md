@@ -2,7 +2,7 @@
 title: Scoreboard
 parent: maps-nav
 code: [src/go2_scoreboard/**]
-verified: 8d317800c468
+verified: 5832408d1ac7
 ---
 
 # Scoreboard
@@ -58,6 +58,16 @@ Git. It contains `run.json`, `scorecard.csv`, `report.md`, `timeline.csv`,
 `resources.csv`, `final_map.yaml`, `final_map.pgm` and `bag/`. The parent
 `index.csv` has one row per run. Files are replaced atomically, so an interrupted
 run keeps its last complete checkpoint.
+
+The bag records a fixed list of topics. Besides the map, odometry, `/scan`, the
+local costmap and the auto mapper's events, it keeps the raw lidar cloud
+`/point_cloud2` and each drive command before [twist_mux](twist-mux.md) picks one:
+`/cmd_vel` from Nav2 and `/cmd_vel_mapper` from the auto mapper's recovery
+moves, next to the chosen `/cmd_vel_out`. That lets you measure point density
+and floor height from a bag, and tell Nav2's commands from recovery commands.
+The cloud makes the bag much larger than a scan-only bag.
+TODO(noah): measure the bag size of a 5 minute Oak or simulator run with the
+cloud and write it here.
 
 ## Run it
 
