@@ -90,3 +90,18 @@ def test_a_newly_required_sensor_never_seen_reports_no_age():
     assert event.name == sw.STALE
     assert event.sensors == ['scan']
     assert event.age_s is None
+
+
+def test_scan_is_watched_when_lidar_decoding_is_off():
+    # Nav2 can drive on /scan even when the driver does not decode lidar.
+    assert sw.required_sensors('webrtc', decode_lidar=False,
+                               scan_available=True,
+                               watch_scan=True) == ['odom', 'scan']
+
+
+def test_required_sensors_follow_the_driver_settings():
+    assert sw.required_sensors('webrtc', True, True, True) == ['odom', 'lidar', 'scan']
+    assert sw.required_sensors('webrtc', True, True, False) == ['odom', 'lidar']
+    assert sw.required_sensors('webrtc', True, False, True) == ['odom', 'lidar']
+    assert sw.required_sensors('webrtc', False, False, True) == ['odom']
+    assert sw.required_sensors('cyclonedds', True, True, True) == []
