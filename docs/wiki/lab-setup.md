@@ -80,9 +80,9 @@ Ask a teammate for them, then follow the [Lab checklist](lab-checklist.md).
 
 ## Who's on it
 
-- Noah wrote a repeatable lab-testing workflow for his Oak Control dashboard (`docs/DASHBOARD_LAB_GUIDE.md` on branch `feat/desktop-app-prototype`, not on master yet). He also moved all ROS packages into `src/` and organized the root docs.
+- Noah wrote a repeatable lab-testing workflow for his Oak Control dashboard (`docs/DASHBOARD_LAB_GUIDE.md` on branch `feat/desktop-app-prototype`; its pull request [#14](https://github.com/maxhawksby/go2-fusion/pull/14) was closed without merging on 2026-10-26, so it will not reach master as it is). He also moved all ROS packages into `src/` and organized the root docs.
 - Adib wrote the [Mac setup](mac-setup.md) (`docker/mac/`).
 - Max keeps the [test log](test-log.md).
-- TODO(owner): confirm the minimum laptop RAM (the README says about 16 GB).
+- TODO(owner): what is the minimum laptop RAM? The README says about 16 GB. The records show only that one build crashed with 7.4 GB for WSL ([Test log](test-log.md)) and that the headless simulator ran in 6 GB ([Simulator](simulator.md)).
 
 <!-- sources: README.md "Start here" steps; CONTRIBUTING.md one-time setup and edit loop; AGENTS.md build section; docker/entrypoint.sh (submodule message, colcon build); docker/LAB_CHECKLIST.md (~15 min rebuild); docs/RUNNING_IN_WSL.md (WSL integration); docs/TEST_LOG.md (7.4 GB OOM, -j4 / 2 workers, open issue 5); macos_setup.md; docker/mac/go2.sh; git log 7fc71a8, cc38921, f0dba33; origin/feat/desktop-app-prototype docs/DASHBOARD_LAB_GUIDE.md -->

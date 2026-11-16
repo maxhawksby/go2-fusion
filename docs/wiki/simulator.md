@@ -46,7 +46,7 @@ So SLAM, Nav2, twist_mux and the auto mapper run unchanged. `/imu` and `/go2_sta
 
 **Kept away from the real robot.** The simulator uses ROS domain 42 and talks only inside your computer (`ROS_LOCALHOST_ONLY=1`), so its drive commands can never reach a real Oak on the network. To look at its topics from another terminal, first run `export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1`.
 
-**The world.** `placeholder_rooms` is a made-up 10 x 8 m flat: four rooms, 1.2 m doorways, two routes round (so SLAM can close a loop), a few furniture boxes and a pillar. It is not the lab. Jeth is building a tape-measured lab world (issue #28); any world drops in with `world:=`.
+**The world.** `placeholder_rooms` is a made-up 10 x 8 m flat: four rooms, 1.2 m doorways, two routes round (so SLAM can close a loop), a few furniture boxes and a pillar. It is not the lab. The tape-measured lab world (issue [#28](https://github.com/maxhawksby/go2-fusion/issues/28)) was closed as not planned in the 2026-11-15 issue reset, so there is no lab world yet. Any world drops in with `world:=`.
 
 ## ITE-inspired hallways
 
@@ -203,7 +203,7 @@ Launch arguments (for `sim.launch.py`, or after `--` for trials). The odometry a
 | `odom_drift_yaw` | 0 | Steady heading drift, radians per meter walked (a slow curve SLAM has to fix) |
 | `cmd_latency` | 0.1 | Seconds between a drive command and Oak moving |
 | `seed` | 0 | Odometry noise seed (0 = different every run) |
-| `camera_rate` | 0, or 5 with `vlm_mode` on | Front camera pictures per second on `/camera/image_raw`, 640 x 360. 0 means no camera. Its 90 degree view is a guess. TODO(owner): measure the real camera's |
+| `camera_rate` | 0, or 5 with `vlm_mode` on | Front camera pictures per second on `/camera/image_raw`, 640 x 360. 0 means no camera. It sees 90 degrees across ([world_tools.py](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_sim/go2_sim/world_tools.py#L83)). The real camera sees about 73 degrees across, worked out from its lens calibration ([front_camera_720.yaml](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/calibration/front_camera_720.yaml)) |
 | `vlm_mode` | `off` | The auto mapper's [VLM](auto-mapper.md#using-the-vlm) goal ranking: `off`, `shadow` or `active`. Only used with `explore:=true` |
 | `vlm_url`, `vlm_model` | empty | Where the VLM server is and which model to ask, passed to the auto mapper |
 
@@ -217,7 +217,7 @@ Put the `.sdf` file anywhere and pass `world:=/ros2_ws/src/<path>.sdf`. Two rule
 
 The first 10-run batch in the placeholder world, default dials, real-time factor 1.0: **1 of 10 finished, mean map completeness 78.3 % (47.7 to 99.5 %), 0 collisions, 135 m walked**, about 4.5 minutes per run. Eight of the nine unfinished runs ended stuck at or beside a 1.2 m doorway (real doors are narrower).
 
-Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the first version of those fixes, before the unstuck move learned to check Oak's whole body through its allowed drift. With the final version, one 8-minute run (seed 1, 2026-10-31) mapped 48.3 %, with 0 costmap timeouts and 0 collisions, but latched stopped next to the 1.2 m doorway after 44 s ("no safe direction: rear and both sides lack clearance") and never moved again. Master without the fixes maps 5.0 % in the same run. TODO(Max): re-run the 10-run batch with the final fixes.
+Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the first version of those fixes, before the unstuck move learned to check Oak's whole body through its allowed drift. With the final version, one 8-minute run (seed 1, 2026-10-31) mapped 48.3 %, with 0 costmap timeouts and 0 collisions, but latched stopped next to the 1.2 m doorway after 44 s ("no safe direction: rear and both sides lack clearance") and never moved again. Master without the fixes maps 5.0 % in the same run. The 10-run batch was run again with the final fixes on 2026-11-06, on master `714de91`: 0 of 10 finished, mean 71.0 % (34.9 to 99.4 %), 0 collisions, 124.7 m walked. Eight of the ten latched on "no safe direction" ([Experiments](experiments.md), recorded in [1648e94](https://github.com/maxhawksby/go2-fusion/commit/1648e943ec5ae0d3a839ee45fb0e6b4330896408)).
 
 Every simulator experiment since 2026-11-06 (hypothesis, change, runs, why each run quit, verdict) is logged in the [experiments journal](experiments.md).
 
@@ -277,7 +277,7 @@ the [experiments journal](experiments.md) for the evidence and limitations.
 
 ## Who's on it and what's next
 
-Max added the simulator (pull request #35). Next: Jeth's lab world (issue #28) in place of the placeholder, and real odometry and lidar numbers from Oak for the dials. TODO(owner): an owner for the simulator.
+Max added the simulator (pull request #35). Next: real odometry and lidar numbers from Oak for the dials. The lab-world issue (#28) was closed as not planned on 2026-11-15. TODO(owner): an owner for the simulator.
 
 ## The code
 
