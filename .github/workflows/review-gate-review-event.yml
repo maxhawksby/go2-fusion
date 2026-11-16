@@ -1,0 +1,17 @@
+# Fires when a review is submitted or dismissed. It does nothing itself.
+# review-gate.yml runs after it, from master, and re-reads the pull request.
+# The split exists because a review event runs the pull request's own copy of a workflow,
+# so the gate's logic must not live in a file this event starts.
+name: review-gate-review-event
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+jobs:
+  note:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "A review changed. review-gate re-reads this pull request next."
