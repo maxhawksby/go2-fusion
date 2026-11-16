@@ -9,6 +9,8 @@ on:
     branches:
       - master
     types: [opened, synchronize, reopened, ready_for_review, labeled]
+  push:  # TEMPORARY TEST
+    branches: [max/ci/sim-proof]
 
 permissions: {}
 
@@ -23,9 +25,9 @@ concurrency:
 # docs/wiki/experiments.md (seed 28, 300 s per run, 180 s stall rule).
 env:
   WORLD: placeholder_rooms
-  RUNS: 10
+  RUNS: 2  # TEMPORARY TEST
   SEED: 28
-  RUN_TIMEOUT: 300
+  RUN_TIMEOUT: 120  # TEMPORARY TEST
   STALL_TIMEOUT: 180
   STARTUP_TIMEOUT: 300
 
@@ -54,7 +56,9 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           run=false
-          if [ "$DRAFT" = true ]; then
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            run=true
+          elif [ "$DRAFT" = true ]; then
             run=false
           elif [ "$ACTION" = labeled ]; then
             [ "$LABEL" = sim-proof ] && run=true
@@ -63,6 +67,9 @@ jobs:
           else
             files=$(gh api --paginate "repos/$REPO/pulls/$NUMBER/files" --jq '.[].filename')
             grep -qE '^src/(go2_auto_mapper|go2_sim|go2_robot_sdk/config)/' <<< "$files" && run=true
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ]; then  # TEMPORARY TEST: pull request #94 against its merge base
+            run=true; HEAD_SHA=c3f1652c871633dea3f0bdd3439d18edbdd69888; BASE_SHA=7e7907b90681d95e7f95c45e901160934d588cda
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           if [ "$run" = true ]; then
@@ -139,13 +146,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       NUMBER: ${{ github.event.pull_request.number }}
-      FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
-      IMAGE_DIR: pr-${{ github.event.pull_request.number }}/${{ github.run_id }}-${{ github.run_attempt }}
+      FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      IMAGE_DIR: pr-${{ github.event.pull_request.number || 'test' }}/${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: checkout report scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
           path: tools
           sparse-checkout: .github/scripts
           persist-credentials: false
@@ -205,7 +212,7 @@ jobs:
 
       # A fork's pull request gets a read-only token, so its report stays in the job summary.
       - name: post or update the comment
-        if: env.FORK != 'true'
+        if: env.FORK != 'true' && github.event_name == 'pull_request'
         run: |
           id=$(gh api --paginate "repos/$REPO/issues/$NUMBER/comments" \
             --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- sim-proof-report -->"))) | .id' | head -n 1)
