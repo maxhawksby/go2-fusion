@@ -201,13 +201,24 @@ Launch arguments (for `sim.launch.py`, or after `--` for trials). The odometry a
 | `odom_noise_xy` | 0.01 | Random step-counting error: about 1 cm after 1 m, 5 cm after 25 m |
 | `odom_noise_yaw` | 0.01 | Random turning error, the same idea for turns |
 | `odom_drift_yaw` | 0 | Steady heading drift, radians per meter walked (a slow curve SLAM has to fix) |
-| `cmd_latency` | 0.1 | Seconds between a drive command and Oak moving |
+| `cmd_latency` | 1.0 | Seconds between a drive command and Oak moving. Oak's rosbags show 2.2 to 2.4 s, but part of that may be `/odom` arriving late, so 2.3 s is an upper bound and 1.0 is a chosen middle (#129) |
 | `seed` | 0 | Odometry noise seed (0 = different every run) |
 | `camera_rate` | 0, or 5 with `vlm_mode` on | Front camera pictures per second on `/camera/image_raw`, 640 x 360. 0 means no camera. It sees 90 degrees across ([world_tools.py](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_sim/go2_sim/world_tools.py#L83)). The real camera sees about 73 degrees across, worked out from its lens calibration ([front_camera_720.yaml](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/calibration/front_camera_720.yaml)) |
 | `vlm_mode` | `off` | The auto mapper's [VLM](auto-mapper.md#using-the-vlm) goal ranking: `off`, `shadow` or `active`. Only used with `explore:=true` |
 | `vlm_url`, `vlm_model` | empty | Where the VLM server is and which model to ask, passed to the auto mapper |
 
 In `sim.yaml` only: `odom_true_speed` (default `false`; `true` puts Gazebo's true speed on `/odom`, which is how every simulator run before issue #106 worked, so to compare with those runs turn it on through a custom `params_file`), `odom_scale_xy` and `odom_scale_yaw` (Oak says it went or turned a few % more than it did), `cmd_timeout` (Oak stops after 0.5 s without commands), speed and acceleration limits, the lidar mount position, and the self-filter box that drops lidar points on Oak's own head and legs (kept inside the 0.36 m nose, so something touching the nose is still seen). TODO(owner): measure Oak's real odometry error, command delay and stop timeout, and set these defaults from them.
+
+Also in `sim.yaml`, set from Oak's 2026-11-16 rosbags (#129):
+
+- `base_height` 0.377 m (measured). The launch file reads it from `sim.yaml`, so the model and the odometry agree.
+- `odom_rate` 18 Hz (measured).
+- Deadband. Below `min_walk_speed` 0.15 m/s Oak stands still (guessed from the bags, low confidence). Standing, it ignores turns slower than `min_turn_rate` 0.3 rad/s (measured), and turns slower than `sure_turn_rate` 0.8 rad/s work only `unsure_turn_success` 60 % of the time (measured 45 to 73 %). Walking, small turns work.
+- `turn_gain` 0.8: Oak turns at 0.8 times the commanded rate (measured 0.72 to 0.87).
+- `lidar_z_noise` 0.065 m: random height noise on every lidar point, so the floor smears up toward `base_link` like Oak's (fitted to the measured floor heights: 2.6 % of floor points land above -0.25 m, Oak 2.3 %).
+- `lidar_blind_fraction` 0.45 of `lidar_blind_sectors` 36 directions return nothing, redrawn every `lidar_blind_hold` 10 s. This leaves unknown cells beside Oak in the local costmap, as on Oak (42 to 51 % within 1 m). The value is chosen, not measured.
+
+The trial runner puts `--floor-objects` (default 3) backpack-sized boxes, 0.45 x 0.30 x 0.2 m, on open floor in each run, at spots picked by the run's seed. They count as collisions when Oak hits them. They are lower than the ground truth's height band, so they do not change the map a run is scored against.
 
 ## Adding a world
 
