@@ -2,17 +2,58 @@ name: Claude Issue
 
 # Labeling an issue ready-for-agent starts Claude on it. Claude opens a pull
 # request and never merges. Runs only from the copy of this file on master.
+run-name: "Claude Issue #${{ github.event.issue.number }}: ${{ github.event.label.name }}"
+
 on:
   issues:
     types: [labeled]
 
-concurrency:
-  group: claude-issue-${{ github.event.issue.number }}
-  cancel-in-progress: false
-
+# No concurrency group: one would queue or cancel runs for other labels too.
+# The guard job drops repeat runs instead.
 jobs:
-  claude:
+  guard:
     if: github.event.label.name == 'ready-for-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      # One label add can arrive as two labeled events (issue #93 got two
+      # one second apart). Only the earliest active run for an issue goes on, and
+      # none goes on while an open pull request already closes the issue.
+      - name: Skip repeat runs
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          earlier=$(gh run list --repo "$REPO" --workflow claude-issue.yml --event issues --limit 100 \
+              --json databaseId,status,displayTitle \
+            | jq --arg title "Claude Issue #$ISSUE: ready-for-agent" --argjson me "$RUN_ID" \
+              '[.[] | select(.displayTitle == $title and .status != "completed" and .databaseId < $me) | .databaseId] | first // empty')
+          if [ -n "$earlier" ]; then
+            echo "::notice::Run $earlier is already working issue #$ISSUE, so this run stops."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pr=$(gh pr list --repo "$REPO" --state open --limit 200 --json number,body \
+            | jq -r --arg n "$ISSUE" \
+              '[.[] | select((.body // "") | test("\\b(close[sd]?|fix(e[sd])?|resolve[sd]?) #" + $n + "\\b"; "i")) | .number] | first // empty')
+          if [ -n "$pr" ]; then
+            echo "::notice::Open pull request #$pr already closes issue #$ISSUE, so this run stops."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+  claude:
+    needs: guard
+    if: needs.guard.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
