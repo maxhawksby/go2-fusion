@@ -121,7 +121,7 @@ class FrontierExplorer(Node):
         self.declare_parameter(
             'vlm_url', os.environ.get('VLM_URL', 'http://localhost:8000/v1/chat/completions'))
         self.declare_parameter(
-            'vlm_model', os.environ.get('VLM_MODEL', 'Qwen/Qwen2.5-VL-7B-Instruct'))
+            'vlm_model', os.environ.get('VLM_MODEL', 'qwen3-vl:8b-instruct'))
         self.declare_parameter('vlm_weight', 400.0)
         self.declare_parameter('vlm_timeout', 8.0)
         self.declare_parameter('vlm_candidates', 4)
