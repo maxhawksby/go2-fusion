@@ -28,7 +28,7 @@ from ..application.services import RobotDataService, RobotControlService
 from ..infrastructure.ros2 import ROS2Publisher
 from ..infrastructure.webrtc import WebRTCAdapter
 from ..domain.constants import RTC_TOPIC
-from ..domain.sensor_watchdog import STALE, SensorWatchdog
+from ..domain.sensor_watchdog import STALE, SensorWatchdog, required_sensors
 
 logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
@@ -346,14 +346,8 @@ class Go2DriverNode(Node):
 
     def _required_sensors(self) -> list:
         """The sensors Nav2 depends on, which must be fresh to move."""
-        if self.config.conn_type != 'webrtc':
-            return []
-        required = ['odom']
-        if self.config.decode_lidar:
-            required.append('lidar')
-            if self._scan_available and self.sensor_watch_scan:
-                required.append('scan')
-        return required
+        return required_sensors(self.config.conn_type, self.config.decode_lidar,
+                                self._scan_available, self.sensor_watch_scan)
 
     def _stale_sensors(self, robot_id: str) -> list:
         """(sensor, age) for each required sensor that has gone quiet."""

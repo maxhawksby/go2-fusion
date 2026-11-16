@@ -109,6 +109,8 @@ def generate_launch_description():
                     'conn_type': 'webrtc',
                     'enable_video': enable_video,
                     'decode_lidar': False,
+                    # Nothing publishes /scan in this launch: watching it would hold Oak still.
+                    'sensor_watch_scan': False,
                     'publish_raw_voxel': True,
                     'obstacle_avoidance': LaunchConfiguration('obstacle_avoidance'),
                 },

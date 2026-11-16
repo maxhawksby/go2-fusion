@@ -82,6 +82,23 @@ class SensorWatchdog:
                              now - self._stale_since)
 
 
+def required_sensors(conn_type: str, decode_lidar: bool,
+                     scan_available: bool, watch_scan: bool) -> List[str]:
+    """The sensors that must be fresh for the robot to move.
+
+    /scan is watched on its own setting, not on decode_lidar: Nav2 can
+    drive on /scan even when the driver does not decode lidar.
+    """
+    if conn_type != 'webrtc':
+        return []
+    required = ['odom']
+    if decode_lidar:
+        required.append('lidar')
+    if scan_available and watch_scan:
+        required.append('scan')
+    return required
+
+
 def _oldest(ages) -> Optional[float]:
     ages = list(ages)
     if any(a is None for a in ages):
