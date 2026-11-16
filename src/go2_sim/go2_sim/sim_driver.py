@@ -77,7 +77,7 @@ class SimDriver(Node):
         # Lidar.
         self.lidar_mount = (p('lidar_x', 0.28945).value, p('lidar_y', 0.0).value,
                             p('lidar_z', -0.046825).value)
-        self.lidar_range = p('lidar_range', 12.0).value
+        self.lidar_range = p('lidar_range', 20.0).value
         # Points inside this box around base_link are Oak's own head and legs:
         # dropped, as on the real robot (its cloud has no points on its body).
         # Kept inside the 0.36 m nose so obstacles touching it stay visible.
@@ -110,7 +110,7 @@ class SimDriver(Node):
         # go2.urdf also has a fixed odom -> base_link joint at floor level. A
         # cloud sent before our odometry starts is placed with that one, so the
         # floor lands in /scan's band and SLAM draws rings of fake wall around
-        # the start. The real driver has odometry before its first cloud.
+        # the start.
         self.odom_started = False
 
         self.cmd_period = 0.02

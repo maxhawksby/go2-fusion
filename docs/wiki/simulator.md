@@ -197,7 +197,7 @@ Launch arguments (for `sim.launch.py`, or after `--` for trials). The odometry a
 | `gui` | `false` | Open the Gazebo window; also opens RViz unless `rviz:=false` |
 | `explore` | `false` | Start the auto mapper at once |
 | `lidar_rate` | 5 | Lidar scans per second. Measured on Oak: 3 to 6.8 for the cloud, 4 to 5 for `/scan` ([Driver](driver.md), [Test log](test-log.md)). Try 2 for a bad day |
-| `lidar_range` | 12 | Farthest the lidar sees (m) |
+| `lidar_range` | 20 | Farthest the lidar sees (m). 20 matches what SLAM and Nav2 are set for, not a measurement of Oak; Oak's real range is measured at the [lab visit](lab-visit.md) |
 | `odom_noise_xy` | 0.01 | Random step-counting error: about 1 cm after 1 m, 5 cm after 25 m |
 | `odom_noise_yaw` | 0.01 | Random turning error, the same idea for turns |
 | `odom_drift_yaw` | 0 | Steady heading drift, radians per meter walked (a slow curve SLAM has to fix) |
@@ -264,7 +264,7 @@ the [experiments journal](experiments.md) for the evidence and limitations.
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
 - **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits. Earlier recovery bugs were fixed (see [Auto mapper](auto-mapper.md)), but repeat runs show a remaining case where Oak is genuinely too close to fit the fixed 0.3 m escape. Shorter bounded recovery moves are the next experiment; no Oak result is claimed yet.
 - **Nav2 drives Oak to within 0.05-0.25 m of door jambs, the pillar and furniture**, then reports "No valid trajectories" or "Failed to make progress". TODO(Luis): does Oak get that close on the real floor?
-- **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. The real driver might hit the same thing at startup (see [TF and robot model](tf.md)).
+- **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. It is not known yet whether the real driver can send a cloud before odometry; the [lab visit](lab-visit.md) records it (see [TF and robot model](tf.md)).
 
 ## Known differences from Oak
 

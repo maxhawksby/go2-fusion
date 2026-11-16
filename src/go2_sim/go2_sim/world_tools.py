@@ -40,7 +40,7 @@ REQUIRED_WORLD_PLUGINS = [
 # ----------------------------------------------------------------------------
 
 def render_robot(template_text, base_height=0.32, lidar_rate=5.0,
-                 lidar_range=12.0, lidar_samples=720, lidar_noise=0.01, camera_rate=0.0):
+                 lidar_range=20.0, lidar_samples=720, lidar_noise=0.01, camera_rate=0.0):
     """Fill the $fields of the Oak model template (models/oak/model.sdf.template).
 
     base_height is how high base_link rides above the floor; the feet slab,
