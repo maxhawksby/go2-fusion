@@ -325,6 +325,16 @@ def scoreboard_parity(legacy, scoreboard):
     return checks, [name for name, passed in checks.items() if not passed]
 
 
+def copy_scoreboard_summary(result, summary):
+    """Put the scoreboard's numbers and end reason in the runner's row."""
+    result['scoreboard_distance_m'] = summary['distance_m']
+    result['scoreboard_completeness_pct'] = summary['completeness_pct']
+    result['scoreboard_collisions'] = summary['collisions']
+    result['scoreboard_end_reason'] = summary.get('end_reason', '')
+    _checks, failures = scoreboard_parity(result, summary)
+    result['scoreboard_parity'] = 'pass' if not failures else 'fail: ' + ', '.join(failures)
+
+
 def _latest_scoreboard_summary(root):
     paths = glob.glob(os.path.join(root, '*', 'run.json'))
     if not paths:
@@ -360,7 +370,8 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
                   end_x=float('nan'), end_y=float('nan'),
                   odom_distance_m=0.0, odom_error_m=0.0, odom_error_pct='',
                   scoreboard_distance_m='', scoreboard_completeness_pct='',
-                  scoreboard_collisions='', scoreboard_parity='disabled')
+                  scoreboard_collisions='', scoreboard_end_reason='',
+                  scoreboard_parity='disabled')
 
     launch_log = open(os.path.join(logs, f'{tag}_launch.log'), 'w')
     explorer_log = open(os.path.join(logs, f'{tag}_explorer.log'), 'w')
@@ -514,12 +525,7 @@ def run_one(args, index, world_path, gt, gt_path, pose, run_seed, out_dir, launc
             if scoreboard_summary is None:
                 result['scoreboard_parity'] = 'missing scoreboard report'
             else:
-                result['scoreboard_distance_m'] = scoreboard_summary['distance_m']
-                result['scoreboard_completeness_pct'] = scoreboard_summary['completeness_pct']
-                result['scoreboard_collisions'] = scoreboard_summary['collisions']
-                _checks, failures = scoreboard_parity(result, scoreboard_summary)
-                result['scoreboard_parity'] = (
-                    'pass' if not failures else 'fail: ' + ', '.join(failures))
+                copy_scoreboard_summary(result, scoreboard_summary)
         return result
     finally:
         clear_current_run()
@@ -542,7 +548,7 @@ COLUMNS = ['run', 'seed', 'start_x', 'start_y', 'start_yaw', 'completeness_pct',
            'collisions', 'distance_m', 'odom_distance_m', 'odom_error_m', 'odom_error_pct',
            'finished', 'end_reason', 'end_x', 'end_y', 'rtf']
 COLUMNS += ['scoreboard_distance_m', 'scoreboard_completeness_pct',
-            'scoreboard_collisions', 'scoreboard_parity']
+            'scoreboard_collisions', 'scoreboard_end_reason', 'scoreboard_parity']
 
 
 def table(results):

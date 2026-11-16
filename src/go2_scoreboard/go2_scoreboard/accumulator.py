@@ -42,6 +42,7 @@ class RunAccumulator:
     _goal_sequences: set = field(default_factory=set)
     _goal_outcomes: dict = field(default_factory=dict)
     _seen_events: set = field(default_factory=set)
+    _active_stop: str = ''
 
     def start(self, timestamp_s):
         if self.state == WAITING:
@@ -98,6 +99,10 @@ class RunAccumulator:
             self.recoveries += 1
         elif event_type == 'sensor_stale':
             self.safety_stops += 1
+        elif event_type == 'stop_latched':
+            self._active_stop = str(detail)
+        elif event_type == 'stop_cleared':
+            self._active_stop = ''
         elif event_type == 'exploration_completed':
             self.end_reason = detail or 'exploration complete'
         elif event_type == 'exploration_stopped':
@@ -175,6 +180,10 @@ class RunAccumulator:
             self.end_reason = reason
         elif not self.end_reason:
             self.end_reason = 'run finalized'
+        if self._active_stop:
+            # An outside stop (trial runner, RViz panel) ends the run with
+            # "explorer stopped"; the latch still held is the real cause.
+            self.end_reason += f' (stop latched: {self._active_stop})'
         return True
 
     def begin_finalizing(self):
