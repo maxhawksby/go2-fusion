@@ -277,7 +277,7 @@ The simulator runs Oak's real stack, but a stand-in driver feeds it. Each row is
 | What the lidar cloud is | One clean sweep | Oak's own 3D map, piling up in `odom` | Accepted for now | The lab bag, step 2 |
 | Points on Oak's own body | Filtered out | Not filtered. Oak froze on close returns in an empty hallway on 2026-11-08. | Accepted for now | The lab bag, step 4 |
 | `base_link` height and tilt | Fixed at 0.32 m, always level | Drifts and tilts | Accepted for now | The lab bag, step 7 |
-| Lidar range | 12 m | The stack is set for about 20 m. Oak's real range is not known. | Being changed to 20 m (issue #109) | Step 4 measures the real range |
+| Lidar range | 20 m, the same as the stack | The stack is set for about 20 m. Oak's real range is not known. | Changed from 12 m to 20 m in #115 | Step 4 measures the real range |
 | Body and motion | A 0.70 x 0.31 m box that slides, with a 0.1 s delay | Legs. The delay was never measured. | Accepted for now | Steps 5 and 7 |
 | Lidar cloud before odometry at start-up | Held back until odometry starts | No guard | Accepted. Without the guard, the simulator draws fake walls, so we keep it. | The lab bag, step 2, shows whether Oak ever sends a cloud first |
 | How the explorer starts | A plain node from the launch file | From the RViz panel, so an RViz crash ends the run | Accepted on purpose. Copying Oak here would make the simulator worse. | Fixed on the lab side. Step 6 starts the explorer from a terminal. |
