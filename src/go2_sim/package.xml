@@ -20,6 +20,7 @@
   <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
   <!-- Gazebo Fortress and its ROS bridge (ros-humble-ros-gz) -->
   <exec_depend>ros_gz_sim</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>
