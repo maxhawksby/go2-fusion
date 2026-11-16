@@ -1121,6 +1121,30 @@ class FrontierExplorer(Node):
             for gx, gy in frontier
         )
 
+    def frontier_long_side_m(self, frontier):
+        xs = [p[0] for p in frontier]
+        ys = [p[1] for p in frontier]
+        cells = max(max(xs) - min(xs), max(ys) - min(ys)) + 1
+        return cells * self.map.info.resolution
+
+    def report_complete(self, frontiers):
+
+        if self.exploration_complete_logged:
+            return
+        if frontiers:
+            detail = (
+                f'Only {len(frontiers)} frontiers shorter '
+                f'than {NARROWER_THAN_DOOR_M:.1f} m left unreached. '
+                'Exploration complete.'
+            )
+        else:
+            detail = 'No frontiers found. Exploration complete.'
+        self.get_logger().info(detail)
+        self.exploration_complete_logged = True
+        if not self.exploration_terminal_emitted:
+            self.emit_event('exploration_completed', detail)
+            self.exploration_terminal_emitted = True
+
     def prune_dead_frontiers(self):
 
         now = time.monotonic()
@@ -2492,20 +2516,15 @@ class FrontierExplorer(Node):
                 return
             self.verify_frontier_shrank(frontiers)
 
-        if not frontiers:
+        only_small = all(
+            self.frontier_long_side_m(f) < NARROWER_THAN_DOOR_M for f in frontiers
+        )
+        few_left = sum(len(f) for f in frontiers) < LEFTOVER_CELLS_MAX
 
-            if not self.exploration_complete_logged:
-                self.get_logger().info(
-                    'No frontiers found. Exploration complete.'
-                )
-                self.exploration_complete_logged = True
-                if not self.exploration_terminal_emitted:
-                    self.emit_event(
-                        'exploration_completed',
-                        'No frontiers found. Exploration complete.',
-                    )
-                    self.exploration_terminal_emitted = True
-
+        if not frontiers or (
+            only_small and (few_left or self.exploration_complete_logged)
+        ):
+            self.report_complete(frontiers)
             return
 
         self.exploration_complete_logged = False
@@ -2521,6 +2540,10 @@ class FrontierExplorer(Node):
         )
 
         if selected is WAITING_FOR_VLM:
+            return
+
+        if selected is None and only_small:
+            self.report_complete(frontiers)
             return
 
         if selected is None:
@@ -2748,6 +2771,10 @@ FORWARD_MOTION_MPS = 0.03
 OPEN_SPACE_SEARCH_RADIUS_M = 4.0
 OPEN_SPACE_MIN_MOVE_M = 0.5
 ESCAPE_COOLDOWN_SEC = 30.0
+
+NARROWER_THAN_DOOR_M = 0.6
+
+LEFTOVER_CELLS_MAX = 100
 
 # "No usable goal" this many loops in a row counts as stuck.
 STUCK_NO_GOAL_CYCLES = 2
