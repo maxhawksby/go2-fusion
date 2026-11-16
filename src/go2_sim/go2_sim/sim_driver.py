@@ -63,6 +63,8 @@ class SimDriver(Node):
         self.scale_yaw = p('odom_scale_yaw', 0.0).value     # 0.02 = reports 2 % too much turn
         self.drift_yaw = p('odom_drift_yaw', 0.0).value     # rad of heading drift per m
         self.odom_rate = p('odom_rate', 15.0).value         # Hz, real Oak about 13
+        # Oak's driver leaves /odom's twist at 0, and Nav2's DWB reads it.
+        self.odom_true_speed = p('odom_true_speed', False).value
         self.base_height = p('base_height', 0.32).value     # base_link above the floor
         # Commands.
         self.latency = p('cmd_latency', 0.1).value          # s from /cmd_vel_out to motion
@@ -86,13 +88,16 @@ class SimDriver(Node):
         self.tf = TransformBroadcaster(self)
         self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
         self.joint_pub = self.create_publisher(JointState, 'joint_states', 10)
-        best_effort = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
-        self.cloud_pub = self.create_publisher(PointCloud2, 'point_cloud2', best_effort)
+        self.cloud_pub = self.create_publisher(
+            PointCloud2, 'point_cloud2',
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.gz_cmd_pub = self.create_publisher(Twist, '/sim/cmd_vel', 10)
 
         self.create_subscription(Twist, 'cmd_vel_out', self.on_cmd, 10)
         self.create_subscription(Odometry, '/sim/ground_truth/odom', self.on_truth, 50)
-        self.create_subscription(PointCloud2, '/sim/lidar/points', self.on_points, best_effort)
+        self.create_subscription(
+            PointCloud2, '/sim/lidar/points', self.on_points,
+            QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT))
 
         self.pending = deque()          # (due time ns, Twist)
         self.target = (0.0, 0.0, 0.0)
@@ -168,8 +173,9 @@ class SimDriver(Node):
         ox, oy, oyaw = self.odom
         c, s = math.cos(oyaw), math.sin(oyaw)
         self.odom = [ox + c * nx - s * ny, oy + s * nx + c * ny, wrap(oyaw + nyaw)]
-        tw = msg.twist.twist
-        self.odom_twist = (tw.linear.x, tw.linear.y, tw.angular.z)
+        if self.odom_true_speed:
+            tw = msg.twist.twist
+            self.odom_twist = (tw.linear.x, tw.linear.y, tw.angular.z)
 
         now = self.get_clock().now()
         if self.last_odom_pub is not None and \

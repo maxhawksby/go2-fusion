@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: d339daf8a5fd
+verified: 9f90061daf4a
 ---
 
 # Simulator
@@ -38,11 +38,11 @@ Part of: [Lab setup](lab-setup.md)
 **Same wiring as the real robot.** The simulator starts the real stack, `robot.launch.py`, with one change: the [Go2 driver](go2-driver.md) is swapped for a stand-in, `sim_driver`. The stand-in speaks the driver's topics:
 
 - it takes commands from `/cmd_vel_out` ([twist_mux](twist-mux.md)'s output) and passes them to Gazebo after a short delay;
-- it publishes `/odom` and the `odom` -> `base_link` link of the [TF tree](tf.md), with made-up step-counting error added;
+- it publishes `/odom` and the `odom` -> `base_link` link of the [TF tree](tf.md), with made-up step-counting error added. `/odom` reports zero speed by default, like Oak's real driver, which never fills in the speed part. Nav2's local planner reads that speed, most of all in the last 0.3 m before a goal;
 - it publishes `/point_cloud2` in the `odom` frame, like the real driver, from a simulated lidar under Oak's chin (where `go2.urdf` puts it); `pointcloud_to_laserscan` turns it into `/scan` as usual;
 - it publishes a standing `/joint_states`, so RViz draws the legs.
 
-So SLAM, Nav2, twist_mux and the auto mapper run unchanged. `/imu` and `/go2_states` are not simulated. The front camera is optional and off unless you ask for it (see the dials): rendering it costs CPU on a laptop with no GPU. The cloud reaches `lidar_to_pointcloud` through the same `/robot0/point_cloud2` -> `/point_cloud2` rename as on the robot (the open topic question in the [Test log](test-log.md) applies here too).
+So SLAM, Nav2, twist_mux and the auto mapper run unchanged. A parity test (`test/test_sim_parity.py`) fails if the stand-in's topic names, frames, queue sizes or `/odom` speed stop matching the real driver, or if `sim.launch.py` starts `robot.launch.py` with other settings than Oak uses. `/imu` and `/go2_states` are not simulated. The front camera is optional and off unless you ask for it (see the dials): rendering it costs CPU on a laptop with no GPU. The cloud reaches `lidar_to_pointcloud` through the same `/robot0/point_cloud2` -> `/point_cloud2` rename as on the robot (the open topic question in the [Test log](test-log.md) applies here too).
 
 **Kept away from the real robot.** The simulator uses ROS domain 42 and talks only inside your computer (`ROS_LOCALHOST_ONLY=1`), so its drive commands can never reach a real Oak on the network. To look at its topics from another terminal, first run `export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1`.
 
@@ -207,7 +207,7 @@ Launch arguments (for `sim.launch.py`, or after `--` for trials). The odometry a
 | `vlm_mode` | `off` | The auto mapper's [VLM](auto-mapper.md#using-the-vlm) goal ranking: `off`, `shadow` or `active`. Only used with `explore:=true` |
 | `vlm_url`, `vlm_model` | empty | Where the VLM server is and which model to ask, passed to the auto mapper |
 
-In `sim.yaml` only: `odom_scale_xy` and `odom_scale_yaw` (Oak says it went or turned a few % more than it did), `cmd_timeout` (Oak stops after 0.5 s without commands), speed and acceleration limits, the lidar mount position, and the self-filter box that drops lidar points on Oak's own head and legs (kept inside the 0.36 m nose, so something touching the nose is still seen). TODO(owner): measure Oak's real odometry error, command delay and stop timeout, and set these defaults from them.
+In `sim.yaml` only: `odom_true_speed` (default `false`; `true` puts Gazebo's true speed on `/odom`, which is how every simulator run before issue #106 worked, so to compare with those runs turn it on through a custom `params_file`), `odom_scale_xy` and `odom_scale_yaw` (Oak says it went or turned a few % more than it did), `cmd_timeout` (Oak stops after 0.5 s without commands), speed and acceleration limits, the lidar mount position, and the self-filter box that drops lidar points on Oak's own head and legs (kept inside the 0.36 m nose, so something touching the nose is still seen). TODO(owner): measure Oak's real odometry error, command delay and stop timeout, and set these defaults from them.
 
 ## Adding a world
 
@@ -290,6 +290,7 @@ A good simulator score is a first check, not proof. When a measurement lands, ed
 - **No lidar, startup timeout.** The headless lidar is drawn with OpenGL; without a GPU, Mesa's software renderer (llvmpipe) does it, which works (tested, see the box at the top). If the trial log says `startup timeout: no lidar on /point_cloud2`, look at `logs/run_01_launch.log` for OpenGL errors.
 - **Runs slower than real time.** The auto mapper's waits are in wall-clock seconds, so a slow simulator makes it give up early and scores look worse than they are. The trial runner prints a real-time factor per run. Below about 0.9, close the Gazebo window (on a laptop without a GPU it alone halves the speed) or close other programs. Fewer lidar points is not a fix: below 720 per ring, `/scan` gets holes the auto mapper treats as unsafe.
 - **It is kinder than the real Oak.** Perfectly flat floor, no people, no glass or mirrors, a cleaner lidar, and a body that slides instead of stepping. A good trial score is a first check, not proof; confirm on Oak and log it in the [Test log](test-log.md).
+- **Old results are not comparable.** Runs before issue #106 had true speed on `/odom`, so Nav2 slowed down near goals differently. Compare new runs only with a new baseline. A guess, not measured: with zero speed, Nav2 may turn in place 0.25 to 0.3 m from a goal until its progress checker gives up; the simulator can now show this.
 - **Collisions push, not stop.** Gazebo keeps pushing Oak at the commanded speed while it touches a wall, so one long scrape counts as one bump.
 - **The RViz AutoMapper panel works** (it starts the auto mapper in the simulator's domain), but its Reset maps button restarts SLAM, which makes that run's score meaningless.
 
