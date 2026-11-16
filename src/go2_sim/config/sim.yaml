@@ -18,7 +18,7 @@ go2_sim_driver:
     # Oak 2026-11-16: 2.2-2.4 s from command to motion in the rosbag record
     # times, part of it /odom transport delay, so 2.3 s is an upper bound.
     # 1.0 is a chosen middle until the delay is split.
-    cmd_latency: 1.0         # s between /cmd_vel_out and Oak starting to move
+    cmd_latency: 0.0         # s between /cmd_vel_out and Oak starting to move
     cmd_timeout: 0.5         # s without a command before Oak stops
     max_vel_x: 1.0
     max_vel_y: 0.6
