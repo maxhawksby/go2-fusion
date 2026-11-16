@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: d339daf8a5fd
+verified: 29165bb107f6
 ---
 
 # Simulator
@@ -168,7 +168,9 @@ mapper. Its independent artifacts are under the run's `scoreboard/` folder,
 including a rosbag by default. The legacy simulator scorer remains in place and
 both scorers begin at the auto mapper's structured `exploration_started` event.
 The CSV reports whether reported odometry distance (within 10% or 0.5 m),
-completeness (within one percentage point) and collision counts agree. It also
+completeness (within one percentage point) and collision counts agree. It puts
+the scoreboard's end reason (`scoreboard_end_reason`) next to the runner's own
+note, so a run marked "stuck" also shows the stop Oak was frozen on. It also
 keeps Gazebo's hidden physical distance and reports the odometry error separately;
 that ground truth is an answer key, not data available to Oak. Use
 `--no-scoreboard-bag` for a small development run or `--no-scoreboard` to
