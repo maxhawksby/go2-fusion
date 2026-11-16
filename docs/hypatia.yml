@@ -1,0 +1,57 @@
+# Team 48 - who works on Oak.
+#
+# The Hypatia config: read by Hypatia for the wiki site (hypatia build,
+# hypatia serve) and Discord pings (hypatia ping). Keep this simple shape:
+# one "- id:" block per person, one "key: value" per line.
+#
+# id          short lowercase id used everywhere else in the data
+# github      GitHub login (checked against the repo's commit history)
+# color       that person's color on the site: their pages on the map and
+#             their name everywhere take it. Everything else on the site is
+#             grey, so pick a color that is readable on the dark background
+#             and clearly not grey or white.
+# discord_id  numeric Discord user id, so pings can @mention them.
+#             Empty until filled in (Discord: Settings > Advanced >
+#             Developer Mode, then right-click the name > Copy User ID).
+# focus       one line, what they are working on now
+# past        optional: slugs of wiki pages they worked on before, which
+#             git history may not show, e.g. past: [object-detection]
+people:
+  - id: max
+    name: Max
+    github: maxhawksby
+    color: "#ff4d5e"
+    discord_id: ""
+    focus: Recovery - sensor watchdog, save and resume the map, failure drills
+    past: [object-detection]
+
+  - id: luis
+    name: Luis
+    github: LuisMend12
+    color: "#b5e61d"
+    discord_id: ""
+    focus: Auto mapper - reliable exploration on Oak
+
+  - id: noah
+    name: Noah
+    github: noahsteinberg
+    color: "#d9a066"
+    discord_id: ""
+    focus: Mapping scoreboard - run recording, reports and replay
+
+  - id: adib
+    name: Adib
+    github: AdibRouf
+    color: "#9aa7bd"
+    discord_id: ""
+    focus: Localization - TF tree, odometry timing, SLAM settings
+
+  - id: jeth
+    name: Jeth
+    github: jevgome
+    color: "#efe3c2"
+    discord_id: ""
+    focus: Simulator and answer key - lab room world, tape-measured floor plans
+only_listed: true   # the people above are the whole team (as docs/team.yml was)
+drift: error        # a page whose code changed since its verified: stamp fails the check
+coverage: src

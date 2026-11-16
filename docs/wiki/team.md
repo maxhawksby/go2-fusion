@@ -11,15 +11,9 @@ Part of: [Oak](../../README.md)
 
 ## Who works on Oak
 
-Oak is built by **Team 48**, a five-student senior design team (the dashboard's title reads "UConn Team 48"). Each person has a main focus this week:
+Oak is built by **Team 48**, a five-student senior design team: Luis, Adib, Noah, Jeth and Max.
 
-| Person | Working on now | Closest pages |
-| --- | --- | --- |
-| **Luis** | Auto mapper: making Oak explore a room reliably | [Auto mapper](auto-mapper.md), [SLAM](slam.md), [Nav2](nav2.md) |
-| **Adib** | Local Ollama/Qwen [LLM agent](llm-agent.md); next, odometry and turn accuracy | [LLM agent](llm-agent.md) |
-| **Noah** | Oak Control dashboard and its ROS 2 bridge; reviewed Piper TTS | [Voice](voice.md), [Posture](posture.md) |
-| **Jeth** | Piper text-to-speech through Oak's speaker | [Voice](voice.md) |
-| **Max** | Computer vision: YOLO object memory; leads the wiki | [Object detection](object-detection.md), this hub |
+Who owns which part of the goal is on the [Roadmap](roadmap.md) under "Who owns what". What each person is doing right now is their open GitHub issues and pull requests, not a list on this page.
 
 More detail on each person, and how to reach them, is on [People](people.md).
 
@@ -33,8 +27,8 @@ More detail on each person, and how to reach them, is on [People](people.md).
 ## How we work together
 
 - **Branches are your sandbox.** Push whatever you like to your own branch; no review needed.
-- **Merging into `master`** needs a GitHub pull request with one teammate's approval and green automatic checks. Nobody pushes to `master` directly.
-- **Review is for the robot.** A change to Oak's software (`src/`, `docker/`, `host_tools/`) or its build check needs one teammate's approval, even if it already works on Oak. Wiki pages, guides and team tooling (wiki site, Discord bot) skip it: once the checks pass, Max merges them.
+- **Merging into `master`** needs a GitHub pull request with green automatic checks. Nobody pushes to `master` directly.
+- **Review follows the risk.** The `review-gate` check reads the files a pull request changes and labels it. `tier:high` is Oak's software (`src/`, `docker/`, `host_tools/`, the build check) and needs one teammate's approval on the latest commit, even when it is confirmed working on Oak. `tier:medium` is team tooling, CI and agent rules and needs one approval, or Max merges it. `tier:low` is wiki pages, guides and images and merges by itself once the checks pass.
 - **Tasks live as GitHub issues**, labelled `wiki:<page>` (for example `wiki:maps-nav`). Take one by assigning it to yourself.
 - **Keep the wiki true.** If you change a program's code, update its wiki page in the same pull request. A check fails otherwise.
 - **Test without the robot first.** There is one Oak, and it accepts one connection at a time.

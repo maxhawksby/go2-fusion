@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>go2_scoreboard</name>
+  <version>0.1.0</version>
+  <description>Records, scores and replays Oak autonomous mapping runs.</description>
+  <maintainer email="noah.steinberg@uconn.edu">Noah Steinberg</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <depend>rclpy</depend>
+  <depend>go2_interfaces</depend>
+  <depend>nav_msgs</depend>
+  <depend>rosgraph_msgs</depend>
+  <depend>rosbag2_py</depend>
+  <depend>rosidl_runtime_py</depend>
+  <depend>std_srvs</depend>
+  <depend>ros_gz_interfaces</depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

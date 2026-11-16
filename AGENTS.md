@@ -18,18 +18,19 @@ All ROS packages live under `src/`.
 | `lidar_processor`, `lidar_processor_cpp` | Point cloud processing |
 | `go2_rviz_plugins` | RViz panels: map viewer, auto mapper, keyboard teleop |
 | `coco_detector` | Object detection on the camera feed (MobileNet, `/detected_objects`); to be retired in favor of `object_detection` |
-| `object_detection` | YOLOv8 detector with rough object positions and a 20 s memory (`/detected_objects/poses`, `/detected_objects_dict`) |
+| `object_detection` | YOLOv8 detector with rough object positions and a 20 s memory on the map (`/detected_objects_dict`, RViz markers on `/detected_objects/markers`) |
 | `object_navigation` | Walks toward a detected object (`/navigate_to_object`); no obstacle avoidance |
 | `go2_llm_agent` | Plain-English commands to robot actions via an LLM. The team is moving it to a local Ollama model (Qwen) on `adib/feat/llm-agent`; on master its pip deps are not in the image, so it builds but does not run |
 | `speech_processor` | Text to speech through the robot's speaker |
 | `front_leg_controller` | Leg/posture commands |
 | `go2_sim` | Gazebo Fortress simulator: a velocity-driven Oak running the real stack, and an auto mapper trial runner |
+| `go2_scoreboard` | Records and grades auto mapper runs (distance, map, events, collisions, CPU and RAM) without controlling Oak; can replay a rosbag into the same report |
 
 `host_tools/` holds tools that run on the host, outside Docker (not ROS packages): `speech_to_text/vad_listen.py` sends microphone transcripts to `go2_llm_agent`. [Decisions](docs/wiki/decisions.md) records what came from Riley Francis's ROS2-LLM-Nav and why.
 
 ## Build and run: always in Docker
 
-The image holds only dependencies. Only the repo's `src/` folder is mounted, at `/ros2_ws/src` (plus `go2_map_viewer_julia/` at `/ros2_ws/src/go2_map_viewer_julia`); colcon's `build/`, `install/` and `log/` live in Docker volumes. Other repo folders (`docs/`, `scripts/`, `host_tools/`) are not in the container. The container runs `colcon build --symlink-install` on start. Never install ROS or packages on the host.
+The image holds only dependencies. Only the repo's `src/` folder is mounted, at `/ros2_ws/src`; colcon's `build/`, `install/` and `log/` live in Docker volumes. Other repo folders (`docs/`, `scripts/`, `host_tools/`) are not in the container. The container runs `colcon build --symlink-install` on start. Never install ROS or packages on the host.
 
 ```shell
 docker info                                          # if this fails, ask the human to start Docker Desktop; never start/restart it yourself
@@ -63,21 +64,26 @@ On Windows hosts, add `-f docker-compose.windows.yml` to every `docker compose` 
 
 ## Wiki
 
-The team docs are a wiki graph: `README.md` is the center page "Oak", hub pages and one page per program live in `docs/wiki/<slug>.md`, each with `title`, `parent` and optional `code:` globs in its front matter. A pull request check fails when code changes but its page does not. Follow the steps in [.claude/skills/wiki-keeper/SKILL.md](.claude/skills/wiki-keeper/SKILL.md) (Claude Code loads it as a skill; Codex and Cursor: read and follow it):
+The team docs are a wiki graph: `README.md` is the center page "Oak", hub pages and one page per program live in `docs/wiki/<slug>.md`, each with `title`, `parent` and optional `code:` globs in its front matter. The wiki runs on Hypatia; each page with `code:` carries a `verified:` stamp of that code, and the pull request check lists pages whose code changed since. Follow the steps in [.claude/skills/wiki-keeper/SKILL.md](.claude/skills/wiki-keeper/SKILL.md) (Claude Code loads it as a skill; Codex and Cursor: read and follow it):
 
-- Previewing: `npm install` once, then `npm run wiki` (host, not Docker; Node 18+, Python 3.8+) serves the workspace at http://localhost:4410 with live reload; `npm run wiki -- --no-open` when no browser should open. `npm test` runs the wiki tests.
+- Previewing: `npm run wiki` (host, not Docker; Node 18+) serves the workspace at http://localhost:4410 with live reload; `npm run wiki -- --no-open` when no browser should open.
 - Starting a task: open or reuse a GitHub issue, label it `wiki:<slug>`, assign yourself.
-- After changing `src/`, `host_tools/` or `docker/`, or adding or removing a package, and before every pull request: run `python3 scripts/wiki/check_wiki.py` and update each flagged page in plain freshman English (what it does, what it uses, how it breaks). Mark unknowns `TODO(owner)`; never invent facts. Re-run until it passes.
-- If a change truly needs no wiki edit, put `wiki: no change needed - <reason>` in the pull request description.
+- After changing `src/`, `host_tools/` or `docker/`, or adding or removing a package, and before every pull request: run `npx hypatia check`, reread each flagged page against its code and update it in plain freshman English (what it does, what it uses, how it breaks), then run `npx hypatia verify docs/wiki/<page>.md`. Mark unknowns `TODO(owner)`; never invent facts. Re-run until it passes.
+- If a change truly needs no wiki edit, put `wiki: no change needed for <page>.md - <reason>` in the pull request description.
 - Answering questions: when asked, list open questions for the pages you know (`gh issue list --label question`), answer in plain English as an issue comment with links to the pages and code, and update the wiki page if the answer belongs there.
 - Asking for review: open the pull request and fill the template (`.github/pull_request_template.md`): Who, What, Why, Before, After, How to test, Wiki, a line or two each in plain English. Don't request one specific reviewer: the post to Discord #feature-revisions (Who, What, Why, Before, After, the link) asks the whole team, and any teammate can approve. Label nothing extra.
 
 ## Git
 
 - Never commit to `master`. Branch from the latest master: `git fetch && git switch -c <id>/feat/<short-name> origin/master`.
-- Every branch name starts with its owner's `id` from `docs/team.yml` (`max/`, `noah/`, `adib/`, `jeth/`, `luis/`), so the team can see who owns it. Ask the human for their id if you don't know it; never guess from the git email.
+- Every branch name starts with its owner's `id` from `docs/hypatia.yml` (`max/`, `noah/`, `adib/`, `jeth/`, `luis/`), so the team can see who owns it. Ask the human for their id if you don't know it; never guess from the git email.
 - Your own branches are personal sandboxes: commit and push to them freely, no review needed.
 - Commit messages: one short sentence that says exactly what changed, starting with the part of Oak it touches, e.g. `Auto mapper: skip frontiers it can't reach`. Never `fix`, `wip` or `updates`. Many commits before a push are fine; each still says what it did. The pull request then explains Who, What, Why, Before and After.
 - Keep branches small (one feature or fix). Before opening a PR: `git fetch && git rebase origin/master`.
-- Only merging into `master` needs review: a GitHub pull request with one teammate's approval and green automatic checks. Don't push to `master` directly.
-- Review is for changes to the robot: anything in `src/`, `docker/` or `host_tools/`, or the robot build check (`.github/workflows/ros_build.yaml`), needs one teammate's approval, even when it is confirmed working on Oak. Everything else (wiki pages, guides, the wiki site, the Discord bot, other team tooling) needs no approval: once the checks pass, Max (the repo admin) merges it.
+- Only merging into `master` goes through a pull request with green automatic checks. Don't push to `master` directly.
+- The `review-gate` check decides how much review a pull request needs from the files it changes, and labels it:
+  - `tier:high`: anything in `src/`, `docker/` or `host_tools/`, the robot build check (`.github/workflows/ros_build.yaml`), or `requirements*.txt`. One teammate's approval on the latest commit, even when it is confirmed working on Oak.
+  - `tier:medium`: team tooling, CI, agent rules (`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.agents/`, `.github/`) and anything else. One approval, or Max (the repo admin) merges it.
+  - `tier:low`: wiki pages, guides and images. No approval. It merges by itself once the checks pass.
+  - Add the `risk:medium` or `risk:high` label to raise a tier. Nothing lowers one. A new push clears earlier approvals.
+- Claude runs on GitHub. It reviews every pull request that is not a draft, and it answers `@claude` in an issue or pull request comment from anyone with write access. Adding the `ready-for-agent` label to an issue starts Claude on it with pstack: it opens a pull request on a branch named for whoever added the label, and never merges. It works on a GitHub runner with no robot and no lab, so a person still proves a fix in the simulator or on Oak.

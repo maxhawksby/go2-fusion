@@ -2,6 +2,7 @@
 title: LLM agent
 parent: brains
 code: [src/go2_llm_agent/**]
+verified: 0b77d52b63f9
 ---
 
 # LLM agent

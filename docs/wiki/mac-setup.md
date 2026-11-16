@@ -55,7 +55,7 @@ bash docker/mac/go2.sh logs
 - `up` refreshes XQuartz access, starts the regular container, builds incrementally and waits. Look for `Summary: ... packages finished` in `logs` before using it.
 
 The Mac image uses the Mac's own CPU type: ARM64 on Apple Silicon, AMD64 on Intel. Mesa and Xvfb draw graphics on the CPU inside Linux; VirtualGL sends the visible window to XQuartz. This is not Apple GPU or CUDA acceleration.
-Builds handle two packages at once, with up to two compiler jobs per package. Julia dependencies are installed, but precompiling waits until its optional dashboard is first used.
+Builds handle two packages at once, with up to two compiler jobs per package.
 
 Check the window with `bash docker/mac/go2.sh rviz`. RViz opens with `/camera/image_raw` and `/point_cloud2` already selected, both using **Best Effort**, and `odom` as its fixed frame. Best Effort means the viewer accepts the driver's stream without asking it to resend every missed frame. A missing `odom` warning and empty displays are expected without a driver. Close the window when done.
 

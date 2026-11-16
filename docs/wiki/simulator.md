@@ -2,6 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
+verified: d339daf8a5fd
 ---
 
 # Simulator
@@ -41,11 +42,98 @@ Part of: [Lab setup](lab-setup.md)
 - it publishes `/point_cloud2` in the `odom` frame, like the real driver, from a simulated lidar under Oak's chin (where `go2.urdf` puts it); `pointcloud_to_laserscan` turns it into `/scan` as usual;
 - it publishes a standing `/joint_states`, so RViz draws the legs.
 
-So SLAM, Nav2, twist_mux and the auto mapper run unchanged. `/imu`, `/go2_states` and the camera are not simulated. The cloud reaches `lidar_to_pointcloud` through the same `/robot0/point_cloud2` -> `/point_cloud2` rename as on the robot (the open topic question in the [Test log](test-log.md) applies here too).
+So SLAM, Nav2, twist_mux and the auto mapper run unchanged. `/imu` and `/go2_states` are not simulated. The front camera is optional and off unless you ask for it (see the dials): rendering it costs CPU on a laptop with no GPU. The cloud reaches `lidar_to_pointcloud` through the same `/robot0/point_cloud2` -> `/point_cloud2` rename as on the robot (the open topic question in the [Test log](test-log.md) applies here too).
 
 **Kept away from the real robot.** The simulator uses ROS domain 42 and talks only inside your computer (`ROS_LOCALHOST_ONLY=1`), so its drive commands can never reach a real Oak on the network. To look at its topics from another terminal, first run `export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1`.
 
 **The world.** `placeholder_rooms` is a made-up 10 x 8 m flat: four rooms, 1.2 m doorways, two routes round (so SLAM can close a loop), a few furniture boxes and a pillar. It is not the lab. Jeth is building a tape-measured lab world (issue #28); any world drops in with `world:=`.
+
+## ITE-inspired hallways
+
+`ite_hallways` is a hallway-only practice world based on Noah's description,
+not a measured third-floor plan. It has a 24 x 24 m interior, a 3 m wide square
+perimeter corridor and a 5 m wide cross-hall linking the left and right sides.
+Two solid cores stand in for inaccessible rooms, elevators and stairs. Two
+solid table boxes sit at the west end of the lobby; the east boundary stands
+in for the closed elevator/stair entrance side. All dimensions are assumptions.
+TODO(noah): confirm orientation and replace assumed lengths with measurements.
+
+![Assumed hallway layout, closed cores and lobby tables](assets/ite-hallways.svg)
+
+This tests turning at corners, choosing a branch, closing loops and returning
+to hallways skipped while exploring the lobby. The explorer must retain
+reachable frontiers beyond the current view; heading toward the biggest open
+space alone does not guarantee it finishes. The generated answer key is used
+only by the scorers, not by SLAM or goal selection. Boxes make both collision
+geometry and scoring agree; individual rooms and stair drops are not simulated.
+
+From this branch's repo root in PowerShell, run these yourself, in order:
+
+```powershell
+# Unit checks, then a saved ground-truth preview; neither launches exploration.
+.\scripts\run_ite_hallways.ps1 -Mode Validate
+.\scripts\run_ite_hallways.ps1 -Mode Preview
+# One 60-second exploration run to check startup and saved artifacts.
+.\scripts\run_ite_hallways.ps1 -Mode Smoke
+# Only after the smoke run works: five matched starts, up to ten minutes each.
+.\scripts\run_ite_hallways.ps1 -Mode Batch -Runs 5 -Seed 28 -Timeout 600
+```
+
+The script reuses the installed `go2scoreboard-unitree_ros:latest` image;
+`-Image <existing-simulator-image>` selects another. It does not rebuild or
+download an image. Compose project `go2ite` gets its own build/install volumes,
+and a fixed container name prevents two script sessions running together. The
+image entrypoint builds the mounted workspace, so allow startup/build time.
+No new Docker dependencies are required for this world. Keep other simulator
+sessions stopped while running this suite. The trial runner selects an isolated
+ROS domain starting at 50 for each run; direct simulation launches default to 42.
+
+Each invocation saves `session.json`, the world, a tracked source patch, console
+log and exit code under `src/go2_sim/results/ite_hallways/`. Trial modes also
+save the existing CSV/report, maps, logs and scoreboard artifacts beneath that
+session's `trials/` folder. Bags are off by default; add `-RecordBag` when
+replay evidence is needed. Keep the commit unchanged during a batch. A successful
+process exit means the command ran; inspect `finished`, coverage, collisions and
+stop reasons to judge mapping. Startup failures are not algorithm failures.
+
+The headless preview writes a `.pgm` and `.yaml`; the drawing above can be
+viewed without Docker. GUI users can instead launch the existing simulator
+with `world:=ite_hallways x:=1.5 y:=1.5 yaw:=1.57 gui:=true explore:=false`
+and start exploration deliberately after checking the layout. PowerShell GUI
+setup is unchanged.
+
+### First hallway smoke result and diagnostic follow-up
+
+The first seed-28000 smoke test on November 10 ran for 60 seconds: 3.19%
+completeness, about 0.32 m traveled, zero collisions, one goal accepted and
+none reached. The scoreboard parity check passed. The initial spin predicted
+a collision, and Nav2 repeatedly failed its progress check; DWB later rejected
+unknown-region and oscillating trajectories. This establishes a stall, not its
+root cause. The aggregator's separate `Time`/`frame_id` error is also present,
+but this launch builds navigation's `/scan` from `/point_cloud2` directly.
+
+Keep the same world, seed and algorithm for one diagnostic repeat:
+
+```powershell
+.\scripts\run_ite_hallways.ps1 -Mode Smoke -Seed 28 -Variant scan_diagnostic -RecordBag
+```
+
+This records the existing scoreboard topics, including `/scan`, local costmap,
+TF, output velocity and ROS logs. It does not include the raw point cloud or
+every Nav2 internal topic. No longer batch is needed until the stall is understood.
+The offline helper reads bags without launching ROS nodes, playing messages or
+issuing motion commands. In a container with the workspace sourced, run:
+
+```shell
+python3 /ros2_ws/src/go2_sim/go2_sim/navigation_diagnostic.py /ros2_ws/src/go2_sim/results/ite_hallways
+```
+
+Each recorded run gets `navigation_diagnostic.json` next to its bag. It reports
+scan frames and directional returns, topic gaps, transforms present on both
+static and dynamic TF, output velocity and relevant failure logs. These are
+investigation clues, not a safety verdict. Aggregate scan statistics cover the
+whole bag, and costmap unknown percentage covers the whole grid. The first
+smoke test had bags disabled, so these measurements cannot be recovered from it.
 
 ## Watch one run (with windows)
 
@@ -73,7 +161,18 @@ This runs the auto mapper 10 times with no windows. Each run starts a fresh simu
 - **Distance**: how far Oak really walked.
 - **Finished**: yes if the auto mapper said it was done. Otherwise the note says why it stopped and where Oak ended up, so you can find the trouble spot.
 
-Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores it): `results.csv`, `results.md` (the table), each run's final map, and logs. Options: `--runs 3`, `--timeout 600`, `--stall-timeout 300` (0 = never), `--seed 2`, `--world <name or .sdf>`. Dials go after `--`, for example `ros2 run go2_sim trials --runs 5 -- lidar_rate:=2.0 odom_noise_xy:=0.05`.
+Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores it): `results.csv`, `results.md` (the table), each run's final map, and logs. Options: `--runs 3`, `--timeout 600`, `--stall-timeout 300` (0 = never), `--seed 2`, `--world <name or .sdf>`. Dials for the simulator go after `--`, for example `ros2 run go2_sim trials --runs 5 -- lidar_rate:=2.0 odom_noise_xy:=0.05`. An experiment can temporarily change an auto-mapper ROS parameter without editing its code, for example `--variant blocked_grace --explorer-param blocked_timeout:=2.0`. The variant and every override are saved with the scoreboard run so comparisons do not mix configurations.
+
+The trial runner also starts the [Scoreboard](scoreboard.md) before each auto
+mapper. Its independent artifacts are under the run's `scoreboard/` folder,
+including a rosbag by default. The legacy simulator scorer remains in place and
+both scorers begin at the auto mapper's structured `exploration_started` event.
+The CSV reports whether reported odometry distance (within 10% or 0.5 m),
+completeness (within one percentage point) and collision counts agree. It also
+keeps Gazebo's hidden physical distance and reports the odometry error separately;
+that ground truth is an answer key, not data available to Oak. Use
+`--no-scoreboard-bag` for a small development run or `--no-scoreboard` to
+isolate the legacy scorer.
 
 ## Watch the trials live
 
@@ -104,6 +203,9 @@ Launch arguments (for `sim.launch.py`, or after `--` for trials). The odometry a
 | `odom_drift_yaw` | 0 | Steady heading drift, radians per meter walked (a slow curve SLAM has to fix) |
 | `cmd_latency` | 0.1 | Seconds between a drive command and Oak moving |
 | `seed` | 0 | Odometry noise seed (0 = different every run) |
+| `camera_rate` | 0, or 5 with `vlm_mode` on | Front camera pictures per second on `/camera/image_raw`, 640 x 360. 0 means no camera. Its 90 degree view is a guess. TODO(owner): measure the real camera's |
+| `vlm_mode` | `off` | The auto mapper's [VLM](auto-mapper.md#using-the-vlm) goal ranking: `off`, `shadow` or `active`. Only used with `explore:=true` |
+| `vlm_url`, `vlm_model` | empty | Where the VLM server is and which model to ask, passed to the auto mapper |
 
 In `sim.yaml` only: `odom_scale_xy` and `odom_scale_yaw` (Oak says it went or turned a few % more than it did), `cmd_timeout` (Oak stops after 0.5 s without commands), speed and acceleration limits, the lidar mount position, and the self-filter box that drops lidar points on Oak's own head and legs (kept inside the 0.36 m nose, so something touching the nose is still seen). TODO(owner): measure Oak's real odometry error, command delay and stop timeout, and set these defaults from them.
 
@@ -117,12 +219,50 @@ The first 10-run batch in the placeholder world, default dials, real-time factor
 
 Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the first version of those fixes, before the unstuck move learned to check Oak's whole body through its allowed drift. With the final version, one 8-minute run (seed 1, 2026-10-31) mapped 48.3 %, with 0 costmap timeouts and 0 collisions, but latched stopped next to the 1.2 m doorway after 44 s ("no safe direction: rear and both sides lack clearance") and never moved again. Master without the fixes maps 5.0 % in the same run. TODO(Max): re-run the 10-run batch with the final fixes.
 
+Every simulator experiment since 2026-11-06 (hypothesis, change, runs, why each run quit, verdict) is logged in the [experiments journal](experiments.md).
+
+## VLM test (2026-10-31)
+
+One 8-minute run with the VLM on and one with it off, in the placeholder world with `seed:=1`, using Qwen2.5-VL 7B:
+
+| | VLM `active` | VLM off |
+|---|---|---|
+| Known map squares at 2 minutes | 27,894 | 27,948 |
+| Known map squares at 8 minutes | 28,322 | 28,148 |
+| Goals sent / reached | 7 / 5 | 6 / 5 |
+| Finished exploring | No | No |
+
+The VLM made no measurable difference, but one run each is too few to say more, and this world's plain gray walls give a camera model little to go on. A world that looks like the real lab would be a fairer test. Both runs stopped mapping after about 2 minutes on `Still stopped: no safe direction on the latest scan`, the latch the [Experiments](experiments.md) page is chasing.
+
 ## What it found so far
 
 Before the recovery fixes (master's old Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
 
+The first [Scoreboard](scoreboard.md) integration proof on 2026-11-05
+reproduced that stop with seed 27. It also proved that the new scorer and this
+legacy scorer agree despite the failed exploration: both measured 0.0 m,
+0 collisions and 5.7% completeness. Treat that as measurement-pipeline
+evidence, not as a successful mapping run.
+
+After pull request #41 merged the costmap and recovery fixes, the same seed was
+rerun on 2026-11-05. It traveled 2.8 m, mapped 48.0% and recorded 0 collisions
+before the runner declared it stuck after 60 seconds with less than 0.25 m of
+new movement. The independent scoreboard measured 2.7235 m, 47.959% and 0
+collisions. This confirms the old startup stall is fixed and the measurement
+paths agree, but it does not claim that exploration finishes reliably.
+
+On 2026-11-06, a three-run batch demonstrated the remaining variability: two
+starts reached 92.0% and 85.2%, while one stalled early. That batch also exposed
+a validation bug: the explorer could keep mapping between the legacy snapshot
+and scoreboard finalization, and simulator reset jumps inflated legacy distance.
+The trial runner now freezes exploration at one measurement boundary, applies
+the scoreboard's 1 m jump rejection to truth odometry, and preserves unknown
+cells in saved maps. A deterministic seed-27 validation then passed independent
+parity at 48.6% completeness, 3.3 m versus 3.119 m, and zero collisions. See
+the [experiments journal](experiments.md) for the evidence and limitations.
+
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
-- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. Three bugs caused it, all fixed (see [Auto mapper](auto-mapper.md)); still to confirm on Oak.
+- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits. Earlier recovery bugs were fixed (see [Auto mapper](auto-mapper.md)), but repeat runs show a remaining case where Oak is genuinely too close to fit the fixed 0.3 m escape. Shorter bounded recovery moves are the next experiment; no Oak result is claimed yet.
 - **Nav2 drives Oak to within 0.05-0.25 m of door jambs, the pillar and furniture**, then reports "No valid trajectories" or "Failed to make progress". TODO(Luis): does Oak get that close on the real floor?
 - **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. The real driver might hit the same thing at startup (see [TF and robot model](tf.md)).
 
@@ -148,5 +288,7 @@ Unit tests (no Gazebo needed):
 ```shell
 docker compose run --rm unitree_ros bash -c 'python3 -m pytest /ros2_ws/src/go2_sim/test'
 ```
+
+The robot build check on GitHub also runs these tests on every pull request (style checks are skipped there for now).
 
 <!-- sources: src/go2_sim/** (this branch), src/go2_robot_sdk/launch/robot.launch.py (driver arg), go2_driver_node.py and ros2_publisher.py (topics, odom frame), urdf/go2.urdf (radar_joint), config/nav2_params.yaml (footprint), config/twist_mux.yaml, docs/wiki/driver.md and test-log.md (lidar rates), docs/wiki/auto-mapper.md ("Exploration complete") -->

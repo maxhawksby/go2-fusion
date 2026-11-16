@@ -2,6 +2,7 @@
 title: Voice
 parent: brains
 code: [host_tools/speech_to_text/**, src/speech_processor/**]
+verified: e813d764e41d
 ---
 
 # Voice
@@ -18,7 +19,7 @@ Voice has two halves.
 
 **Speech out (text to Oak's speaker).** The `tts_node` program in `speech_processor` listens on the `/tts` topic. When text arrives, it turns it into audio (*TTS*, text to speech), cuts the audio into small pieces, and sends them to Oak's speaker as commands on `/webrtc_req`. On `master` the voice comes from **ElevenLabs**, a paid online service, so it needs an `ELEVENLABS_API_KEY`.
 
-**Piper, the free local voice.** On branch `jeth/feat/tts`, Jeth added **Piper**, a text-to-speech model that runs on your own computer, and made it the default. Noah's review branch `noah/tts-piper-review` (pull request #13) fixes how the audio is uploaded: it checks the audio file and sends it in pieces through the robot's "megaphone" audio mode (AudioHub API 4003), with tests.
+**Piper, the free local voice.** Jeth added **Piper**, a text-to-speech model that runs on your own computer, and made it the default; that work is now on branch `jeth/feat/tts-node`, rebased onto `master` on 2026-10-30. Noah's review branch `noah/tts-piper-review` tried to fix how the audio is uploaded: it checks the audio file and sends it in pieces through the robot's "megaphone" audio mode (AudioHub API 4003), with tests. Its pull request (#13) was closed without merging on 2026-10-26, noted as not working.
 
 Example: publishing `ros2 topic pub --once /tts std_msgs/String "data: 'Hello, I am Oak'"` makes Oak say that sentence, if `tts_node` is running with a working voice.
 
@@ -26,7 +27,7 @@ Example: publishing `ros2 topic pub --once /tts std_msgs/String "data: 'Hello, I
 
 - [LLM agent](llm-agent.md): the receiver for speech in. Note that Adib's new Ollama agent disables the old `speech_bridge` server, so speech in has nothing to talk to on that branch yet.
 - [Go2 driver](go2-driver.md): carries `/webrtc_req` audio commands to the robot.
-- The Oak Control dashboard (Noah, branch `feat/desktop-app-prototype`, pull request #14) has its own push-to-talk button in the browser and can publish `/tts`. See [People](people.md).
+- The Oak Control dashboard (Noah, branch `feat/desktop-app-prototype`; pull request #14 was closed without merging on 2026-10-26) has its own push-to-talk button in the browser and can publish `/tts`. See [People](people.md).
 
 | Topic or address | What travels on it |
 | --- | --- |
@@ -40,13 +41,13 @@ Example: publishing `ros2 topic pub --once /tts std_msgs/String "data: 'Hello, I
 - **TTS was not tested in the 2026-10-11 lab session** because it needed an ElevenLabs key ([Test log](test-log.md)).
 - **No key, no voice on `master`:** the launch files pass `ELEVENLABS_API_KEY` from the environment; if it is empty, nothing is spoken.
 - **Microphone in WSL is flaky.** Run `vad_listen.py` from Windows Python if you can.
-- **Docker Desktop on Windows** needs port 8000 published in `docker-compose.windows.yml` for the microphone tool to reach the agent.
+- **Docker Desktop on Windows** needs port 8000 published in `docker-compose.windows.yml` for the microphone tool to reach the agent; today that file publishes only the Foxglove port.
 - Riley tuned the audio pieces to 4 KB every 0.2 s and fixed the audio topic name ([Decisions](decisions.md), row 5). That still needs a robot test.
 
 ## Who's on it and what's next
 
 - **Jeth**: Piper research. He played local speech through Oak's speaker using a separate `unitree_webrtc_connect` driver and the megaphone mode. *Next:* fix the packet loss, then connect TTS to the voice command pipeline.
-- **Noah**: reviewed Piper and wrote the upload fix.
+- **Noah**: reviewed Piper and wrote an upload fix, closed unmerged.
 - TODO(Jeth): which branch becomes the one to merge, and how speech in will reach Adib's new agent.
 
 ## The code

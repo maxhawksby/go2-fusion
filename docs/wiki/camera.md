@@ -2,6 +2,7 @@
 title: Camera
 parent: senses
 code: [src/go2_robot_sdk/go2_robot_sdk/infrastructure/sensors/camera_config.py]
+verified: 7632a60588c0
 ---
 
 # Camera
@@ -34,7 +35,7 @@ With more than one robot, each gets a prefix, for example `/robot0/camera/image_
 
 ## How it breaks
 
-- If the calibration file for the incoming picture height is missing, there is no `CameraInfo` for it (the loader logs an error).
+- If the calibration file for the incoming picture height is missing, there is no `CameraInfo` for it (the loader logs a warning).
 - In the 2026-10-11 lab session, after Ctrl+C the camera kept streaming while lidar and odometry went silent; recreating the container fixed it ([Test log](test-log.md)).
 - The driver keeps video going past bad frames since Luis's October driver fixes ([Decisions](decisions.md), row 15).
 - Today no detector uses the calibration; `object_detection` assumes a 90 degree view instead.

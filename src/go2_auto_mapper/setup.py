@@ -18,11 +18,20 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
+    # Declaring pytest makes colcon run the tests with pytest; without it
+    # colcon falls back to unittest and finds 0 tests.
+    extras_require={
+        'test': [
+            'pytest',
+        ],
+    },
     description='Autonomous frontier exploration for Unitree Go2',
     license='BSD-3-Clause',
     entry_points={
         'console_scripts': [
             'explorer = go2_auto_mapper.explorer:main',
+            'vlm_view = go2_auto_mapper.vlm_view:main',
+            'socialnav_view = go2_auto_mapper.socialnav_view:main',
         ],
     },
 )

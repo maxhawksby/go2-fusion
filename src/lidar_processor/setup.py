@@ -13,6 +13,13 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
+    # Declaring pytest makes colcon run the tests with pytest; without it
+    # colcon falls back to unittest and finds 0 tests.
+    extras_require={
+        'test': [
+            'pytest',
+        ],
+    },
     maintainer='Nuralem Abizov',
     maintainer_email='abizov94@gmail.com',
     description='ROS2 package for processing LiDAR data from Go2 robot',

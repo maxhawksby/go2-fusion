@@ -2,6 +2,7 @@
 title: Go2 driver
 parent: driver
 code: [src/go2_robot_sdk/**]
+verified: c41860ecdc70
 ---
 
 # Go2 driver
@@ -38,7 +39,7 @@ The code is split into layers: `domain/` (plain data and constants, like the rob
 Turn parts off with arguments such as `rviz2:=false`, `nav2:=false`, `slam:=false`, `foxglove:=false`, `joystick:=false`, `teleop:=false`. `driver:=false` leaves out the driver itself; the [Simulator](simulator.md) uses it to run the same stack with its own stand-in driver.
 Other launch files (`robot_cpp`, `navigation`, `mapping`, `webrtc_web`) are variants; note `webrtc_web.launch.py` skips twist_mux.
 
-**Configs** live in `config/`: `twist_mux.yaml`, `joystick.yaml`, `nav2_params.yaml`, `mapper_params_online_async.yaml` (SLAM) and the RViz layouts.
+**Configs** live in `config/`: `twist_mux.yaml`, `joystick.yaml`, `nav2_params.yaml` (explained on the [Nav2](nav2.md) page), `mapper_params_online_async.yaml` (SLAM) and the RViz layouts. In the default layout (`single_robot_conf.rviz`) the view follows the robot (`base_link`) instead of staying where it started, and every layout reads the robot model with "Transient Local" durability, so the model shows even when RViz opens after the robot model was published.
 
 ## Connects to
 
@@ -53,13 +54,14 @@ Other launch files (`robot_cpp`, `navigation`, `mapping`, `webrtc_web`) are vari
 - **Data stalls:** the camera kept streaming but lidar and odometry went silent after a Ctrl+C. The driver now treats 5 seconds without data as a lost connection and reconnects. A forced restart also recovered it then: `docker compose up -d --force-recreate`.
 - **Oak will not move and the log says `Not moving robot 0: no fresh ...`.** The stale-sensor stop is holding it. The message names the quiet sensor. If it is `scan`, check the laser-scan converter is running (`ros2 topic hz /scan`). If it is `lidar` or `odom`, the robot link stalled; the reconnect above should bring it back, and Oak moves again on its own.
 - **Short stops while driving** mean the data arrived more than 1 second late. On a weak Wi-Fi link that may happen often. TODO(max): measure how often on Oak before tuning `sensor_timeout_sec`.
+- **Lidar or camera silent after a reconnect** (October 2026): odometry came back but the cloud or the camera did not, and the 5-second check could not see it because other data kept arriving. The driver now watches the lidar and the camera on their own; see [Robot link](robot-link.md). Every 30 s it logs how fast each arrives, as a line like `Robot 0 streams: lidar 6.8/s, camera …/s`.
 - **One bad video frame used to end the camera feed for good.** Now it gives up only after 10 errors in a row.
 - **`ElevenLabs API key not provided`** in the logs is the text-to-speech node, not the driver. Ignore it.
 - **H264 decode warnings** are occasional dropped video packets. Harmless.
 
 ## Who's on it and what's next
 
-Luis ported reconnect, drop detection and the stop fix. Adib is next looking at odometry reliability and turn accuracy. Max added the stale-sensor stop (issue #29); it still needs a test on Oak. TODO(owner): an owner for this package.
+Luis ported reconnect, drop detection and the stop fix. Adib is next looking at odometry reliability and turn accuracy. Max added the stale-sensor stop (issue #29, pull request #46, replacing the closed #20); it still needs a test on Oak. TODO(owner): an owner for this package.
 
 ## The code
 
@@ -76,5 +78,7 @@ Success: `Robot 0 validated and ready` in the logs. Run the package's tests in a
 ```shell
 cd /ros2_ws && colcon test --packages-select go2_robot_sdk && colcon test-result --verbose
 ```
+
+`test/` holds the driver tests; the robot build check on GitHub runs them on every pull request.
 
 <!-- sources: src/go2_robot_sdk/go2_robot_sdk/main.py; presentation/go2_driver_node.py (env vars, params, topics, video error limit); application/services/robot_control_service.py (explicit stop); infrastructure/webrtc/connection_health.py; launch/robot.launch.py (nodes, launch args); launch/webrtc_web.launch.py; docker/Dockerfile CMD; docs/TEST_LOG.md 2026-10-11; docs/WINDOWS_SETUP.md troubleshooting; docs/FUSION.md row 15 and follow-up 6; git log origin/fix/nav-obstacle-safety (6b42eac); test/test_connection_health.py; domain/sensor_watchdog.py and test/test_sensor_watchdog.py (stale-sensor stop, /safety/events); colcon test command is standard colcon usage, TODO(owner) confirm it passes in Docker -->

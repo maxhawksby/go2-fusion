@@ -1,0 +1,6 @@
+# Reuse an installed simulator image; source builds use separate go2ite volumes.
+# Invoke after docker-compose.windows.yml through scripts/run_ite_hallways.ps1.
+services:
+  unitree_ros:
+    image: ${OAK_ITE_IMAGE:-go2scoreboard-unitree_ros:latest}
+    pull_policy: never

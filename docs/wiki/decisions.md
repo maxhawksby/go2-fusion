@@ -26,7 +26,7 @@ The repo starts with a **fresh git history** (one first commit), so old commits 
 
 | # | What | Choice | Why | Files |
 | --- | --- | --- | --- | --- |
-| 1 | Object detector | Bring in Riley's `object_detection` (YOLOv8). Its pose topic is renamed `/detected_objects` to `/detected_objects/poses`. Keep `coco_detector` for now. Declare its missing `cv_bridge` and `geometry_msgs` deps. Add `ultralytics==8.4.174` to `requirements.txt`. | YOLO is more accurate and gives rough positions. `coco_detector` already uses `/detected_objects` with a different message type, and two types on one topic break it. `ultralytics` installs in the same pip command as our CPU-only torch, so it does not pull the multi-GB CUDA torch (checked: torch stays `2.14.1+cpu`). | `src/object_detection/`, `requirements.txt` |
+| 1 | Object detector | Bring in Riley's `object_detection` (YOLOv8). Its pose topic is renamed `/detected_objects` to `/detected_objects/poses` (later replaced by the labeled `visualization_msgs/MarkerArray` topic `/detected_objects/markers`; see its README). Keep `coco_detector` for now. Declare its missing `cv_bridge` and `geometry_msgs` deps. Add `ultralytics==8.4.174` to `requirements.txt`. | YOLO is more accurate and gives rough positions. `coco_detector` already uses `/detected_objects` with a different message type, and two types on one topic break it. `ultralytics` installs in the same pip command as our CPU-only torch, so it does not pull the multi-GB CUDA torch (checked: torch stays `2.14.1+cpu`). | `src/object_detection/`, `requirements.txt` |
 | 2 | Drive-command collisions | Every drive source gets its own twist_mux input (table below). Changed: `keyboard_teleop`, the RViz KeyboardTeleop panel, `go2_llm_agent`, `object_navigation`. | Before, the keyboard, the agent and object navigation all published `/cmd_vel`, the same input as Nav2, so whoever published last won. Now manual driving beats autonomy, and the node with no obstacle avoidance yields to everything. | `src/go2_robot_sdk/config/twist_mux.yaml`, `src/keyboard_teleop/`, `src/go2_rviz_plugins/src/`, `src/go2_llm_agent/`, `src/object_navigation/` |
 | 3 | `go2_llm_agent` | Brought in as-is, except the topic change (2) and the sit fix (11). Its pip deps (langchain, langgraph, fastapi, ...) are **not** added to the image. | Its replacement was still being decided (see "Decided since"). It builds, but does not run. | `src/go2_llm_agent/` |
 | 4 | `object_navigation` | Brought in, on the lowest twist_mux priority. | Useful demo of "walk to the chair", but it has no obstacle avoidance. | `src/object_navigation/` |
@@ -74,11 +74,12 @@ A new drive source should get its own row here rather than sharing a topic.
 
 ## Decided since
 
-- **2026-10-08: rebuild the LLM agent on Claude.** Riley's agent needed close to a rewrite either way (fixed plans, lost turn direction, no stop, broken live object lookup), and Claude's tool use would do it in less code with fewer dependencies. **Superseded and dropped** by the next decision; its build plan was deleted on 2026-10-22 (git history keeps it).
-- **Ollama agent direction** (Adib's branch, dated 2026-10-12; confirmed as the team's direction on 2026-10-22). The agent runs a free local Qwen model through Ollama, so it needs no paid API key, no billing account and no extra Python libraries. Simulation is the default; real moves reuse `/cmd_vel_agent`. Voice and object navigation are out of scope for this first step. Until it merges, the agent on `master` builds but `ros2 run go2_llm_agent ...` fails on missing imports. See [LLM agent](llm-agent.md).
-- **2026-10-22: the wiki is a graph.** `README.md` is the center page, Oak. Hubs and one page per program live in `docs/wiki/`, and a check fails when code changes without its page.
-- **2026-10-22: one home for team knowledge.** Explanations live only in `README.md` and `docs/wiki/`. The old guides (test log, lab checklist, this fusion record, the WSL, Windows and Mac guides, the command cheat sheets) were folded into wiki pages and deleted; READMEs next to code keep only how to build, run and test.
-- **2026-10-22: review only for merges into `master`.** Your own branches are a sandbox; merging into `master` needs one teammate's approval and green checks.
+Decisions made after the fusion are short records in [`docs/adr/`](https://github.com/maxhawksby/go2-fusion/tree/master/docs/adr), one file each:
+
+- 2026-10-22: the LLM agent runs a local Ollama model (the Claude rebuild was dropped).
+- 2026-10-22: the wiki is a graph checked against the code.
+- 2026-10-22: one home for team knowledge.
+- 2026-10-22: review only for merges into `master`.
 
 ## Follow-ups for the team
 
@@ -87,10 +88,26 @@ A new drive source should get its own row here rather than sharing a topic.
 3. **Retire `coco_detector`.** Once `object_detection` also publishes standard `vision_msgs/Detection2DArray`, remove `coco_detector` and decide whether YOLO should take over `/detected_objects`.
 4. **Robot re-test.** Partly done: the 2026-10-11 lab session in the [Test log](test-log.md) passed connect, camera, RViz, lidar, YOLO speed on CPU and the twist_mux priority order, and found the idle keyboard bug (row 16). Still to check: the driver reconnects after a Wi-Fi drop, a drive source going quiet stops the dog (zero `cmd_vel` is now sent), TTS with the new 4 KB chunks, each twist_mux input actually reaching the driver, the sit message, the RViz panels, and `CONN_TYPE=webrtc` as the compose default.
 5. **Gamepad: LB deadman test no longer required.** The team no longer drives with an Xbox gamepad; it uses the Oak ROS2 pad, which sends signals differently. The code is unchanged: a pad on `/joy` still drives through `teleop_twist_joy` on `/cmd_vel_joy` (priority 10) only while LB (button 4) is held, which was verified with simulated input in Docker. The Oak ROS2 pad talks straight to Oak and skips ROS (Max, 2026-10-22).
-6. **`webrtc_web.launch.py` skips twist_mux.** That launch file connects the driver straight to `/cmd_vel`, so the keyboard, agent and object-navigation topics do nothing there. Only `robot.launch.py` / `robot_cpp.launch.py` use the priority table.
+6. **`webrtc_web.launch.py` skips twist_mux** (tracked in [#72](https://github.com/maxhawksby/go2-fusion/issues/72)). That launch file connects the driver straight to `/cmd_vel`, so the keyboard, agent and object-navigation topics do nothing there. Only `robot.launch.py` / `robot_cpp.launch.py` use the priority table.
+
+## External reuse review
+
+External projects are references, not alternate robot stacks. We keep one Go2
+driver and port only a capability after checking its license and fitting it to
+Oak's topics and safety path.
+
+| Project | License checked | Relevant capability | Decision |
+| --- | --- | --- | --- |
+| [m-explore-ros2](https://github.com/robo-friends/m-explore-ros2) | BSD | Frontier-exploration controls | Benchmark first; later adapt pause/resume/status/return-home patterns, not the whole stack |
+| [slam_toolbox](https://github.com/SteveMacenski/slam_toolbox) | LGPL-2.1 repository license; individual files may differ | Save and reload pose graphs | Use its installed services in recovery work; do not copy source into Oak |
+| [Navigation2](https://github.com/ros-navigation/navigation2) | Mixed by package/file; unmarked files Apache-2.0 | Collision Monitor and navigation | Configure the installed Humble packages and verify each copied file's license |
+| [Autonomous Go2 Inspection](https://github.com/Manas-arumalla/autonomous-go2-inspection) | MIT, with separately licensed vendored packages | Mission reports and benchmark ideas | Reuse reporting concepts with attribution; its Jazzy/Harmonic stack is not a drop-in replacement |
+| PawAI | No license found during review | Voice, intent and operator-console ideas | Ideas only; do not copy code |
+
+No code from these projects is included in the first scoreboard change.
 
 ## Add a decision
 
-When the team decides something that changes how code works, add it under "Decided since" with the date, what was chosen, and why.
+When the team decides something that changes how code works, add a new numbered file in `docs/adr/` with the date, the context, what was chosen and what follows from it. Add one line for it under "Decided since".
 
 <!-- sources: docs/FUSION.md (whole file: What this repo is, Decisions 1-16, twist_mux priorities, Left out, Decided after the fusion, Follow-ups; folded in here and deleted 2026-10-22); docs/plans/pending/2026-10-08-claude-llm-agent.md (deleted 2026-10-22); origin/adib/feat/llm-agent FUSION.md diff (2026-10-12 Ollama decision); 2026-10-22 decisions: Max via coordinator (contract), AGENTS.md Git and Wiki sections, scripts/wiki/README.md -->

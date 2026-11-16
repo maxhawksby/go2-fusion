@@ -1,15 +1,21 @@
-# Keeps the team wiki (README.md + docs/wiki/) correct on every pull request.
-# Free: plain Python on a GitHub runner. No AI, no secrets.
-# What it checks, and how to fix each failure, is explained in
-# scripts/wiki/check_wiki.py and .claude/skills/wiki-keeper/SKILL.md.
-# Until docs/wiki/ exists, the checker passes with a note.
+# Made by Hypatia 0.4.0 (#28663964). Run "hypatia upgrade" to update it.
+# Checks the wiki on every pull request: pages, links, code: paths and the
+# privacy guard. The drift: setting in docs/hypatia.yml covers pages that
+# fell behind the code they explain: "drift: warn" (what new installs get)
+# lists them and still passes, "drift: error" fails the pull request until
+# each page is updated or skipped with "wiki: no change needed for <page.md>
+# - <reason>" in the description, and "drift: off" skips it. With
+# "coverage: src" it fails when a folder in src/ has no page.
+# A failing check only blocks merging once it is required: run
+# "hypatia protect" to make the wiki-check job required on the default branch.
+# Free: Node on a GitHub runner. No secrets.
 name: Wiki check
 
 on:
   pull_request:
     branches: [master]
-    # "edited" re-runs the check when someone adds
-    # "wiki: no change needed - <reason>" to the pull request description.
+    # "edited" runs the check again when someone adds a
+    # "wiki: no change needed ..." line to the description.
     types: [opened, synchronize, reopened, edited]
 
 permissions:
@@ -19,14 +25,13 @@ jobs:
   wiki-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
-          fetch-depth: 0  # full history, so the checker can find what this PR changed
-
-      - name: Test the checker itself
-        run: python3 -m unittest discover -s scripts/wiki/tests
-
+          fetch-depth: 0  # full history, so the check can see what this pull request changed
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
       - name: Check the wiki
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 scripts/wiki/check_wiki.py --base "origin/${{ github.base_ref }}"
+          HYPATIA_PR_BODY: ${{ github.event.pull_request.body }}
+        run: npx hypatia@0.4.0 check

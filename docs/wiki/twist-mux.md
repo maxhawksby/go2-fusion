@@ -2,6 +2,7 @@
 title: twist_mux
 parent: driving
 code: [src/go2_robot_sdk/config/twist_mux.yaml]
+verified: 0671c7464e84
 ---
 
 # twist_mux

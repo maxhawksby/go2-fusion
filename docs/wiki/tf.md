@@ -2,6 +2,7 @@
 title: TF and robot model
 parent: senses
 code: [src/go2_robot_sdk/urdf/**, src/go2_robot_sdk/meshes/**, src/go2_robot_sdk/dae/**, src/go2_robot_sdk/calibration/**]
+verified: 5133222e3146
 ---
 
 # TF and robot model
@@ -35,7 +36,7 @@ Part of: [Senses](senses.md)
 - [SLAM](slam.md) - publishes `map` -> `odom`.
 - [Lidar](lidar.md) and [Camera](camera.md) - their messages are stamped with `odom` and `front_camera`.
 - [Nav2](nav2.md), [Auto mapper](auto-mapper.md), [Map viewers](map-viewers.md) - all look up where `base_link` is on `map`.
-- [Object detection](object-detection.md) - the in-progress map memory uses TF to put objects on the map.
+- [Object detection](object-detection.md) - the unmerged map-memory branch uses TF to put objects on the map.
 
 ## How it breaks
 

@@ -54,9 +54,8 @@ graph LR
 
 **You need:** a laptop with Docker Desktop and about 16 GB of RAM. Windows users also need WSL2 (Linux inside Windows). Macs work too. You do **not** need the robot.
 
-**Open the team wiki first.** The quickest way is the [live wiki](https://maxhawksby.github.io/go2-fusion/) in your browser. To edit pages and see your changes instantly, run it on your laptop instead. It runs outside Docker, and needs only [Node.js](https://nodejs.org/) 18+ and Python 3.8+. From the repo folder:
+**Open the team wiki first.** The quickest way is the [live wiki](https://maxhawksby.github.io/go2-fusion/) in your browser. To edit pages and see your changes instantly, run it on your laptop instead. It runs outside Docker, and needs only [Node.js](https://nodejs.org/) 18+. From the repo folder:
 ```shell
-npm install    # once
 npm run wiki   # opens http://localhost:4410 and reloads when a page changes
 ```
 
@@ -83,20 +82,9 @@ Everything else runs inside **Docker**, which packs all the software into one id
 
 Windows without WSL, Macs, memory errors, and RViz windows: see [Lab setup](docs/wiki/lab-setup.md).
 
-## What we're working on now (week of Oct 18)
+## What we're working on now
 
-- **Auto mapper** (Luis): reliable exploration. Fixed false walls caused by floor drift, added Scan and Reset maps buttons in RViz, and made frontier search about 100x faster. Merged to `master`. *Next:* full exploration tests on Oak. See [Auto mapper](docs/wiki/auto-mapper.md).
-- **AI agent** (Adib): Ollama runs a free local Qwen model in place of the paid OpenAI API, tested on Oak and in mock mode. *Next:* odometry reliability and turn accuracy. See [LLM agent](docs/wiki/llm-agent.md).
-- **Oak Control dashboard** (Noah): a browser dashboard plus a ROS 2 bridge, with live sensors and object detection over WebRTC and Foxglove, voice input, robot actions, and safety limits. Noah also wrote a repeatable lab-testing guide and reviewed Piper.
-- **Text-to-speech** (Jeth): Piper, a free local voice, speaking through Oak's speaker. The audio is choppy and drops the start of short clips. *Next:* fix the packet loss, then connect it to voice commands. See [Voice](docs/wiki/voice.md).
-- **Computer vision and the wiki** (Max): YOLO object detection that remembers where objects are, to help map rooms. See [Object detection](docs/wiki/object-detection.md).
-
-**Open issues from the last robot test:**
-
-1. Retest Nav2 goals and click-to-walk in the map viewer.
-2. Retest how keyboard driving feels after the teleop fixes.
-3. Find what starts the lidar-to-pointcloud node and check its input topic.
-4. Confirm by eye that Oak stops cleanly when a driver goes quiet.
+The goal, the scorecard and every open task are GitHub issues: start at the pinned [goal issue](https://github.com/maxhawksby/go2-fusion/issues/58). Each person's lane is on the [Roadmap](docs/wiki/roadmap.md). This page does not keep a copy, so it cannot go out of date.
 
 **Tasks live as GitHub issues**, labelled `wiki:<page>` (for example `wiki:maps-nav`). Take one by assigning it to yourself. Stuck or curious? Ask in the team Discord; nobody minds a beginner question.
 
@@ -105,7 +93,7 @@ Windows without WSL, Macs, memory errors, and RViz windows: see [Lab setup](docs
 Max Hawksby, Luis (LuisMend12), Noah Steinberg, Adib Rouf, and Jeth. Meet everyone, and see what each person works on, on [People](docs/wiki/people.md). TODO(Max): Luis's full name, and confirm Jeth is GitHub user jevgome.
 
 - **Branches are your sandbox.** Push whatever you like; no review needed.
-- **Merging into `master`** needs one teammate's approval and green automatic checks. Only changes to Oak's software need it; wiki, guides and team tooling skip it and Max merges them once checks pass.
+- **Merging into `master`** needs a pull request with green automatic checks. The `review-gate` check reads the files a pull request changes and labels it. `tier:high` is Oak's software (`src/`, `docker/`, `host_tools/`, the build check) and needs one teammate's approval on the latest commit, even when it is confirmed working on Oak. `tier:medium` is team tooling, CI and agent rules and needs one approval, or Max merges it. `tier:low` is wiki pages, guides and images and merges by itself once the checks pass.
 - **Keep the wiki true:** if you change a program's code, update its wiki page in the same pull request.
 - Test without the robot first. There is one Oak and it accepts one connection at a time.
 - Never commit keys, passwords, or lab Wi-Fi details.
@@ -133,8 +121,7 @@ Sources:
 - AI agent: origin/adib/feat/llm-agent ("ollama agent instead of riley gpt")
 - Dashboard: origin/feat/desktop-app-prototype (Noah Steinberg; host_tools/control_dashboard, go2_dashboard_bridge, docs/DASHBOARD_LAB_GUIDE.md)
 - Computer vision memory: origin/feat/yolo-map-memory (Max Hawksby)
-- Current-work wording: team updates week of 2026-10-18; roles now on docs/wiki/people.md
-- Open issues: docs/wiki/test-log.md "Open issues" 1-4
+- Current work: not kept here since 2026-11-11; see GitHub issues (goal issue #58) and docs/wiki/roadmap.md
 - Automatic checks: .github/workflows/ros_build.yaml
 - Credits/license: original README.md "Thanks" and "License"; LICENSE
 -->

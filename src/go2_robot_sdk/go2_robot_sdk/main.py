@@ -7,11 +7,28 @@ Implements clean architecture with real-time data publishing
 """
 
 import asyncio
+import time
 import threading
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 
 from .presentation.go2_driver_node import Go2DriverNode
+
+
+# Waits between reconnect tries: doubling from the first up to the most.
+INITIAL_BACKOFF_SEC = 5.0
+MAX_BACKOFF_SEC = 60.0
+# A connection that stayed up this long counts as good, so the next drop
+# starts the waits over instead of continuing to double.
+STABLE_CONNECTION_SEC = 30.0
+
+
+def backoff_after(previous_sec, uptime_sec):
+    """Return how long to wait before the next try, given the last wait and
+    how long the connection that just dropped had been up."""
+    if uptime_sec >= STABLE_CONNECTION_SEC:
+        return INITIAL_BACKOFF_SEC
+    return min(previous_sec * 2, MAX_BACKOFF_SEC)
 
 
 async def run_robot_connections(node: Go2DriverNode):
@@ -26,13 +43,14 @@ async def run_robot_connections(node: Go2DriverNode):
     restarted the container. Retrying here instead keeps the node alive
     through anything but a truly fatal, unrecoverable error.
     """
-    backoff_sec = 5.0
-    max_backoff_sec = 60.0
+    backoff_sec = INITIAL_BACKOFF_SEC
     while True:
         tasks = []
+        connected_at = None
         try:
             # Connect to robots
             await node.connect_robots()
+            connected_at = time.monotonic()
 
             # Start control loops for each robot
             for i in range(len(node.config.robot_ip_list)):
@@ -49,12 +67,11 @@ async def run_robot_connections(node: Go2DriverNode):
             # Stop the other robots' loops too; the retry restarts them all.
             for task in tasks:
                 task.cancel()
-            node.get_logger().error(
-                f"Error in robot connections: {e}. "
-                f"Retrying in {backoff_sec:.0f}s."
-            )
+            node.get_logger().error(f"Error in robot connections: {e}.")
+            uptime = 0.0 if connected_at is None else time.monotonic() - connected_at
+            backoff_sec = backoff_after(backoff_sec, uptime)
+            node.get_logger().error(f"Retrying in {backoff_sec:.0f}s.")
             await asyncio.sleep(backoff_sec)
-            backoff_sec = min(backoff_sec * 2, max_backoff_sec)
 
 
 async def spin_node(node: Go2DriverNode):
@@ -66,9 +83,6 @@ async def spin_node(node: Go2DriverNode):
         try:
             executor.spin()
         except Exception as e:
-            # Stop the other robots' loops too; the retry restarts them all.
-            for task in tasks:
-                task.cancel()
             node.get_logger().error(f"Error in ROS2 spin: {e}")
         finally:
             executor.shutdown()

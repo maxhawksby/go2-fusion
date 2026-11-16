@@ -27,6 +27,8 @@
   <!-- The stack it runs -->
   <exec_depend>go2_robot_sdk</exec_depend>
   <exec_depend>go2_auto_mapper</exec_depend>
+  <exec_depend>go2_interfaces</exec_depend>
+  <exec_depend>go2_scoreboard</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

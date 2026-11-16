@@ -19,7 +19,10 @@ if [ -z "$(ls -A src/go2_robot_sdk/external_lib/aioice 2>/dev/null)" ]; then
     exit 1
 fi
 
-colcon build --symlink-install
+# Capped parallelism: an uncapped build used all 7.4 GB of a laptop's WSL and froze it.
+# Raise COLCON_WORKERS and MAKEFLAGS on a machine with more memory.
+export MAKEFLAGS="${MAKEFLAGS:--j4}"
+colcon build --symlink-install --parallel-workers "${COLCON_WORKERS:-2}"
 source install/setup.bash
 
 exec "$@"

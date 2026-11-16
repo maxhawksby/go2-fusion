@@ -63,7 +63,7 @@ If the build ever gets into a strange state, `docker compose down -v` deletes th
 
 ## Branches and pull requests
 
-1. Start every piece of work on its own branch. Never commit to `master`. Start the name with your `id` from [docs/team.yml](docs/team.yml), so everyone can see who owns it: `max/fix/nav-obstacle-safety`, `noah/tts-piper-review`.
+1. Start every piece of work on its own branch. Never commit to `master`. Start the name with your `id` from [docs/hypatia.yml](docs/hypatia.yml), so everyone can see who owns it: `max/fix/nav-obstacle-safety`, `noah/tts-piper-review`.
    ```shell
    git fetch
    git switch -c <your-id>/feat/<short-name> origin/master
@@ -76,21 +76,21 @@ If the build ever gets into a strange state, `docker compose down -v` deletes th
    git rebase origin/master
    git push -u origin <your-id>/feat/<short-name>    # add --force-with-lease if you pushed before the rebase
    ```
-4. Open a pull request. Your own branches are personal sandboxes and need no review; only merging into `master` does: one teammate's approval plus green automatic checks. Only changes to Oak's software (`src/`, `docker/`, `host_tools/`) or its build check need that approval, even when confirmed working on Oak. Wiki pages, guides and team tooling skip it; Max merges them once the checks pass. Then it's merged and the branch deleted.
+4. Open a pull request. Your own branches are personal sandboxes and need no review; only merging into `master` does. The `review-gate` check reads the files a pull request changes and labels it. `tier:high` is Oak's software (`src/`, `docker/`, `host_tools/`, the build check) and needs one teammate's approval on the latest commit, even when it is confirmed working on Oak. `tier:medium` is team tooling, CI and agent rules and needs one approval, or Max merges it. `tier:low` is wiki pages, guides and images and merges by itself once the checks pass. Wiki pages, guides and team tooling skip it; Max merges them once the checks pass. Then it's merged and the branch deleted.
    - Fill in the template GitHub shows you, a line or two each: **Who** (you, and who should review), **What** it changes, **Why** it's needed, **Before** and **After**, **How to test**, and **Wiki** (the page you updated).
    - No need to pick a reviewer. The post to the team's Discord channel #feature-revisions (Who, What, Why, Before, After and the link) happens automatically and asks the whole team; any teammate can approve.
 5. Everyone else picks it up with `git fetch && git rebase origin/master` on their own branch.
 
 ## Keeping the wiki current
 
-To read the wiki as a workspace (page tree, map, who is working on what), run `npm install` once and then `npm run wiki` from the repo folder (needs Node.js 18+ and Python 3.8+, outside Docker). It reloads the page as you edit.
+To read the wiki as a workspace (page tree, map, who is working on what), run `npm run wiki` from the repo folder (needs Node.js 18+, outside Docker). It reloads the page as you edit.
 
-The team docs are a wiki: `README.md` is the center page "Oak", and `docs/wiki/` holds one hub page per area plus one page per program. Each page lists the code it describes, so an automatic check on every pull request notices when you change a program but not its page.
+The team docs are a wiki: `README.md` is the center page "Oak", and `docs/wiki/` holds one hub page per area plus one page per program. The wiki runs on [Hypatia](https://github.com/maxhawksby/hypatia). Each page lists the code it describes and carries a stamp of that code, so an automatic check on every pull request notices when you change a program but not its page.
 
 - Starting a task? Open (or reuse) a GitHub issue, add the label `wiki:<page-name>`, and assign yourself, so the wiki graph shows who is working on what.
 - Changed a program, or added or removed a package? Update its page in plain English: what it does, what it uses, how it breaks. Write `TODO(owner)` for anything you don't know. A new package gets a new page linked from its hub.
-- Check before you open a pull request: `python3 scripts/wiki/check_wiki.py` (or `npm run wiki:check`). It says exactly what to fix.
-- If your change really doesn't affect the page (say, a rename), add this line to the pull request description instead: `wiki: no change needed - <reason>`.
+- Check before you open a pull request: `npx hypatia check`. It says exactly what to fix. After you reread a page against its code, mark it current with `npx hypatia verify docs/wiki/<page>.md`.
+- If your change really doesn't affect the page (say, a rename), add this line to the pull request description instead: `wiki: no change needed for <page>.md - <reason>`.
 
 Your AI agent does all of this for you through the wiki-keeper steps in [AGENTS.md](AGENTS.md).
 

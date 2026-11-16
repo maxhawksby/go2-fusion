@@ -8,8 +8,6 @@
     "node": ">=18"
   },
   "scripts": {
-    "wiki": "node tools/oak-wiki/wiki.js",
-    "wiki:check": "node tools/oak-wiki/python.js scripts/wiki/check_wiki.py",
-    "test": "node tools/oak-wiki/python.js -m unittest discover -s scripts/wiki/tests && node --test tools/oak-wiki/wiki.test.js"
+    "wiki": "npx hypatia serve"
   }
 }

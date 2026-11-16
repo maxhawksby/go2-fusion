@@ -25,6 +25,14 @@
   gz_type_name: ignition.msgs.Contacts
   direction: GZ_TO_ROS
 
+# Only publishes with camera_rate > 0. Straight onto the driver's camera
+# topic: nothing about the picture needs changing on the way.
+- ros_topic_name: /camera/image_raw
+  gz_topic_name: /sim/camera
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: ignition.msgs.Image
+  direction: GZ_TO_ROS
+
 - ros_topic_name: /clock
   gz_topic_name: /clock
   ros_type_name: rosgraph_msgs/msg/Clock

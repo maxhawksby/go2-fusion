@@ -2,6 +2,7 @@
 title: Posture
 parent: brains
 code: [src/front_leg_controller/**]
+verified: f5240d0922dc
 ---
 
 # Posture

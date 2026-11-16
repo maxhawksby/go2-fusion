@@ -47,6 +47,30 @@ DRIFT_YAW_RAD = 0.10
 DRIFT_ACROSS_M = 0.05
 _YAW_SAMPLES = 7
 
+# A leaving move (see leaving_ok): taken only when no normal move is safe,
+# e.g. Oak wedged with a front corner 1 cm from a wall Nav2 drove it along,
+# or with a wall cutting into a rear corner of the footprint (found in
+# go2_sim). It may pass walls closer than the margin, as long as it brings
+# nothing closer and covers no part of the footprint (or the margin around
+# it) that a wall wasn't already in, so it must stay very close to
+# straight: aborted at these limits, a corner swings at most about 1 cm.
+CLOSE_DRIFT_YAW_RAD = 0.02
+CLOSE_DRIFT_ACROSS_M = 0.01
+# leaving_ok: how much closer than it started, or than the wall points
+# already were close by, a scan return may get during a leaving move (the
+# tight drift above). On the costmap it is half a cell diagonal instead
+# (3.5 cm at 5 cm cells): a cell center is up to that far from the wall
+# surface in it, the same allowance swept_clear pads cell centers with.
+LEAVING_TOLERANCE_SCAN_M = 0.015
+# "Close by" for leaving_ok: a point may get as deep as the wall points
+# that were within this distance of where it ends up.
+LEAVING_LOCAL_M = 0.10
+# Deeper inside the bare footprint than this is not a wall brushing the
+# outline (Nav2's footprint is a little larger than Oak's body), so no
+# leaving move is allowed.
+LEAVING_MAX_DEPTH_M = 0.12
+_LEAVING_STEP_M = 0.02
+
 
 def swept_bounds(dx, dy):
     """Robot-frame rectangle the padded body passes through for a translation
@@ -145,7 +169,62 @@ def _trigger_exempt(x, y, dx, pad=0.0):
     return dx < 0 and x >= ROBOT_FRONT_M - pad
 
 
-def scan_covers_move(scan, dx, dy):
+def _depth(x, y):
+    """How far a robot-frame point is inside the bare footprint, in meters;
+    negative outside (minus its distance to the outline)."""
+
+    inside = min(
+        ROBOT_FRONT_M - x, x + ROBOT_REAR_M,
+        ROBOT_HALF_WIDTH_M - y, y + ROBOT_HALF_WIDTH_M,
+    )
+    if inside >= 0:
+        return inside
+    gx = x - min(max(x, -ROBOT_REAR_M), ROBOT_FRONT_M)
+    gy = y - min(max(y, -ROBOT_HALF_WIDTH_M), ROBOT_HALF_WIDTH_M)
+    return -math.hypot(gx, gy)
+
+
+def leaving_ok(points, dx, dy, tolerance, start=0.0):
+    """True when the straight move (dx, dy) brings none of the obstacle
+    points (robot frame at the start pose) closer to the bare footprint
+    than it started, or deeper than the points already within
+    LEAVING_LOCAL_M of where it ends up were, give or take `tolerance`.
+    Only the SAFETY_MARGIN_M band around the footprint counts. Checked from
+    `start` meters along it to the end, every _LEAVING_STEP_M.
+
+    Sliding along a wall that cuts a corner passes: its points slide along
+    the same line through the corner, as deep as their neighbors were.
+    Moving away passes. Moving into a wall, or bringing another one into
+    the footprint, doesn't. Points deeper than LEAVING_MAX_DEPTH_M refuse
+    the move.
+    """
+
+    distance = math.hypot(dx, dy)
+    if distance <= 0:
+        return False
+    ux, uy = dx / distance, dy / distance
+    near = [(p, _depth(*p)) for p in points if _depth(*p) > -SAFETY_MARGIN_M]
+    if any(depth > LEAVING_MAX_DEPTH_M for _, depth in near):
+        return False
+    steps = max(1, math.ceil((distance - start) / _LEAVING_STEP_M))
+    for px, py in points:
+        own = max(_depth(px, py), -SAFETY_MARGIN_M)
+        for k in range(steps + 1):
+            travel = start + (distance - start) * k / steps
+            bx, by = px - travel * ux, py - travel * uy
+            depth = _depth(bx, by)
+            if depth <= own + tolerance:
+                continue
+            local = max((
+                d for (nx, ny), d in near
+                if math.hypot(bx - nx, by - ny) <= LEAVING_LOCAL_M
+            ), default=-SAFETY_MARGIN_M)
+            if depth > local + tolerance:
+                return False
+    return True
+
+
+def scan_covers_move(scan, dx, dy, leaving=False):
     """True when no scan return falls inside the body's move envelope
     (move_envelope), except returns on the obstacle that stopped Oak
     (_trigger_exempt), and the new space the move enters is measured.
@@ -156,6 +235,13 @@ def scan_covers_move(scan, dx, dy):
     costmap check still covers it; the scan has a few empty rays (no
     return in its height band), and refusing on those blocked every
     backward move (found in go2_sim).
+
+    `leaving` judges the returns inside the envelope with leaving_ok
+    instead of refusing on any, for a leaving move run with the CLOSE_DRIFT
+    limits, and leaves space with missing rays to the costmap check (which
+    refuses moving toward unknown cells). In go2_sim the scan has a sector
+    of empty rays beside the front (36 to 83 degrees on the left), and a
+    leaving move out along a wall crosses it.
     """
 
     if scan.angle_increment <= 0:
@@ -169,6 +255,7 @@ def scan_covers_move(scan, dx, dy):
     xs = [p[0] for poly in polygons for p in poly]
     ys = [p[1] for poly in polygons for p in poly]
     step = 0.025
+    hits = {}
     for ix in range(math.floor(min(xs) / step), math.ceil(max(xs) / step) + 1):
         for iy in range(math.floor(min(ys) / step), math.ceil(max(ys) / step) + 1):
             x, y = ix * step, iy * step
@@ -183,18 +270,23 @@ def scan_covers_move(scan, dx, dy):
                 return False
             value = scan.ranges[index]
             if not math.isfinite(value) or not scan.range_min <= value <= scan.range_max:
-                if x * dx + y * dy >= 0.0:
+                if not leaving and x * dx + y * dy >= 0.0:
                     return False
                 continue
             if value < radius + SAFETY_MARGIN_M:
                 hit_x = value * math.cos(angle)
                 hit_y = value * math.sin(angle)
-                if not _trigger_exempt(hit_x, hit_y, dx):
+                if _trigger_exempt(hit_x, hit_y, dx):
+                    continue
+                if not leaving:
                     return False
-    return True
+                hits[index] = (hit_x, hit_y)
+    return not hits or leaving_ok(
+        list(hits.values()), dx, dy, LEAVING_TOLERANCE_SCAN_M
+    )
 
 
-def swept_clear(grid, x, y, yaw, dx, dy, start=0.0):
+def swept_clear(grid, x, y, yaw, dx, dy, start=0.0, leaving=False):
     """True when no wall cell lies in the body's move envelope
     (move_envelope) for the move (dx, dy) from the pose (x, y, yaw), counted
     from `start` meters along it. Mid-move, pass the start pose and the
@@ -206,6 +298,13 @@ def swept_clear(grid, x, y, yaw, dx, dy, start=0.0):
     envelope already keeps the clearance. Counting it too doubled the body
     width, so no move was ever clear (found in go2_sim). Nav2's own
     footprint checks use lethal only.
+
+    `leaving` judges the lethal cells in the envelope with leaving_ok
+    instead of refusing on any, for a leaving move run with the CLOSE_DRIFT
+    limits, and unknown cells the same way, separately: a move may not
+    bring the body closer to unknown space either. (Unknown cells behind a
+    wall that cuts into a corner are inside the padded envelope; refusing
+    on them kept Oak stopped in go2_sim.) Off-grid cells still refuse it.
     """
 
     c, s = math.cos(yaw), math.sin(yaw)
@@ -219,6 +318,7 @@ def swept_clear(grid, x, y, yaw, dx, dy, start=0.0):
     gx1 = math.ceil((max(p[0] for p in corners) - ox) / res) + 1
     gy0 = math.floor((min(p[1] for p in corners) - oy) / res) - 1
     gy1 = math.ceil((max(p[1] for p in corners) - oy) / res) + 1
+    walls, unknown = [], []
     for gx in range(gx0, gx1):
         for gy in range(gy0, gy1):
             wx, wy = ox + (gx + 0.5) * res, oy + (gy + 0.5) * res
@@ -227,37 +327,158 @@ def swept_clear(grid, x, y, yaw, dx, dy, start=0.0):
             if not _inside(polygons, along, across, pad):
                 continue
             cost = cost_at(grid, wx, wy)
-            if cost is None or cost < 0:
+            if cost is None or (cost < 0 and not leaving):
                 return False
+            if cost < 0:
+                unknown.append((along, across))
+                continue
             if cost >= LETHAL_COST and not _trigger_exempt(
                 along, across, dx, res / 2
             ):
-                return False
-    return True
+                if not leaving:
+                    return False
+                walls.append((along, across))
+    return all(
+        not points or leaving_ok(points, dx, dy, res * math.sqrt(2) / 2, start)
+        for points in (walls, unknown)
+    )
 
 
-def choose_recovery(grid, x, y, yaw, distance, scan):
-    """The rear or side translation with the most extra free travel.
+def recovery_candidates(distance, leaving=False):
+    """The rear and side translations recovery may take, robot frame.
+    Leaving moves may also go diagonally back: out along a wall that cuts
+    a rear corner at an angle (found in go2_sim)."""
 
-    Returns (dx, dy) in the robot frame, or None when no corridor is both
+    moves = [(-distance, 0.0), (0.0, distance), (0.0, -distance)]
+    if leaving:
+        d = distance / math.sqrt(2)
+        moves += [(-d, d), (-d, -d)]
+    return moves
+
+
+def translation_open(grid, x, y, yaw, distance):
+    """True while at least one normal recovery translation is clear on the
+    costmap.
+
+    Costmap only, for deciding when to stop (see watch_ahead): a move
+    still needs choose_recovery, scan included, before it runs.
+    """
+
+    return any(
+        swept_clear(grid, x, y, yaw, *move)
+        for move in recovery_candidates(distance)
+    )
+
+
+def drift_limits(leaving):
+    """(yaw, across) abort limits for a normal or a leaving move."""
+
+    if leaving:
+        return CLOSE_DRIFT_YAW_RAD, CLOSE_DRIFT_ACROSS_M
+    return DRIFT_YAW_RAD, DRIFT_ACROSS_M
+
+
+def choose_recovery_mode(grid, x, y, yaw, distance, scan):
+    """(move, leaving): the rear or side translation with the most extra
+    free travel, and whether it is a leaving move.
+
+    Normal moves come first. Only when none is safe is a leaving move tried
+    (judged by leaving_ok, with the back diagonals too); it must
+    run with the CLOSE_DRIFT limits. (None, False) when no corridor is both
     clear on the costmap and covered by a finite scan. A missing scan is
     not treated as a clear one.
     """
 
     if scan is None:
+        return None, False
+    for leaving in (False, True):
+        safe = [
+            move for move in recovery_candidates(distance, leaving)
+            if swept_clear(grid, x, y, yaw, *move, leaving=leaving)
+            and scan_covers_move(scan, *move, leaving=leaving)
+        ]
+        if safe:
+            return max(safe, key=lambda move: sum(
+                swept_clear(
+                    grid, x, y, yaw, move[0] * scale, move[1] * scale,
+                    leaving=leaving,
+                )
+                for scale in (1.5, 2.0, 3.0)
+            )), leaving
+    return None, False
+
+
+def choose_recovery(grid, x, y, yaw, distance, scan):
+    """The move from choose_recovery_mode, without the leaving flag."""
+
+    return choose_recovery_mode(grid, x, y, yaw, distance, scan)[0]
+
+
+# Turning in place when every short translation is refused, e.g. Oak turned
+# crosswise in a narrow passage: the rear and the side moves are boxed in by
+# the walls, but turning back along the passage is how it got there (found in
+# go2_sim, where Oak latched stopped for good). Nav2's Spin checks the
+# footprint against the local costmap while it turns, so this only picks the
+# heading. Smallest turns first: on equal room the smaller turn wins.
+TURN_CANDIDATES_RAD = tuple(
+    math.radians(d) for d in (45, -45, 90, -90, 135, -135, 180)
+)
+# Rays this far either side of a candidate heading must all be open.
+TURN_WINDOW_RAD = math.radians(15.0)
+
+
+def open_range(scan, heading, window=TURN_WINDOW_RAD):
+    """Shortest valid return within `window` of `heading` (robot frame,
+    radians), or None when no ray there has a valid return.
+
+    Missing, NaN and infinite rays are skipped: they don't show the space is
+    open, so a heading seen only through them is never picked.
+    """
+
+    if scan.angle_increment <= 0:
         return None
-    candidates = [(-distance, 0.0), (0.0, distance), (0.0, -distance)]
-    safe = [
-        move for move in candidates
-        if swept_clear(grid, x, y, yaw, *move)
-        and scan_covers_move(scan, *move)
-    ]
-    if not safe:
+    count = len(scan.ranges)
+    full_circle = count * scan.angle_increment >= 2 * math.pi - 1e-6
+    steps = int(math.ceil(window / scan.angle_increment))
+    shortest = None
+    for k in range(-steps, steps + 1):
+        angle = math.atan2(
+            math.sin(heading + k * scan.angle_increment),
+            math.cos(heading + k * scan.angle_increment),
+        )
+        index = round((angle - scan.angle_min) / scan.angle_increment)
+        if full_circle:
+            index %= count
+        if not 0 <= index < count:
+            continue
+        value = scan.ranges[index]
+        if not math.isfinite(value) or not scan.range_min <= value <= scan.range_max:
+            continue
+        if shortest is None or value < shortest:
+            shortest = value
+    return shortest
+
+
+def choose_turn(scan, min_range, exclude_sign=0):
+    """Turn (radians, positive is left) toward the candidate heading with the
+    most room on the scan, or None when none has at least `min_range` meters.
+
+    `exclude_sign` (1 or -1) skips turns that way, e.g. after Nav2 aborted a
+    turn that way. A missing scan gives None.
+    """
+
+    if scan is None:
         return None
-    return max(safe, key=lambda move: sum(
-        swept_clear(grid, x, y, yaw, move[0] * scale, move[1] * scale)
-        for scale in (1.5, 2.0, 3.0)
-    ))
+    best, best_room = None, None
+    for turn in TURN_CANDIDATES_RAD:
+        if exclude_sign and math.copysign(1.0, turn) == exclude_sign:
+            continue
+        room = open_range(scan, turn)
+        if room is None or room < min_range:
+            continue
+        if best_room is None or room > best_room:
+            best, best_room = turn, room
+    return best
 
 
 def scan_age(received_mono, now_mono, stamp_sec, ros_now_sec):
@@ -277,21 +498,22 @@ def scan_age(received_mono, now_mono, stamp_sec, ros_now_sec):
 
 
 def assess_recovery(grid, x, y, yaw, distance, scan, scan_age, max_age):
-    """(move, reason). `move` is None when the robot should stay stopped.
+    """(move, reason, leaving). `move` is None when the robot should stay
+    stopped; `leaving` says it is a leaving move (choose_recovery_mode).
 
     `scan_age` is the scan's age in seconds (see scan_age()). Older than
     `max_age`, or missing, is stale and therefore unsafe.
     """
 
     if scan is None or scan_age is None or scan_age > max_age:
-        return None, 'stale or missing laser scan'
-    move = choose_recovery(grid, x, y, yaw, distance, scan)
+        return None, 'stale or missing laser scan', False
+    move, leaving = choose_recovery_mode(grid, x, y, yaw, distance, scan)
     if move is None:
         return None, (
             'no safe direction: rear and both sides lack clearance '
             'for the footprint plus margin'
-        )
-    return move, ''
+        ), False
+    return move, '', leaving
 
 
 def latch_decision(forward_blocked, move):
