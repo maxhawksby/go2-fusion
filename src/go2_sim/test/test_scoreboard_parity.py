@@ -3,7 +3,8 @@ import math
 
 import pytest
 
-from go2_sim.trials import (distance_increment, distance_update, explorer_command,
+from go2_sim.trials import (COLUMNS, copy_scoreboard_summary, distance_increment,
+                            distance_update, explorer_command,
                             explorer_parameter, scoreboard_parity, variant_name)
 
 
@@ -74,3 +75,16 @@ def test_experiment_labels_and_parameters_reject_cli_fragments():
         explorer_parameter('--ros-args')
     with pytest.raises(argparse.ArgumentTypeError):
         variant_name('../other-run')
+
+
+def test_stuck_run_row_shows_the_scoreboard_end_reason_next_to_its_own():
+    result = {'end_reason': 'stuck: moved < 0.25 m in 60 s'}
+    summary = {'distance_m': 3.2, 'completeness_pct': 41.0, 'collisions': 0,
+               'end_reason': 'explorer stopped (stop latched: no safe direction)'}
+
+    copy_scoreboard_summary(result, summary)
+
+    assert result['end_reason'] == 'stuck: moved < 0.25 m in 60 s'
+    assert result['scoreboard_end_reason'] == (
+        'explorer stopped (stop latched: no safe direction)')
+    assert 'scoreboard_end_reason' in COLUMNS
