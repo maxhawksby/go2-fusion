@@ -182,8 +182,11 @@ class Go2NodeFactory:
                     # default min_height (~0) dropped everything lower than
                     # the body, so low obstacles were invisible. Floor points
                     # reach up to ~0.28 m below base_link (odometry z drift
-                    # smears them), so -0.1 keeps the floor out.
-                    'min_height': -0.1,
+                    # smears them). Measured on Oak 2026-11-16 (base_link
+                    # 0.36 m up): floor points sit between -0.50 and -0.30
+                    # and thin out above -0.25. At -0.1 Oak could not see
+                    # anything shorter than 0.28 m and walked into a backpack.
+                    'min_height': -0.25,
                     'max_height': 0.5,
                     # Small, not 0.5: the robot's own cloud has no points on
                     # its body (measured), and a 0.5 m cutoff hid walls right
