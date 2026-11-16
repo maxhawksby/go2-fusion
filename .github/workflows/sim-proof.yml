@@ -1,0 +1,216 @@
+name: Simulator proof
+
+# Runs the same auto mapper batch in the simulator on a pull request and on
+# master (where the branch started), then posts one comment comparing them with
+# the map pictures. Runs on pull requests that touch the auto mapper, the
+# simulator or the Nav2 settings, and on any pull request labelled `sim-proof`.
+on:
+  pull_request:
+    branches:
+      - master
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+
+permissions: {}
+
+# One batch per pull request; a new push cancels the batch in progress. Events
+# that never start a batch (another label, a draft) get their own group so they
+# cannot cancel one.
+concurrency:
+  group: sim-proof-${{ github.event.pull_request.number }}${{ ((github.event.action == 'labeled' && github.event.label.name != 'sim-proof') || github.event.pull_request.draft) && format('-skip-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+# The team's reference batch: the 2026-11-06 ten-run baseline in
+# docs/wiki/experiments.md (seed 28, 300 s per run, 180 s stall rule).
+env:
+  WORLD: placeholder_rooms
+  RUNS: 10
+  SEED: 28
+  RUN_TIMEOUT: 300
+  STALL_TIMEOUT: 180
+  STARTUP_TIMEOUT: 300
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      pr_sha: ${{ steps.decide.outputs.pr_sha }}
+      master_sha: ${{ steps.decide.outputs.master_sha }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'sim-proof') }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          run=false
+          if [ "$DRAFT" = true ]; then
+            run=false
+          elif [ "$ACTION" = labeled ]; then
+            [ "$LABEL" = sim-proof ] && run=true
+          elif [ "$HAS_LABEL" = true ]; then
+            run=true
+          else
+            files=$(gh api --paginate "repos/$REPO/pulls/$NUMBER/files" --jq '.[].filename')
+            grep -qE '^src/(go2_auto_mapper|go2_sim|go2_robot_sdk/config)/' <<< "$files" && run=true
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          if [ "$run" = true ]; then
+            master_sha=$(gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq .merge_base_commit.sha)
+            echo "pr_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "master_sha=$master_sha" >> "$GITHUB_OUTPUT"
+          fi
+          echo "run=$run pr=$HEAD_SHA master=${master_sha:-}"
+
+  # Runs pull request code: read-only token, no secrets.
+  batch:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # Worst case is about 2 h 15 min: 8 min image build, 3 min colcon build, and
+    # 10 runs of up to 5 min startup + 5 min mapping + teardown.
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        side: [pr, master]
+    steps:
+      - name: checkout ${{ matrix.side }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.side == 'pr' && needs.gate.outputs.pr_sha || needs.gate.outputs.master_sha }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: build image
+        working-directory: docker
+        run: |
+          start=$(date +%s)
+          docker compose build
+          echo "image build took $(( $(date +%s) - start )) s"
+
+      - name: run the batch
+        working-directory: docker
+        run: |
+          sudo mkdir -p /dev/input
+          start=$(date +%s)
+          docker compose run --rm unitree_ros \
+            ros2 run go2_sim trials --world "$WORLD" --runs "$RUNS" --seed "$SEED" \
+              --timeout "$RUN_TIMEOUT" --stall-timeout "$STALL_TIMEOUT" \
+              --startup-timeout "$STARTUP_TIMEOUT" --no-scoreboard-bag \
+              --out /ros2_ws/src/go2_sim/results/sim-proof
+          echo "colcon build and batch took $(( $(date +%s) - start )) s"
+
+      - name: make results readable
+        if: always()
+        run: sudo chmod -R a+rX src/go2_sim/results 2>/dev/null || true
+
+      - name: upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-proof-${{ matrix.side }}
+          path: src/go2_sim/results/sim-proof/
+          retention-days: 30
+          if-no-files-found: warn
+
+  # Runs no pull request code: scripts come from the base commit.
+  report:
+    needs: [gate, batch]
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      NUMBER: ${{ github.event.pull_request.number }}
+      FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+      IMAGE_DIR: pr-${{ github.event.pull_request.number }}/${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: checkout report scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: download results
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sim-proof-*
+          path: results
+
+      - name: push map pictures to the sim-proof branch
+        id: images
+        if: env.FORK != 'true'
+        run: |
+          url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git ls-remote --exit-code --heads "$url" sim-proof >/dev/null; then
+            git clone --quiet --depth 1 --branch sim-proof "$url" pictures
+          else
+            git init --quiet -b sim-proof pictures
+            git -C pictures remote add origin "$url"
+          fi
+          for side in pr master; do
+            find "results/sim-proof-$side" -path '*/maps/run_*_map.pgm' 2>/dev/null | while read -r pgm; do
+              name=$(basename "$pgm" _map.pgm)
+              mkdir -p "pictures/$IMAGE_DIR/$side"
+              python3 -I tools/.github/scripts/pgm_to_png.py "$pgm" "pictures/$IMAGE_DIR/$side/$name.png" --scale 2
+            done
+          done
+          cd pictures
+          git add -A
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit --quiet -m "Simulator proof: map pictures for $IMAGE_DIR"
+            for attempt in 1 2 3 4 5; do
+              git push --quiet origin HEAD:sim-proof && break
+              [ "$attempt" = 5 ] && exit 1
+              git pull --quiet --rebase origin sim-proof
+            done
+          fi
+          echo "url=https://raw.githubusercontent.com/$REPO/sim-proof/$IMAGE_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: write the report
+        env:
+          PR_SHA: ${{ needs.gate.outputs.pr_sha }}
+          MASTER_SHA: ${{ needs.gate.outputs.master_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IMAGES: ${{ steps.images.outputs.url }}
+        run: |
+          python3 -I tools/.github/scripts/sim_proof_report.py \
+            --pr results/sim-proof-pr --master results/sim-proof-master \
+            --pr-sha "$PR_SHA" --master-sha "$MASTER_SHA" --run-url "$RUN_URL" \
+            ${IMAGES:+--images "$IMAGES"} --world "$WORLD" --runs "$RUNS" --seed "$SEED" \
+            --timeout "$RUN_TIMEOUT" --stall-timeout "$STALL_TIMEOUT" > report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # A fork's pull request gets a read-only token, so its report stays in the job summary.
+      - name: post or update the comment
+        if: env.FORK != 'true'
+        run: |
+          id=$(gh api --paginate "repos/$REPO/issues/$NUMBER/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- sim-proof-report -->"))) | .id' | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@report.md > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$NUMBER/comments" -F body=@report.md > /dev/null
+          fi
