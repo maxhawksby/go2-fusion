@@ -80,5 +80,10 @@ The team docs are a wiki graph: `README.md` is the center page "Oak", hub pages 
 - Your own branches are personal sandboxes: commit and push to them freely, no review needed.
 - Commit messages: one short sentence that says exactly what changed, starting with the part of Oak it touches, e.g. `Auto mapper: skip frontiers it can't reach`. Never `fix`, `wip` or `updates`. Many commits before a push are fine; each still says what it did. The pull request then explains Who, What, Why, Before and After.
 - Keep branches small (one feature or fix). Before opening a PR: `git fetch && git rebase origin/master`.
-- Only merging into `master` needs review: a GitHub pull request with one teammate's approval and green automatic checks. Don't push to `master` directly.
-- Review is for changes to the robot: anything in `src/`, `docker/` or `host_tools/`, or the robot build check (`.github/workflows/ros_build.yaml`), needs one teammate's approval, even when it is confirmed working on Oak. Everything else (wiki pages, guides, the wiki site, the Discord bot, other team tooling) needs no approval: once the checks pass, Max (the repo admin) merges it.
+- Only merging into `master` goes through a pull request with green automatic checks. Don't push to `master` directly.
+- The `review-gate` check decides how much review a pull request needs from the files it changes, and labels it:
+  - `tier:high`: anything in `src/`, `docker/` or `host_tools/`, the robot build check (`.github/workflows/ros_build.yaml`), or `requirements*.txt`. One teammate's approval on the latest commit, even when it is confirmed working on Oak.
+  - `tier:medium`: team tooling, CI, agent rules (`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.agents/`, `.github/`) and anything else. One approval, or Max (the repo admin) merges it.
+  - `tier:low`: wiki pages, guides and images. No approval. It merges by itself once the checks pass.
+  - Add the `risk:medium` or `risk:high` label to raise a tier. Nothing lowers one. A new push clears earlier approvals.
+- Claude runs on GitHub. It reviews every pull request that is not a draft, and it answers `@claude` in an issue or pull request comment from anyone with write access. Adding the `ready-for-agent` label to an issue starts Claude on it with pstack: it opens a pull request on a branch named for whoever added the label, and never merges. It works on a GitHub runner with no robot and no lab, so a person still proves a fix in the simulator or on Oak.
