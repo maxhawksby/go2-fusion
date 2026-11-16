@@ -27,8 +27,8 @@ More detail on each person, and how to reach them, is on [People](people.md).
 ## How we work together
 
 - **Branches are your sandbox.** Push whatever you like to your own branch; no review needed.
-- **Merging into `master`** needs a GitHub pull request with one teammate's approval and green automatic checks. Nobody pushes to `master` directly.
-- **Review is for the robot.** A change to Oak's software (`src/`, `docker/`, `host_tools/`) or its build check needs one teammate's approval, even if it already works on Oak. Wiki pages, guides and team tooling (wiki site, Discord bot) skip it: once the checks pass, Max merges them.
+- **Merging into `master`** needs a GitHub pull request with green automatic checks. Nobody pushes to `master` directly.
+- **Review follows the risk.** The `review-gate` check reads the files a pull request changes and labels it. `tier:high` is Oak's software (`src/`, `docker/`, `host_tools/`, the build check) and needs one teammate's approval on the latest commit, even when it is confirmed working on Oak. `tier:medium` is team tooling, CI and agent rules and needs one approval, or Max merges it. `tier:low` is wiki pages, guides and images and merges by itself once the checks pass.
 - **Tasks live as GitHub issues**, labelled `wiki:<page>` (for example `wiki:maps-nav`). Take one by assigning it to yourself.
 - **Keep the wiki true.** If you change a program's code, update its wiki page in the same pull request. A check fails otherwise.
 - **Test without the robot first.** There is one Oak, and it accepts one connection at a time.
