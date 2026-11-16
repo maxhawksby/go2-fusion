@@ -145,7 +145,7 @@ class FrontierExplorer(Node):
         # 0 = at once), back away. While driving, the goal is given up first
         # and the robot then heads somewhere open.
         self.declare_parameter('obstacle_stop_distance', 0.3)
-        self.declare_parameter('blocked_timeout', 0.0)
+        self.declare_parameter('blocked_timeout', 2.5)
         self.declare_parameter('backup_distance', 0.3)
 
         # Getting unstuck: after stuck_failure_count failed goals in a row
