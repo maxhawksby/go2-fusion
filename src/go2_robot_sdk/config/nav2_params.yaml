@@ -249,8 +249,8 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        cost_scaling_factor: 1.5
+        inflation_radius: 0.80
 
 global_costmap:
   global_costmap:
@@ -303,8 +303,8 @@ global_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         # Same as local_costmap: at 0.25 m (under half the robot's 0.4 m
         # width) planned paths ran along walls.
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        cost_scaling_factor: 1.5
+        inflation_radius: 0.80
 
 map_server:
   ros__parameters:
