@@ -146,6 +146,10 @@ class FrontierExplorer(Node):
         # and the robot then heads somewhere open.
         self.declare_parameter('obstacle_stop_distance', 0.3)
         self.declare_parameter('blocked_timeout', 0.0)
+        # Oak starts walking up to 2.3 s after a command (measured on Oak,
+        # 2026-11-16). Until this long after a goal is sent, an obstacle
+        # ahead does not cancel the goal unless Oak is walking at it.
+        self.declare_parameter('goal_start_grace', 3.5)
         self.declare_parameter('backup_distance', 0.3)
 
         # Getting unstuck: after stuck_failure_count failed goals in a row
@@ -201,6 +205,7 @@ class FrontierExplorer(Node):
             'obstacle_stop_distance'
         ).value
         self.blocked_timeout = self.get_parameter('blocked_timeout').value
+        self.goal_start_grace = self.get_parameter('goal_start_grace').value
         self.backup_distance = self.get_parameter('backup_distance').value
         self.open_space_clearance = self.get_parameter(
             'open_space_clearance'
@@ -2209,6 +2214,13 @@ class FrontierExplorer(Node):
                 return
 
             now = time.monotonic()
+            goal_age = None if self.goal_sent_time is None else now - self.goal_sent_time
+            if goal_still_starting(forward, goal_age, self.goal_start_grace):
+                # Cancelling here ended 19 of Oak's 24 real goals within half
+                # a second of sending them, before Oak had moved (2026-11-16).
+                self.blocked_since = None
+                return
+
             if self.blocked_since is None:
                 self.blocked_since = now
                 return
@@ -2764,6 +2776,15 @@ class TurnOutcome(enum.Enum):
 # Slower than this toward the nose counts as not driving forward: an
 # obstacle ahead then doesn't abandon the goal (see watch_ahead).
 FORWARD_MOTION_MPS = 0.03
+
+
+def goal_still_starting(forward, goal_age, grace):
+    """True while a goal is younger than grace seconds and Oak is not
+    walking forward. forward is the speed toward the nose in m/s, or None
+    when it can't be told; goal_age is seconds since the goal was sent."""
+
+    walking = forward is not None and forward >= FORWARD_MOTION_MPS
+    return goal_age is not None and goal_age < grace and not walking
 
 # Getting unstuck: how far from the robot to look for open space, the least
 # it must move to count, and the pause between escapes so a failed escape
