@@ -53,7 +53,7 @@ Both the gamepad and the keyboard tools had this bug, and both were fixed to pub
 ## Which launch files start it
 
 - `robot.launch.py` (the default in Docker) starts twist_mux if `joystick` **or** `teleop` is on. Both are on by default.
-- `navigation.launch.py` and `mapping.launch.py` start it only if `joystick` is on. So `joystick:=false` there cuts off every lane, not just the gamepad. The same bug was fixed in `robot.launch.py` but not in these two. TODO(owner): fix or confirm these launch files are unused.
+- `navigation.launch.py` and `mapping.launch.py` start it only if `joystick` is on. So `joystick:=false` there cuts off every lane, not just the gamepad. The same bug was fixed in `robot.launch.py` but not in these two ([navigation.launch.py](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/launch/navigation.launch.py#L201-L208), [mapping.launch.py](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/launch/mapping.launch.py#L177-L185)). Nothing in `docker/` or `scripts/` starts either file; the [Nav2](nav2.md) page tells people to start `navigation.launch.py` by hand. TODO(owner): fix the `joystick` condition in these two files, or retire them?
 - `webrtc_web.launch.py` skips twist_mux completely and connects the driver straight to `/cmd_vel`, so the keyboard, agent and object-navigation lanes do nothing there.
 
 ## How it breaks

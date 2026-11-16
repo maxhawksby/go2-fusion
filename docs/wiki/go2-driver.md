@@ -50,7 +50,7 @@ Other launch files (`robot_cpp`, `navigation`, `mapping`, `webrtc_web`) are vari
 
 ## Who's on it and what's next
 
-Luis ported reconnect, drop detection and the stop fix. Adib is next looking at odometry reliability and turn accuracy. Max has an unmerged branch, `max/fix/nav-obstacle-safety`, that makes the driver stop on stale sensors; its pull request (#20) was closed without merging on 2026-10-26. TODO(owner): an owner for this package.
+Luis ported reconnect, drop detection and the stop fix. Adib is next looking at odometry reliability and turn accuracy. Max's stop on stale sensors moved to pull request [#46](https://github.com/maxhawksby/go2-fusion/pull/46) (`max/fix/sensor-watchdog`, opened 2026-11-06, still open). The earlier pull request (#20, branch `max/fix/nav-obstacle-safety`) was closed without merging on 2026-10-26. TODO(owner): an owner for this package.
 
 ## The code
 
@@ -68,6 +68,6 @@ Success: `Robot 0 validated and ready` in the logs. Run the package's tests in a
 cd /ros2_ws && colcon test --packages-select go2_robot_sdk && colcon test-result --verbose
 ```
 
-`test/` holds the driver tests; the robot build check on GitHub runs them on every pull request.
+`test/` holds the driver tests; the robot build check on GitHub runs them with this same `colcon test` on every pull request ([ros_build.yaml](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/.github/workflows/ros_build.yaml)).
 
-<!-- sources: src/go2_robot_sdk/go2_robot_sdk/main.py; presentation/go2_driver_node.py (env vars, params, topics, video error limit); application/services/robot_control_service.py (explicit stop); infrastructure/webrtc/connection_health.py; launch/robot.launch.py (nodes, launch args); launch/webrtc_web.launch.py; docker/Dockerfile CMD; docs/TEST_LOG.md 2026-10-11; docs/WINDOWS_SETUP.md troubleshooting; docs/FUSION.md row 15 and follow-up 6; git log origin/fix/nav-obstacle-safety (6b42eac); test/test_connection_health.py; colcon test command is standard colcon usage, TODO(owner) confirm it passes in Docker -->
+<!-- sources: src/go2_robot_sdk/go2_robot_sdk/main.py; presentation/go2_driver_node.py (env vars, params, topics, video error limit); application/services/robot_control_service.py (explicit stop); infrastructure/webrtc/connection_health.py; launch/robot.launch.py (nodes, launch args); launch/webrtc_web.launch.py; docker/Dockerfile CMD; docs/TEST_LOG.md 2026-10-11; docs/WINDOWS_SETUP.md troubleshooting; docs/FUSION.md row 15 and follow-up 6; git log origin/fix/nav-obstacle-safety (6b42eac); test/test_connection_health.py; colcon test: the robot build check (.github/workflows/ros_build.yaml) runs it in a stock Humble container with requirements.txt and passed on master 426e531 (run 43877445933: 334 tests, 0 failures); TODO(owner): does it also pass in our own Docker image? -->

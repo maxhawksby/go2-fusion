@@ -36,14 +36,18 @@ Part of: [Senses](senses.md)
 - [SLAM](slam.md) - publishes `map` -> `odom`.
 - [Lidar](lidar.md) and [Camera](camera.md) - their messages are stamped with `odom` and `front_camera`.
 - [Nav2](nav2.md), [Auto mapper](auto-mapper.md), [Map viewers](map-viewers.md) - all look up where `base_link` is on `map`.
-- [Object detection](object-detection.md) - the unmerged map-memory branch uses TF to put objects on the map.
+- [Object detection](object-detection.md) - uses TF to put the objects it remembers on the map (merged in [d0d7409](https://github.com/maxhawksby/go2-fusion/commit/d0d7409b7262768ccbd527f628a5c2a7388bba39)).
 
 ## How it breaks
 
 - **Drift in height** smears the 3D lidar cloud, so the floor looks like obstacles; Nav2 switched to the 2D scan because of it (`nav2_params.yaml` comments).
 - **Stale `map` -> `odom`.** `/scan` arrives about 4 times a second; with a short time-out Nav2 logged "Transform data too old" and stopped. SLAM's `transform_timeout` is now 0.5 s (`mapper_params_online_async.yaml`).
 - **Position data stops.** After Ctrl+C in a lab session, `/odom` went silent while the camera kept going ([Test log](test-log.md)).
-- **Odd model entries.** `go2.urdf` also declares fixed `map` -> `odom` and `odom` -> `base_link` joints, which the driver and SLAM publish too. TODO(owner): confirm whether these clash with SLAM's live `map` -> `odom` and should be removed.
+- **Odd model entries.** `go2.urdf` also declares fixed `map` -> `odom` and `odom` -> `base_link` joints, which the driver and SLAM publish too ([go2.urdf](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/urdf/go2.urdf#L48-L80)). History so far:
+  - They come from the upstream `go2_ros2_sdk`, which added both joints on 2024-03-10 ([e10bba6](https://github.com/abizovnuralem/go2_ros2_sdk/commit/e10bba66794d6924ce7f74ca6efbaa154a2ad887), "added slam_toolbox + twist mux") and still has them.
+  - Noah removed them on 2026-11-10 ([359def8](https://github.com/maxhawksby/go2-fusion/commit/359def8ade1491e43d1b3b73752226fac5aa94be), pull request [#62](https://github.com/maxhawksby/go2-fusion/pull/62), merged 2026-11-11).
+  - Luis put them back on 2026-11-11 ([f926bb8](https://github.com/maxhawksby/go2-fusion/commit/f926bb8066a52f07658474c2234baf028f997a87), pull request [#67](https://github.com/maxhawksby/go2-fusion/pull/67)). Pull request [#69](https://github.com/maxhawksby/go2-fusion/pull/69) re-opens the removal and is still open.
+  - TODO(owner): the team has not decided. Keep the fixed `map` and `odom` joints, or remove them so only SLAM and the driver publish those links?
 
 ## Who's on it and what's next
 
@@ -63,4 +67,4 @@ docker compose exec unitree_ros bash -ic 'ros2 run tf2_ros tf2_echo map base_lin
 docker compose exec unitree_ros bash -ic 'ros2 run tf2_tools view_frames'   # writes frames.pdf
 ```
 
-<!-- sources: src/go2_robot_sdk/urdf/go2.urdf (links, joints, front_camera_joint, radar_joint, map_joint, odom_joint), launch/robot.launch.py (robot_state_publisher), go2_robot_sdk/infrastructure/ros2/ros2_publisher.py (odom transform), config/mapper_params_online_async.yaml (transform_timeout), config/nav2_params.yaml (voxel layer comments), go2_map_viewer_julia/README.md, docs/TEST_LOG.md, contract team updates (Adib) -->
+<!-- sources: src/go2_robot_sdk/urdf/go2.urdf (links, joints, front_camera_joint, radar_joint, map_joint, odom_joint), launch/robot.launch.py (robot_state_publisher), go2_robot_sdk/infrastructure/ros2/ros2_publisher.py (odom transform), config/mapper_params_online_async.yaml (transform_timeout), config/nav2_params.yaml (voxel layer comments), go2_map_viewer_julia/README.md, docs/TEST_LOG.md, contract team updates (Adib); joint history: git log -- src/go2_robot_sdk/urdf/go2.urdf (359def8, f926bb8), gh pr view 62 67 69, upstream abizovnuralem/go2_ros2_sdk commits for go2_robot_sdk/urdf/go2.urdf (e10bba6) -->

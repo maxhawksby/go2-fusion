@@ -77,7 +77,7 @@ From Adib's branch README:
 
 ## Who's on it and what's next
 
-**Adib** built the Ollama version and tested it in mock mode; the team update says it was also tried on Oak. Next, Adib moves to odometry reliability (why position data sometimes stops) and turn accuracy (requested vs measured rotation). TODO(Adib): when the branch merges into `master`. Its packages sit at the repo root (the layout before packages moved into `src/`), so it needs a rebase first.
+**Adib** built the Ollama version and tested it in mock mode; the team update says it was also tried on Oak. Next, Adib moves to odometry reliability (why position data sometimes stops) and turn accuracy (requested vs measured rotation). The branch is pull request [#56](https://github.com/maxhawksby/go2-fusion/pull/56), open since 2026-11-08 at [b250ba9](https://github.com/maxhawksby/go2-fusion/commit/b250ba98b93ea487623643e03f9ae329be0512e7). Its package now sits under `src/` and it merges into `master` with no conflicts (checked with `git merge-tree` against `426e531` on 2026-11-16). It is waiting for review.
 
 ## The code
 
@@ -103,4 +103,4 @@ curl -X POST http://localhost:8000/command -H "Content-Type: application/json" \
 
 Adib's version only publishes to ROS with `--mode ros`. Do that only in the lab, next to Oak, with the keyboard ready.
 
-<!-- sources: src/go2_llm_agent/README.md (folded in 2026-10-22); docs/FUSION.md rows 2, 3, 11 and "Decided after the fusion"; docs/plans/pending/2026-10-08-claude-llm-agent.md; origin/adib/feat/llm-agent (38a6980: go2_llm_agent/README.md, commands.py, agent.py, FUSION.md and plan-file diffs); AGENTS.md; team update (Adib) week of 2026-10-18 -->
+<!-- sources: src/go2_llm_agent/README.md (folded in 2026-10-22); docs/FUSION.md rows 2, 3, 11 and "Decided after the fusion"; docs/plans/pending/2026-10-08-claude-llm-agent.md; origin/adib/feat/llm-agent (38a6980: go2_llm_agent/README.md, commands.py, agent.py, FUSION.md and plan-file diffs; b250ba9 for the src/ layout and git merge-tree against master 426e531); AGENTS.md; team update (Adib) week of 2026-10-18 -->
