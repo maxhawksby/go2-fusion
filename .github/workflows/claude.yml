@@ -37,6 +37,11 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/michael-denyer/pstack-claude.git'
           plugins: 'pstack@pstack-claude'
+          # Opus, so a teammate who asks "@claude fix this" gets the same model and
+          # pstack playbooks as a ready-for-agent run. Without this line the action
+          # picks Sonnet.
+          claude_args: |
+            --model opus
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
