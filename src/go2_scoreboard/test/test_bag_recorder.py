@@ -33,6 +33,16 @@ def test_bag_command_contains_required_topics_and_cleans_up(tmp_path):
     assert recorder.process is None
 
 
+def test_bag_records_point_cloud_and_each_drive_source(tmp_path):
+    calls = []
+    recorder = BagRecorder(
+        str(tmp_path / 'bag'),
+        popen=lambda command, **_kwargs: calls.append(command) or FinishedProcess())
+    recorder.start()
+    for topic in ('/point_cloud2', '/cmd_vel', '/cmd_vel_mapper', '/cmd_vel_out'):
+        assert topic in calls[0], f'{topic} missing from bag command'
+
+
 def test_bag_ready_requires_recording_and_odom_subscription(tmp_path):
     recorder = BagRecorder(
         str(tmp_path / 'bag'), popen=lambda *_args, **_kwargs: RunningProcess())
