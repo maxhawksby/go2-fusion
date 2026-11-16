@@ -1,12 +1,13 @@
 {
   "world": "placeholder_rooms",
-  "seed": 32,
+  "seed": 33,
   "runs": 10,
-  "timeout": 300,
+  "timeout": 900,
   "stall_timeout": 180,
   "startup_timeout": 300,
   "arms": {
-    "oak_sim_fixed": "HEAD",
-    "oak_sim_unfixed": "0e6fbd9675c47817d7029f2e3b820b53a4f4aac0"
+    "gated_watch": "a197b31c9037b23aef1181538237ffd801b7ccc3",
+    "flat_grace_2_5s": "682dbdcc14895cb799ad672439e505351a5d3653",
+    "control_recovery_speed": "a44440a347a3587f1c7b41be99e37fe960125ce4"
   }
 }
