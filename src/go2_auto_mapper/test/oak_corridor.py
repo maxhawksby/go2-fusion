@@ -1,6 +1,7 @@
 """The real explorer in a fake world: Oak in a 1.0 m corridor that opens
 into a half-mapped room, Nav2 replaced by a stand-in that answers every Spin
-with a chosen status. No robot, no Docker, no ROS install.
+with a chosen status. The lidar cloud can die part-way and the Spin server
+can stay down. No robot, no Docker, no ROS install.
 
     python src/go2_auto_mapper/test/oak_corridor.py \
         [seconds] [spin_status] [start_yaw_deg] [scan_turn_deg]
@@ -95,10 +96,14 @@ class Clock:
 
 class Sim:
     def __init__(self, spin_status=6, start=(0.0, 0.0, math.radians(60)),
-                 scan_turns_before_abort=0.0):
+                 scan_turns_before_abort=0.0, cloud_dies_at=None,
+                 spin_ready=True):
         self.scan_cache = {}
+        self.cloud_dies_at = cloud_dies_at
+        self.spin_ready = spin_ready
         self.scan_turns_before_abort = scan_turns_before_abort
         self.clock = Clock()
+        self.start_t = self.clock.t
         self.world = World()
         self.pose = list(start)
         self.spin_status = spin_status
@@ -145,7 +150,8 @@ class Sim:
             accepted.set_result(handle)
             return accepted
 
-        return Auto(server_is_ready=lambda: True, send_goal_async=send_goal_async,
+        ready = (lambda: sim.spin_ready) if name == '/spin' else (lambda: True)
+        return Auto(server_is_ready=ready, send_goal_async=send_goal_async,
                     wait_for_server=lambda **_: True)
 
     def finish_spin(self, goal, result):
@@ -182,7 +188,9 @@ class Sim:
                     angle_min=angle_min, angle_increment=inc, range_min=0.05,
                     range_max=10.0, ranges=ranges)
         n.observe('scan', scan)
-        n.observe('cloud', Auto(header=Auto(stamp=self.clock.stamp())))
+        if (self.cloud_dies_at is None
+                or self.clock.t - self.start_t < self.cloud_dies_at):
+            n.observe('cloud', Auto(header=Auto(stamp=self.clock.stamp())))
         if with_maps:
             info, data = self.cost
             n.local_costmap_callback(Auto(header=Auto(stamp=self.clock.stamp(),

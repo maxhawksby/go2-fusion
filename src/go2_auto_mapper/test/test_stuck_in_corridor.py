@@ -25,3 +25,21 @@ def test_control_turns_that_succeed_lead_to_a_goal():
     report = sim.run(120.0)
     assert not report['collided'], report
     assert report['navigation_goals'] >= 1, report
+
+
+def test_a_stop_for_missing_scan_waits_for_the_dead_cloud():
+    sim = Sim(spin_status=REFUSED, cloud_dies_at=1.0)
+    sim.run(3.0)
+    sim.node.latest_scan = None
+    sim.node.start_backup()
+    goals_before = len(sim.nav_goals)
+    report = sim.run(60.0)
+    assert report['still_stopped'], report
+    assert len(sim.nav_goals) == goals_before, sim.nav_goals
+
+
+def test_a_stop_holds_while_the_spin_server_is_down():
+    sim = Sim(spin_ready=False)
+    report = sim.run(30.0)
+    assert report['still_stopped'], report
+    assert report['navigation_goals'] == 0, report
