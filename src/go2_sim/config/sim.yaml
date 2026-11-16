@@ -11,6 +11,7 @@ go2_sim_driver:
     odom_scale_yaw: 0.0      # 0.02 = odometry says 2 % more turn than true
     odom_drift_yaw: 0.0      # rad of heading drift per metre walked
     odom_rate: 15.0          # Hz; the real driver gives about 13 (driver.md)
+    odom_true_speed: false   # true = /odom carries Gazebo's speed; Oak's always says 0
     base_height: 0.32        # m, base_link above the floor
     # Commands
     cmd_latency: 0.1         # s between /cmd_vel_out and Oak starting to move
