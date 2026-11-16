@@ -2,7 +2,7 @@
 title: Go2 driver
 parent: driver
 code: [src/go2_robot_sdk/**]
-verified: c41860ecdc70
+verified: eabbd534344a
 ---
 
 # Go2 driver
@@ -18,14 +18,14 @@ When data arrives from the dog it decodes it and publishes `/odom`, `/imu`, `/jo
 When a command arrives on `/cmd_vel_out` or `/webrtc_req`, it sends it to the dog.
 A zero velocity is forwarded too, as an explicit stop (an older version dropped zeros, so "stop" never arrived).
 
-**Stale-sensor stop.** Nav2 and the auto mapper steer by the lidar and odometry. If those stop arriving, they keep driving on an old picture of the room. So the driver only forwards a move while its sensors are fresh: odometry, the lidar, and (with one robot) the `/scan` that Nav2's costmap reads. If any of them has sent nothing for `sensor_timeout_sec` (default 1 second), the driver sends the dog a stop instead of the move, and stops it at once if it was already moving. When fresh data comes back, the next move goes through again. Before the first data arrives after start, Oak also will not move. Teleop and the gamepad are held too; sit and stand requests (`/webrtc_req`) are not. Only the WebRTC (Wi-Fi) link is watched; CycloneDDS is not.
+**Stale-sensor stop.** Nav2 and the auto mapper steer by the lidar and odometry. If those stop arriving, they keep driving on an old picture of the room. So the driver only forwards a move while its sensors are fresh: odometry, the lidar (when `decode_lidar` is on), and (with one robot) the `/scan` that Nav2's costmap reads. `/scan` is watched whenever `sensor_watch_scan` is on, even with lidar decoding off, because Nav2 can still drive on it. If any of them has sent nothing for `sensor_timeout_sec` (default 1 second), the driver sends the dog a stop instead of the move, and stops it at once if it was already moving. When fresh data comes back, the next move goes through again. Before the first data arrives after start, Oak also will not move. Teleop and the gamepad are held too; sit and stand requests (`/webrtc_req`) are not. Only the WebRTC (Wi-Fi) link is watched; CycloneDDS is not.
 
 Each stop and each resume is reported on `/safety/events` (a `diagnostic_msgs/DiagnosticStatus`, for the scoreboard). `sensor_stale` (level WARN) says which sensors went quiet and how old their data is (`sensor`, `age_s`); `sensor_fresh` (level OK) says they are back, plus how long Oak was held (`stopped_s`). The robot number is in `hardware_id`. This topic is temporary: once Noah's scoreboard event stream (`/auto_mapper/events`, PR #47) is on master, the driver will report these there instead.
 
 Parameters (change live with `ros2 param set /go2_driver_node <name> <value>`):
 
 - `sensor_timeout_sec` (1.0) - how old sensor data may get before Oak is held still. 0 turns the stop off.
-- `sensor_watch_scan` (true) - also require `/scan`. Turn it off only when running the driver without the laser-scan converter, or Oak will never move.
+- `sensor_watch_scan` (true) - also require `/scan`, whether or not lidar is decoded. Turn it off only when running the driver without the laser-scan converter, or Oak will never move. `webrtc_web.launch.py` has no converter, so it turns this off.
 
 The code is split into layers: `domain/` (plain data and constants, like the robot command numbers), `application/` (what to do with data and commands), `infrastructure/` (the WebRTC link, decoders, ROS publishing) and `presentation/` (the ROS node itself).
 
