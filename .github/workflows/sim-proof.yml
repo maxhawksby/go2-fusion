@@ -169,7 +169,7 @@ jobs:
         if: env.FORK != 'true'
         run: |
           url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
-          if git ls-remote --exit-code --heads "$url" sim-proof >/dev/null; then
+          if git ls-remote --exit-code "$url" refs/heads/sim-proof >/dev/null; then
             git clone --quiet --depth 1 --branch sim-proof "$url" pictures
           else
             git init --quiet -b sim-proof pictures
