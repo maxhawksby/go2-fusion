@@ -1502,11 +1502,14 @@ class FrontierExplorer(Node):
         )
 
     def _consider_clearing_fault(self):
-        """A latched stop stays put until a new fresh scan changes the picture.
+        """A latched stop stays put until a new fresh scan is judged.
 
         If the way ahead is clear, exploration may continue. If it is still
-        blocked but a rear or side corridor is open, take that move. The same
-        scan is not judged twice.
+        blocked but a rear or side corridor is open, take that move. If none
+        is open, try a turn; if no turn can be sent either, release the stop
+        anyway: Oak is standing still on fresh sensing, so holding would
+        never change anything, and Nav2 checks its own footprint for the
+        next goal. The same scan is not judged twice.
         """
 
         self._hold_stop()
@@ -1556,17 +1559,17 @@ class FrontierExplorer(Node):
                 *view[:4], distance, scan, age, SCAN_MAX_AGE_SEC
             )
         decision = latch_decision(gap is not None, move)
-        if decision == 'hold':
-            if self._try_recovery_turn(scan):
-                return
-            self.get_logger().info(
-                'Still stopped: no safe direction on the latest scan.',
-                throttle_duration_sec=10.0,
-            )
+        if decision == 'hold' and self._try_recovery_turn(scan):
             return
         reason = self.recovery_fault
         self.recovery_fault = None
         self.fault_refresh = None
+        if decision == 'hold':
+            self.get_logger().warn(
+                'No safe move or turn of the mapper\'s own; releasing the '
+                f'stop so Nav2 can plan the next goal (was: {reason}).'
+            )
+            return
         if decision == 'resume':
             self.get_logger().info(
                 f'Recovery latch cleared; forward is clear (was: {reason}).'

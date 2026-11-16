@@ -522,7 +522,7 @@ def latch_decision(forward_blocked, move):
     `forward_blocked` is whether something is still within the stop distance
     ahead. `move` is a recovery translation, or None when no direction is
     safe. Returns 'resume' (the block is gone), 'move' (a direction opened),
-    or 'hold' (stay stopped).
+    or 'hold' (no move of the mapper's own is safe).
     """
 
     if not forward_blocked:
