@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: 9f90061daf4a
+verified: 7789041a6187
 ---
 
 # Simulator
@@ -272,8 +272,8 @@ The simulator runs Oak's real stack, but a stand-in driver feeds it. Each row is
 
 | What differs | Simulator | Oak | Status | Closed by |
 | --- | --- | --- | --- | --- |
-| Speed in `/odom` | The true speed | Always zero. The driver never sets it. | Fixed in #107, not merged yet | Pull request #107 |
-| Lidar queue depth | 5 | 1 | Fixed in #107, not merged yet | Pull request #107 |
+| Speed in `/odom` | Zero, like Oak. `odom_true_speed: true` brings back the true speed | Always zero. The driver never sets it. | Closed | Pull request #107 |
+| Lidar queue depth | 1, like Oak | 1 | Closed | Pull request #107 |
 | What the lidar cloud is | One clean sweep | Oak's own 3D map, piling up in `odom` | Accepted for now | The lab bag, step 2 |
 | Points on Oak's own body | Filtered out | Not filtered. Oak froze on close returns in an empty hallway on 2026-11-08. | Accepted for now | The lab bag, step 4 |
 | `base_link` height and tilt | Fixed at 0.32 m, always level | Drifts and tilts | Accepted for now | The lab bag, step 7 |
