@@ -26,3 +26,4 @@ node_modules/
 
 # Training data lives on the GPU server, never in the repo.
 data/
+.claude/worktrees/
