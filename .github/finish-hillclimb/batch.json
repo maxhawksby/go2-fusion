@@ -5,8 +5,10 @@
   "timeout": 900,
   "stall_timeout": 180,
   "startup_timeout": 300,
-  "explorer_params": ["diagnostic_trace:=true"],
+  "explorer_params": [
+    "diagnostic_trace:=true"
+  ],
   "arms": {
-    "path_trace": "174d0b9e80aef4de27a9d52e553cc663f7f715fd"
+    "rotation_shim": "ad9e0370b2d3ab6e6ec565efbaaeccb02b373fc3"
   }
 }

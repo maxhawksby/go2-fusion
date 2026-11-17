@@ -122,11 +122,11 @@ jobs:
         with:
           name: summary
           path: summary.md
-      - name: post path trace report on issue 142
+      - name: post path trace report on issue 144
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           { cat trace_report.md; echo; echo "Batch run: $RUN_URL (batch commit $GITHUB_SHA)"; } > comment.md
-          gh issue comment 142 --repo "$GITHUB_REPOSITORY" --body-file comment.md
+          gh issue comment 144 --repo "$GITHUB_REPOSITORY" --body-file comment.md
