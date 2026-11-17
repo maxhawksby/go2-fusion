@@ -4,8 +4,10 @@ name: Finish hillclimb batch (experiment)
 # on each arm in .github/finish-hillclimb/batch.json, one simulator run per
 # runner, and writes one table per arm. Runs only on pushes to
 # max/exp/finish-hillclimb* branches. The harness (this file, one_run.py,
-# summarize.py) always comes from the pushed commit; only the arm's src/ and
-# docker/ change between arms.
+# summarize.py, trace_report.py) always comes from the pushed commit; only the
+# arm's src/ and docker/ change between arms. batch.json's explorer_params go
+# to every run's auto mapper. The summary job posts the path trace table
+# (issue #142) as a comment on that issue.
 on:
   push:
     branches: ['max/exp/finish-hillclimb**']
@@ -74,12 +76,13 @@ jobs:
           sudo mkdir -p /dev/input
           b=../../harness/.github/finish-hillclimb/batch.json
           j() { python3 -c "import json,sys; print(json.load(open('$b'))['$1'])"; }
+          params=$(python3 -c "import json; print(' '.join('--explorer-param ' + p for p in json.load(open('$b')).get('explorer_params', [])))")
           docker compose run --rm -v "$PWD/../../harness/.github/finish-hillclimb:/harness:ro" unitree_ros \
             python3 /harness/one_run.py ${{ matrix.index }} \
               --world "$(j world)" --runs "$(j runs)" --seed "$(j seed)" \
               --timeout "$(j timeout)" --stall-timeout "$(j stall_timeout)" \
               --startup-timeout "$(j startup_timeout)" --no-scoreboard-bag \
-              --variant "${{ matrix.arm }}" \
+              --variant "${{ matrix.arm }}" $params \
               --out /ros2_ws/src/go2_sim/results/hillclimb
       - name: make results readable
         if: always()
@@ -96,6 +99,9 @@ jobs:
     needs: run
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -106,7 +112,21 @@ jobs:
       - run: |
           python3 -I .github/finish-hillclimb/summarize.py results .github/finish-hillclimb/batch.json | tee summary.md
           cat summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: path trace report
+        if: ${{ !cancelled() }}
+        run: |
+          python3 -I .github/finish-hillclimb/trace_report.py results > trace_report.md
+          { echo; cat trace_report.md; } | tee -a summary.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: summary
           path: summary.md
+      - name: post path trace report on issue 142
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          { cat trace_report.md; echo; echo "Batch run: $RUN_URL (batch commit $GITHUB_SHA)"; } > comment.md
+          gh issue comment 142 --repo "$GITHUB_REPOSITORY" --body-file comment.md

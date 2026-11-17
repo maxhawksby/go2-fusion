@@ -5,7 +5,8 @@
   "timeout": 900,
   "stall_timeout": 180,
   "startup_timeout": 300,
+  "explorer_params": ["diagnostic_trace:=true"],
   "arms": {
-    "control_cancel_pose": "11319caf4d271075dc74c2c865e787bd43810920"
+    "path_trace": "174d0b9e80aef4de27a9d52e553cc663f7f715fd"
   }
 }
