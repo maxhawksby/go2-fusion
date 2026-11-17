@@ -49,6 +49,8 @@ ARGS = [
     ('odom_drift_yaw', '', 'Override: heading drift, rad per m'),
     ('cmd_latency', '', 'Override: command latency (s)'),
     ('seed', '0', 'Odometry noise seed (0 = random)'),
+    ('collision_monitor', 'false', "Experiment (issue #144): pass Nav2's commands "
+     'through nav2_collision_monitor before twist_mux'),
     ('domain_id', '42', 'ROS_DOMAIN_ID for the whole sim, kept apart from a real '
      'robot stack; empty = leave the current one'),
 ]
@@ -156,7 +158,9 @@ def _setup(context):
                 get_package_share_directory('go2_robot_sdk'), 'launch', 'robot.launch.py')),
             launch_arguments={'driver': 'false', 'rviz2': 'false', 'foxglove': 'false',
                               'joystick': 'false', 'teleop': 'true',
-                              'slam': 'true', 'nav2': 'true'}.items()),
+                              'slam': 'true', 'nav2': 'true',
+                              'collision_monitor': _arg(context, 'collision_monitor'),
+                              }.items()),
     ]
     if gui:
         viewer = ExecuteProcess(cmd=window + ['ign', 'gazebo', '-g', '-v', '1'], output='screen')

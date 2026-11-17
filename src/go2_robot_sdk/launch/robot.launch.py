@@ -70,6 +70,8 @@ class Go2LaunchConfig:
             'twist_mux': os.path.join(self.package_dir, 'config', 'twist_mux.yaml'),
             'slam': os.path.join(self.package_dir, 'config', 'mapper_params_online_async.yaml'),
             'nav2': os.path.join(self.package_dir, 'config', 'nav2_params.yaml'),
+            'collision_monitor': os.path.join(
+                self.package_dir, 'config', 'collision_monitor.yaml'),
             'rviz': os.path.join(self.package_dir, 'config', self.rviz_config),
             'urdf': os.path.join(self.package_dir, 'urdf', self.urdf_file),
         }
@@ -93,6 +95,10 @@ class Go2NodeFactory:
             # go2_sim sets this false and runs its own stand-in driver.
             DeclareLaunchArgument('driver', default_value='true',
                                   description='Launch the robot driver (false in the simulator)'),
+            # Experiment (issue #144), simulator only. Off: nothing changes.
+            DeclareLaunchArgument('collision_monitor', default_value='false',
+                                  description="Pass Nav2's commands through "
+                                  'nav2_collision_monitor before twist_mux'),
         ]
     
     def create_robot_state_nodes(self) -> List[Node]:
@@ -263,6 +269,7 @@ class Go2NodeFactory:
         use_sim_time = LaunchConfiguration('use_sim_time', default='false')
         with_joystick = LaunchConfiguration('joystick', default='true')
         with_teleop = LaunchConfiguration('teleop', default='true')
+        with_collision_monitor = LaunchConfiguration('collision_monitor', default='false')
         
         return [
             # Joystick node
@@ -300,6 +307,32 @@ class Go2NodeFactory:
                     {'use_sim_time': use_sim_time},
                     self.config.config_paths['twist_mux']
                 ],
+                # With the collision monitor on, the navigation input
+                # (priority 5) listens to the monitor's output instead of
+                # Nav2's /cmd_vel. Every other input is untouched. Off, this
+                # maps cmd_vel to itself.
+                remappings=[('cmd_vel', PythonExpression([
+                    "'cmd_vel_monitored' if '", with_collision_monitor,
+                    "' == 'true' else 'cmd_vel'"]))],
+            ),
+            # Nav2's collision monitor and the lifecycle manager that
+            # configures and activates it (it is a lifecycle node and does
+            # nothing until then).
+            Node(
+                package='nav2_collision_monitor',
+                executable='collision_monitor',
+                name='collision_monitor',
+                output='screen',
+                condition=IfCondition(with_collision_monitor),
+                parameters=[self.config.config_paths['collision_monitor']],
+            ),
+            Node(
+                package='nav2_lifecycle_manager',
+                executable='lifecycle_manager',
+                name='lifecycle_manager_collision_monitor',
+                output='screen',
+                condition=IfCondition(with_collision_monitor),
+                parameters=[{'autostart': True, 'node_names': ['collision_monitor']}],
             ),
         ]
     

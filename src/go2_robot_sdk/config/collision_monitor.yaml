@@ -1,0 +1,55 @@
+# Experiment (issue #144), simulator only: Nav2's collision monitor (Humble,
+# nav2_collision_monitor 1.1.20) between Nav2 and twist_mux. It runs only when
+# robot.launch.py gets collision_monitor:=true (default false), so nothing
+# changes on Oak. No number here is measured on Oak yet; #141 measures the
+# stop distance that time_before_collision stands in for.
+collision_monitor:
+  ros__parameters:
+    use_sim_time: False
+    # The frames the costmaps use. Scan points are carried from the scan's
+    # stamp to now through odom (base_shift_correction).
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    base_shift_correction: True
+    # In: /cmd_vel, everything Nav2 sends (velocity_smoother, and the behavior
+    # server's spins and back-ups). Out: twist_mux's navigation input while the
+    # monitor is on. Gamepad, keyboard and the auto mapper's recovery moves
+    # reach twist_mux on their own topics and never pass through here.
+    cmd_vel_in_topic: "cmd_vel"
+    cmd_vel_out_topic: "cmd_vel_monitored"
+    # How late an odom -> base_link transform may be. Humble's code default is
+    # 0.1 s; 0.5 s is its example file's value, chosen because Oak's odometry
+    # arrives in bursts. A scan that cannot be transformed is skipped.
+    transform_tolerance: 0.5
+    # A scan older than this is ignored, and then nothing is checked: this
+    # Humble version lets commands through when it has no fresh scan. 2.0 s is
+    # Humble's default, 6 to 14 scans at Oak's 3 to 7 Hz.
+    source_timeout: 2.0
+    # After a stop, zeros are sent for this long and then nothing, so
+    # twist_mux's 0.5 s timeout frees the navigation input. Humble's default.
+    stop_pub_timeout: 1.0
+    polygons: ["FootprintApproach"]
+    FootprintApproach:
+      type: "polygon"
+      # approach: move Oak's footprint along the commanded velocity; when it
+      # would meet scan points within time_before_collision, scale the command
+      # down so the meeting stays that far away in time.
+      action_type: "approach"
+      # Oak's footprint, as the local costmap publishes it (nav2_params.yaml:
+      # 0.360 m ahead, 0.450 m behind, 0.200 m to each side). One copy only.
+      footprint_topic: "/local_costmap/published_footprint"
+      # 1.0 s for the simulator's command lag (sim.yaml cmd_latency) plus
+      # 1.0 s of margin. Oak's real lag is 1 to 2.3 s, not yet split (#136).
+      time_before_collision: 2.0
+      # Step of the forward simulation: 0.03 m at Nav2's 0.3 m/s top speed.
+      # Humble's default.
+      simulation_time_step: 0.1
+      # Scan points that must fall inside the footprint before it counts, so a
+      # few noisy returns do not stop Oak. /scan has one beam per degree, so 5
+      # beams are about 0.05 m of obstacle at 0.6 m. Humble's example value.
+      max_points: 5
+      visualize: False
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "/scan"

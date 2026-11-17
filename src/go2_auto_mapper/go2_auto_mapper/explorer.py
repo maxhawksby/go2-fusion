@@ -149,6 +149,10 @@ class FrontierExplorer(Node):
         self.declare_parameter('obstacle_stop_distance', 0.3)
         self.declare_parameter('blocked_timeout', 0.0)
         self.declare_parameter('backup_distance', 0.3)
+        # Experiment (issue #144): false leaves an obstacle ahead of a goal
+        # in flight to Nav2's collision monitor, which slows Oak instead of
+        # ending the goal. The idle back-away and the recovery moves stay.
+        self.declare_parameter('obstacle_watch_cancels_goals', True)
         # Diagnostic only (issue #142): log a 'Trace:' line at 2 Hz while a
         # goal is active. Changes nothing Oak does.
         self.declare_parameter('diagnostic_trace', False)
@@ -207,6 +211,9 @@ class FrontierExplorer(Node):
         ).value
         self.blocked_timeout = self.get_parameter('blocked_timeout').value
         self.backup_distance = self.get_parameter('backup_distance').value
+        self.obstacle_watch_cancels_goals = self.get_parameter(
+            'obstacle_watch_cancels_goals'
+        ).value
         self.open_space_clearance = self.get_parameter(
             'open_space_clearance'
         ).value
@@ -2207,6 +2214,10 @@ class FrontierExplorer(Node):
 
             if self.current_goal_handle is None:
                 return  # goal not accepted yet; nothing to cancel
+
+            if not self.obstacle_watch_cancels_goals:
+                self.blocked_since = None
+                return
 
             distance = min(max(float(self.backup_distance), 0.05), 0.5)
             if (
