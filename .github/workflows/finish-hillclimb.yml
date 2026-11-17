@@ -6,7 +6,8 @@ name: Finish hillclimb batch (experiment)
 # max/exp/finish-hillclimb* branches. The harness (this file, one_run.py,
 # summarize.py, trace_report.py) always comes from the pushed commit; only the
 # arm's src/ and docker/ change between arms. batch.json's explorer_params go
-# to every run's auto mapper. The summary job posts the path trace table
+# to every run's auto mapper and its launch_args to every run's sim.launch.py.
+# The summary job posts the path trace table
 # (issue #142) as a comment on that issue.
 on:
   push:
@@ -77,13 +78,15 @@ jobs:
           b=../../harness/.github/finish-hillclimb/batch.json
           j() { python3 -c "import json,sys; print(json.load(open('$b'))['$1'])"; }
           params=$(python3 -c "import json; print(' '.join('--explorer-param ' + p for p in json.load(open('$b')).get('explorer_params', [])))")
+          launch=$(python3 -c "import json; print(' '.join(json.load(open('$b')).get('launch_args', [])))")
           docker compose run --rm -v "$PWD/../../harness/.github/finish-hillclimb:/harness:ro" unitree_ros \
             python3 /harness/one_run.py ${{ matrix.index }} \
               --world "$(j world)" --runs "$(j runs)" --seed "$(j seed)" \
               --timeout "$(j timeout)" --stall-timeout "$(j stall_timeout)" \
               --startup-timeout "$(j startup_timeout)" --no-scoreboard-bag \
               --variant "${{ matrix.arm }}" $params \
-              --out /ros2_ws/src/go2_sim/results/hillclimb
+              --out /ros2_ws/src/go2_sim/results/hillclimb \
+              -- $launch
       - name: make results readable
         if: always()
         run: sudo chmod -R a+rX arm/src/go2_sim/results 2>/dev/null || true

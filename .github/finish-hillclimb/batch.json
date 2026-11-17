@@ -6,9 +6,13 @@
   "stall_timeout": 180,
   "startup_timeout": 300,
   "explorer_params": [
-    "diagnostic_trace:=true"
+    "diagnostic_trace:=true",
+    "obstacle_watch_cancels_goals:=false"
   ],
   "arms": {
-    "rotation_shim": "ad9e0370b2d3ab6e6ec565efbaaeccb02b373fc3"
-  }
+    "collision_monitor": "87fa8a882609c1230f7242b7a34fa3ecef357634"
+  },
+  "launch_args": [
+    "collision_monitor:=true"
+  ]
 }
