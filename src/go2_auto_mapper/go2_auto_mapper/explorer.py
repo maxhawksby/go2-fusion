@@ -228,6 +228,9 @@ class FrontierExplorer(Node):
         # sensing that stopped updating. A clear way ahead isn't enough to
         # release it: that sensing must be fresh again first.
         self.fault_refresh = None
+        # ROS time of the latest latch. Handing Oak to Nav2 with no move of
+        # its own needs sensing that updated after it, whatever the cause.
+        self.fault_time = None
         # Scan stamp already judged for the current latch. A newer scan can
         # clear it; the one that caused the stop cannot.
         self.fault_checked_stamp = None
@@ -1494,6 +1497,7 @@ class FrontierExplorer(Node):
             refresh = self.fault_refresh
         self.recovery_fault = reason
         self.fault_refresh = refresh
+        self.fault_time = self.get_clock().now().nanoseconds * 1e-9
         self.fault_checked_stamp = self._ros_stamp('scan')
         # A latched stop always ends a recovery translation: tick_recovery
         # publishes on the same mux input and would overwrite the zero.
@@ -1564,10 +1568,15 @@ class FrontierExplorer(Node):
                 *view[:4], distance, scan, age, SCAN_MAX_AGE_SEC
             )
         decision = latch_decision(gap is not None, move)
-        if decision == 'hold' and (
-            not self._try_recovery_turn(scan).releases_stop
-        ):
-            return
+        if decision == 'hold':
+            if not self._try_recovery_turn(scan).releases_stop:
+                return
+            ready, why = self._refresh_check(self.fault_time, False)
+            if not ready:
+                self.get_logger().info(
+                    f'Still stopped: {why}.', throttle_duration_sec=10.0
+                )
+                return
         reason = self.recovery_fault
         self.recovery_fault = None
         self.fault_refresh = None
