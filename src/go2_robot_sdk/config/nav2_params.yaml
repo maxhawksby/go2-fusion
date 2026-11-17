@@ -147,7 +147,17 @@ controller_server:
       yaw_goal_tolerance: 0.25
     # DWB parameters
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
+      # Experiment (#144): 77 % of obstacle watch cancels happen with Oak's
+      # heading more than 0.35 rad off its plan while walking at 0.27 m/s
+      # (#142). The rotation shim turns Oak in place to face the path first,
+      # then hands over to DWB. 0.8 rad/s is the rate Oak reliably obeys.
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "dwb_core::DWBLocalPlanner"
+      angular_dist_threshold: 0.35
+      forward_sampling_distance: 0.5
+      rotate_to_heading_angular_vel: 0.8
+      max_angular_accel: 3.2
+      simulate_ahead_time: 1.0
       debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
