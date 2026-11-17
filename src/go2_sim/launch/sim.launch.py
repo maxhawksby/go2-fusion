@@ -10,6 +10,8 @@ import os
 import shutil
 import tempfile
 
+import yaml
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, EmitEvent, ExecuteProcess,
@@ -33,7 +35,7 @@ ARGS = [
     ('rviz', '', 'Open RViz (default: same as gui)'),
     ('explore', 'false', 'Start the auto mapper right away'),
     ('lidar_rate', '5.0', 'Lidar scans per second (real Oak: about 3-7)'),
-    ('lidar_range', '12.0', 'Lidar maximum range (m)'),
+    ('lidar_range', '20.0', 'Lidar maximum range (m)'),
     ('lidar_samples', '720', 'Lidar points per ring (16 rings); fewer leaves holes in /scan'),
     ('lidar_noise', '0.01', 'Lidar range noise, standard deviation (m)'),
     ('camera_rate', '', 'Front camera pictures per second on /camera/image_raw; 0 = no '
@@ -93,7 +95,9 @@ def _setup(context):
     os.environ['IGN_GAZEBO_RESOURCE_PATH'] = os.pathsep.join(p for p in resource if p)
 
     params_file = _arg(context, 'params_file') or os.path.join(share, 'config', 'sim.yaml')
-    base_height = 0.32
+    # One base_height for the model's legs and the driver's odometry.
+    with open(params_file) as f:
+        base_height = float(yaml.safe_load(f)['go2_sim_driver']['ros__parameters']['base_height'])
     vlm_mode = _arg(context, 'vlm_mode')
     camera_rate = _arg(context, 'camera_rate') or ('0' if vlm_mode == 'off' else '5')
     with open(os.path.join(share, 'models', 'oak', 'model.sdf.template')) as f:

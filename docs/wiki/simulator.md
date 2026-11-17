@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: 9f90061daf4a
+verified: 782651e9d599
 ---
 
 # Simulator
@@ -197,17 +197,28 @@ Launch arguments (for `sim.launch.py`, or after `--` for trials). The odometry a
 | `gui` | `false` | Open the Gazebo window; also opens RViz unless `rviz:=false` |
 | `explore` | `false` | Start the auto mapper at once |
 | `lidar_rate` | 5 | Lidar scans per second. Measured on Oak: 3 to 6.8 for the cloud, 4 to 5 for `/scan` ([Driver](driver.md), [Test log](test-log.md)). Try 2 for a bad day |
-| `lidar_range` | 12 | Farthest the lidar sees (m) |
+| `lidar_range` | 20 | Farthest the lidar sees (m). 20 matches what SLAM and Nav2 are set for, not a measurement of Oak; Oak's real range is measured at the [lab visit](lab-visit.md) |
 | `odom_noise_xy` | 0.01 | Random step-counting error: about 1 cm after 1 m, 5 cm after 25 m |
 | `odom_noise_yaw` | 0.01 | Random turning error, the same idea for turns |
 | `odom_drift_yaw` | 0 | Steady heading drift, radians per meter walked (a slow curve SLAM has to fix) |
-| `cmd_latency` | 0.1 | Seconds between a drive command and Oak moving |
+| `cmd_latency` | 1.0 | Seconds between a drive command and Oak moving. Oak's rosbags show 2.2 to 2.4 s, but part of that may be `/odom` arriving late, so 2.3 s is an upper bound and 1.0 is a chosen middle (#129) |
 | `seed` | 0 | Odometry noise seed (0 = different every run) |
 | `camera_rate` | 0, or 5 with `vlm_mode` on | Front camera pictures per second on `/camera/image_raw`, 640 x 360. 0 means no camera. It sees 90 degrees across ([world_tools.py](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_sim/go2_sim/world_tools.py#L83)). The real camera sees about 73 degrees across, worked out from its lens calibration ([front_camera_720.yaml](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/calibration/front_camera_720.yaml)) |
 | `vlm_mode` | `off` | The auto mapper's [VLM](auto-mapper.md#using-the-vlm) goal ranking: `off`, `shadow` or `active`. Only used with `explore:=true` |
 | `vlm_url`, `vlm_model` | empty | Where the VLM server is and which model to ask, passed to the auto mapper |
 
 In `sim.yaml` only: `odom_true_speed` (default `false`; `true` puts Gazebo's true speed on `/odom`, which is how every simulator run before issue #106 worked, so to compare with those runs turn it on through a custom `params_file`), `odom_scale_xy` and `odom_scale_yaw` (Oak says it went or turned a few % more than it did), `cmd_timeout` (Oak stops after 0.5 s without commands), speed and acceleration limits, the lidar mount position, and the self-filter box that drops lidar points on Oak's own head and legs (kept inside the 0.36 m nose, so something touching the nose is still seen). TODO(owner): measure Oak's real odometry error, command delay and stop timeout, and set these defaults from them.
+
+Also in `sim.yaml`, set from Oak's 2026-11-16 rosbags (#129):
+
+- `base_height` 0.377 m (measured). The launch file reads it from `sim.yaml`, so the model and the odometry agree.
+- `odom_rate` 18 Hz (measured).
+- Deadband. Below `min_walk_speed` 0.15 m/s Oak stands still (guessed from the bags, low confidence). Standing, it ignores turns slower than `min_turn_rate` 0.3 rad/s (measured), and turns slower than `sure_turn_rate` 0.8 rad/s work only `unsure_turn_success` 60 % of the time (measured 45 to 73 %). Walking, small turns work.
+- `turn_gain` 0.8: Oak turns at 0.8 times the commanded rate (measured 0.72 to 0.87).
+- `lidar_z_noise` 0.065 m: random height noise on every lidar point, so the floor smears up toward `base_link` like Oak's (fitted to the measured floor heights: 2.6 % of floor points land above -0.25 m, Oak 2.3 %).
+- `lidar_blind_fraction` 0.45 of `lidar_blind_sectors` 36 directions return nothing, redrawn every `lidar_blind_hold` 10 s. This leaves unknown cells beside Oak in the local costmap, as on Oak (42 to 51 % within 1 m). The value is chosen, not measured.
+
+The trial runner puts `--floor-objects` (default 3) backpack-sized boxes, 0.45 x 0.30 x 0.2 m, on open floor in each run, at spots picked by the run's seed. They count as collisions when Oak hits them. They are lower than the ground truth's height band, so they do not change the map a run is scored against.
 
 ## Adding a world
 
@@ -264,7 +275,7 @@ the [experiments journal](experiments.md) for the evidence and limitations.
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
 - **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits. Earlier recovery bugs were fixed (see [Auto mapper](auto-mapper.md)), but repeat runs show a remaining case where Oak is genuinely too close to fit the fixed 0.3 m escape. Shorter bounded recovery moves are the next experiment; no Oak result is claimed yet.
 - **Nav2 drives Oak to within 0.05-0.25 m of door jambs, the pillar and furniture**, then reports "No valid trajectories" or "Failed to make progress". TODO(Luis): does Oak get that close on the real floor?
-- **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. The real driver might hit the same thing at startup (see [TF and robot model](tf.md)).
+- **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. It is not known yet whether the real driver can send a cloud before odometry; the [lab visit](lab-visit.md) records it (see [TF and robot model](tf.md)).
 
 ## Known differences from Oak
 
@@ -272,12 +283,12 @@ The simulator runs Oak's real stack, but a stand-in driver feeds it. Each row is
 
 | What differs | Simulator | Oak | Status | Closed by |
 | --- | --- | --- | --- | --- |
-| Speed in `/odom` | The true speed | Always zero. The driver never sets it. | Fixed in #107, not merged yet | Pull request #107 |
-| Lidar queue depth | 5 | 1 | Fixed in #107, not merged yet | Pull request #107 |
+| Speed in `/odom` | Zero, like Oak. `odom_true_speed: true` brings back the true speed | Always zero. The driver never sets it. | Closed | Pull request #107 |
+| Lidar queue depth | 1, like Oak | 1 | Closed | Pull request #107 |
 | What the lidar cloud is | One clean sweep | Oak's own 3D map, piling up in `odom` | Accepted for now | The lab bag, step 2 |
 | Points on Oak's own body | Filtered out | Not filtered. Oak froze on close returns in an empty hallway on 2026-11-08. | Accepted for now | The lab bag, step 4 |
 | `base_link` height and tilt | Fixed at 0.32 m, always level | Drifts and tilts | Accepted for now | The lab bag, step 7 |
-| Lidar range | 12 m | The stack is set for about 20 m. Oak's real range is not known. | Being changed to 20 m (issue #109) | Step 4 measures the real range |
+| Lidar range | 20 m, the same as the stack | The stack is set for about 20 m. Oak's real range is not known. | Changed from 12 m to 20 m in #115 | Step 4 measures the real range |
 | Body and motion | A 0.70 x 0.31 m box that slides, with a 0.1 s delay | Legs. The delay was never measured. | Accepted for now | Steps 5 and 7 |
 | Lidar cloud before odometry at start-up | Held back until odometry starts | No guard | Accepted. Without the guard, the simulator draws fake walls, so we keep it. | The lab bag, step 2, shows whether Oak ever sends a cloud first |
 | How the explorer starts | A plain node from the launch file | From the RViz panel, so an RViz crash ends the run | Accepted on purpose. Copying Oak here would make the simulator worse. | Fixed on the lab side. Step 6 starts the explorer from a terminal. |

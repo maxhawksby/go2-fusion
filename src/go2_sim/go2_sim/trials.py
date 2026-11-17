@@ -602,6 +602,9 @@ def main(argv=None):
     parser.add_argument('--startup-timeout', type=float, default=180.0,
                         help='seconds for the simulator and Nav2 to come up')
     parser.add_argument('--world', default='placeholder_rooms')
+    parser.add_argument('--floor-objects', type=int, default=3,
+                        help='backpack-sized boxes (0.2 m tall) placed at random on open '
+                        'floor each run, seeded like the start pose (0 = none)')
     parser.add_argument('--clearance', type=float, default=0.7,
                         help='free space (m) around each random start pose')
     parser.add_argument('--out', default=None, help='results folder')
@@ -632,7 +635,8 @@ def main(argv=None):
               f'{args.runs} runs, seed {args.seed}, timeout {args.timeout:.0f} s, '
               f'variant: `{args.variant}`, explorer parameters: '
               f'`{" ".join(args.explorer_param) or "defaults"}`, '
-              f'launch args: `{" ".join(launch_extra) or "defaults"}`. '
+              f'launch args: `{" ".join(launch_extra) or "defaults"}`, '
+              f'{args.floor_objects} floor objects per run. '
               f'Ground truth: `{os.path.basename(gt_path)}`.')
     print(f'[trials] {args.runs} runs in {os.path.basename(world_path)}; results in {out_dir}',
           flush=True)
@@ -655,7 +659,18 @@ def run_all(args, world_path, gt, gt_path, out_dir, header, launch_extra, result
                                              clearance=args.clearance)
         print(f'[trials] run {i + 1}/{args.runs}: start {pose[0]:.2f}, {pose[1]:.2f}, '
               f'yaw {pose[2]:.2f}', flush=True)
-        r = run_one(args, i, world_path, gt, gt_path, pose, run_seed, out_dir, launch_extra)
+        run_world = world_path
+        if args.floor_objects > 0:
+            spots = world_tools.place_floor_objects(
+                gt, np.random.default_rng(run_seed + 500), pose, count=args.floor_objects)
+            print('[trials] floor objects at ' + ', '.join(
+                f'({x:.2f}, {y:.2f})' for x, y, _ in spots), flush=True)
+            with open(world_path) as f:
+                text = world_tools.add_floor_objects(f.read(), spots)
+            run_world = os.path.join(out_dir, f'run_{i + 1:02d}_{os.path.basename(world_path)}')
+            with open(run_world, 'w') as f:
+                f.write(text)
+        r = run_one(args, i, run_world, gt, gt_path, pose, run_seed, out_dir, launch_extra)
         results.append(r)
         write_results(out_dir, results, header)
         print(f"[trials] run {i + 1}: {r['completeness_pct']:.1f} % in {r['time_s']:.0f} s, "
