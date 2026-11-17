@@ -82,7 +82,7 @@ The team docs are a wiki graph: `README.md` is the center page "Oak", hub pages 
 - Keep branches small (one feature or fix). Before opening a PR: `git fetch && git rebase origin/master`.
 - Only merging into `master` goes through a pull request with green automatic checks. Don't push to `master` directly.
 - The `review-gate` check decides how much review a pull request needs from the files it changes, and labels it:
-  - `tier:high`: anything in `src/`, `docker/` or `host_tools/`, the robot build check (`.github/workflows/ros_build.yaml`), or `requirements*.txt`. One teammate's approval on the latest commit, even when it is confirmed working on Oak.
+  - `tier:high`: anything in `src/` (except the scoreboard `src/go2_scoreboard/`, the simulator `src/go2_sim/` and package `test/` folders, which cannot move Oak and are medium unless they change a `package.xml`), `docker/` or `host_tools/`, the robot build check (`.github/workflows/ros_build.yaml`), or `requirements*.txt`. One teammate's approval on the latest commit, even when it is confirmed working on Oak.
   - `tier:medium`: team tooling, CI, agent rules (`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.agents/`, `.github/`) and anything else. One approval, or Max (the repo admin) merges it.
   - `tier:low`: wiki pages, guides and images. No approval. It merges by itself once the checks pass.
   - Add the `risk:medium` or `risk:high` label to raise a tier. Nothing lowers one. A new push clears earlier approvals.

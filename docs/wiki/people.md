@@ -2,7 +2,7 @@
 title: People
 parent: team
 code: [CONTRIBUTING.md, AGENTS.md]
-verified: f12565809506
+verified: 2bb4813c2e4c
 ---
 
 # People
@@ -55,7 +55,7 @@ Part of: [Team](team.md)
 - **Claim your work.** Tell your agent what you're starting; it opens or finds the issue, tags the page, and assigns you, so your name shows on the map.
 - **Put your name on your branch.** Start it with your id from [hypatia.yml](../hypatia.yml): `max/fix/nav-obstacle-safety`. Anyone can see who owns it.
 - **Say what each commit does.** One short sentence, starting with the part of Oak it touches: `Auto mapper: skip frontiers it can't reach`. Your branch's messages show on your People tab, so they tell the team what you're on.
-- **Ask for review.** A pull request with Who, What, Why, Before and After posts to #feature-revisions. A check called `review-gate` reads the files it changes and labels it. `tier:high` is Oak's software and needs one teammate's approval. `tier:medium` is team tooling and agent rules and needs one approval, or Max merges it. `tier:low` is wiki pages and guides and merges by itself once the checks pass. Claude also reviews every pull request that is not a draft, and answers when a teammate writes `@claude` in a comment. Adding the `ready-for-agent` label to an issue starts Claude on it: it opens a pull request for review and never merges. Full steps: [CONTRIBUTING.md](../../CONTRIBUTING.md).
+- **Ask for review.** A pull request with Who, What, Why, Before and After posts to #feature-revisions. A check called `review-gate` reads the files it changes and labels it. `tier:high` is Oak's software and needs one teammate's approval. `tier:medium` is team tooling, agent rules and code that cannot move Oak (the scoreboard, the simulator, tests) and needs one approval, or Max merges it. `tier:low` is wiki pages and guides and merges by itself once the checks pass. Claude also reviews every pull request that is not a draft, and answers when a teammate writes `@claude` in a comment. Adding the `ready-for-agent` label to an issue starts Claude on it: it opens a pull request for review and never merges. Full steps: [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## People Oak builds on
 
