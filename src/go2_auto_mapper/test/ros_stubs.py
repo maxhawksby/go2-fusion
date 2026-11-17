@@ -101,7 +101,7 @@ def _install():
     module('action_msgs')
     module('action_msgs.srv', CancelGoal=any_type)
     module('nav_msgs')
-    module('nav_msgs.msg', OccupancyGrid=any_type)
+    module('nav_msgs.msg', OccupancyGrid=any_type, Path=any_type)
     module('std_srvs')
     module('std_srvs.srv', Trigger=any_type)
     module('geometry_msgs')

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import collections
 import ctypes
 import enum
 import math
@@ -16,7 +17,7 @@ from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.signals import SignalHandlerOptions
 
 from action_msgs.srv import CancelGoal
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Path
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Twist
 from sensor_msgs.msg import Image, LaserScan, PointCloud2
@@ -64,6 +65,7 @@ from go2_auto_mapper.frontier_scoring import (
 )
 from go2_auto_mapper.social_space import line_crosses, parse_people, social_zones, zone_at
 from go2_auto_mapper.nav_log import NavLog, known_cell_count
+from go2_auto_mapper.plan_tracking import format_trace, pick_plans, plan_offset
 from go2_auto_mapper.vlm_ranking import (
     ViewMemory,
     VlmClient,
@@ -147,6 +149,9 @@ class FrontierExplorer(Node):
         self.declare_parameter('obstacle_stop_distance', 0.3)
         self.declare_parameter('blocked_timeout', 0.0)
         self.declare_parameter('backup_distance', 0.3)
+        # Diagnostic only (issue #142): log a 'Trace:' line at 2 Hz while a
+        # goal is active. Changes nothing Oak does.
+        self.declare_parameter('diagnostic_trace', False)
 
         # Getting unstuck: after stuck_failure_count failed goals in a row
         # (or an obstacle-ahead abort, or no usable goal), drive to the
@@ -419,6 +424,18 @@ class FrontierExplorer(Node):
             WATCH_PERIOD_SEC,
             self.watch_ahead
         )
+
+        self.diagnostic_trace = bool(self.get_parameter('diagnostic_trace').value)
+        # (monotonic receipt, frame, [(x, y, yaw)]) of Nav2's recent plans,
+        # and (monotonic receipt, forward m/s, turn rad/s) of the last command.
+        self.trace_plans = collections.deque(maxlen=TRACE_PLANS_KEPT)
+        self.trace_cmd = None
+        if self.diagnostic_trace:
+            self.trace_plan_sub = self.create_subscription(
+                Path, '/plan', self._trace_on_plan, 10)
+            self.trace_cmd_sub = self.create_subscription(
+                Twist, '/cmd_vel_out', self._trace_on_cmd, 10)
+            self.trace_timer = self.create_timer(TRACE_PERIOD_SEC, self.trace)
 
         # /frontier_explorer/scan: a 360 degree scan on request (the RViz
         # AutoMapper panel's Scan button, or `ros2 service call`).
@@ -2220,6 +2237,8 @@ class FrontierExplorer(Node):
             self.blocked_time = now
             self.blocked_since = None
 
+            if self.diagnostic_trace:
+                self.trace()
             self.get_logger().warn(
                 f'Obstacle {gap:.2f} m ahead for {self.blocked_timeout:.1f} s; '
                 'abandoning this goal and heading somewhere open.'
@@ -2246,6 +2265,68 @@ class FrontierExplorer(Node):
                 self._stop_for(f'obstacle watch error: {e}')
             else:
                 self.get_logger().error(f'Obstacle watch error: {e}')
+
+    def _trace_on_plan(self, msg):
+        try:
+            poses = []
+            for stamped in msg.poses:
+                q = stamped.pose.orientation
+                poses.append((
+                    stamped.pose.position.x, stamped.pose.position.y,
+                    math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                               1.0 - 2.0 * (q.y * q.y + q.z * q.z)),
+                ))
+            self.trace_plans.append((time.monotonic(), msg.header.frame_id, poses))
+        except Exception as e:
+            self.get_logger().error(f'Trace error: {e}')
+
+    def _trace_on_cmd(self, msg):
+        self.trace_cmd = (time.monotonic(), float(msg.linear.x), float(msg.angular.z))
+
+    def _trace_plan_fields(self, name, plan, now):
+        """Oak's distance and heading error to one plan, and the plan's age."""
+
+        fields = {f'{name}_dist': None, f'{name}_yaw_err': None, f'{name}_age': None}
+        if plan is None:
+            return fields
+        received, frame, poses = plan
+        fields[f'{name}_age'] = now - received
+        pose = self.get_robot_pose(frame or self.map_frame)
+        offset = plan_offset(*pose, poses) if pose else None
+        if offset:
+            fields[f'{name}_dist'], fields[f'{name}_yaw_err'] = offset
+        return fields
+
+    def trace(self):
+        """Diagnostic only (issue #142): one log line on where Oak is against
+        Nav2's plan while a goal is active. Reads state, changes none."""
+
+        try:
+            if not self.goal_active or self.goal_sent_time is None:
+                return
+            now = time.monotonic()
+            pose = self.get_robot_pose(self.map_frame)
+            x, y, yaw = pose if pose else (None, None, None)
+            cmd = self.trace_cmd
+            if cmd is None or now - cmd[0] > TRACE_CMD_MAX_AGE_SEC:
+                cmd = (None, None, None)
+            gap = None
+            view = self.local_view()
+            if view is not None:
+                gap = free_distance_ahead(*view[:4], self.obstacle_stop_distance)
+            latest, reference = pick_plans(
+                self.trace_plans, now, self.goal_sent_time, TRACE_REFERENCE_AGE_SEC)
+            fields = {
+                't': now - self.goal_sent_time, 'x': x, 'y': y, 'yaw': yaw,
+                'cmd_v': cmd[1], 'cmd_w': cmd[2],
+            }
+            fields.update(self._trace_plan_fields('plan', latest, now))
+            fields['gap'] = gap
+            fields['plan_age'] = fields.pop('plan_age')
+            fields.update(self._trace_plan_fields('ref', reference, now))
+            self.get_logger().info(format_trace(fields))
+        except Exception as e:
+            self.get_logger().error(f'Trace error: {e}')
 
     def yield_for_people(self):
         """While driving to a goal, hold still when a person, their next
@@ -2724,6 +2805,14 @@ MAP_SETTLE_SEC = 1.5
 
 # How often watch_ahead looks at the local costmap while driving.
 WATCH_PERIOD_SEC = 0.25
+
+# Diagnostic trace (issue #142): how often it logs, how old the reference
+# plan must be (Nav2 replans from Oak's own pose every second, so only an
+# older plan shows drift), how many plans to keep, and when a command is stale.
+TRACE_PERIOD_SEC = 0.5
+TRACE_REFERENCE_AGE_SEC = 5.0
+TRACE_PLANS_KEPT = 60
+TRACE_CMD_MAX_AGE_SEC = 1.0
 
 # After a goal is abandoned for an obstacle ahead: how long to steer goal
 # choice away from that heading, and how wide a cone around it to avoid.
