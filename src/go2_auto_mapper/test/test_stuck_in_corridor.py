@@ -43,3 +43,10 @@ def test_a_stop_holds_while_the_spin_server_is_down():
     report = sim.run(30.0)
     assert report['still_stopped'], report
     assert report['navigation_goals'] == 0, report
+
+
+def test_a_refused_turn_with_a_dead_cloud_sends_no_goal():
+    sim = Sim(spin_status=REFUSED, cloud_dies_at=1.0)
+    report = sim.run(60.0)
+    assert report['still_stopped'], report
+    assert report['navigation_goals'] == 0, report
