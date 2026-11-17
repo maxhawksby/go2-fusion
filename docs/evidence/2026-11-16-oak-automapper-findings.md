@@ -57,9 +57,27 @@ Final `/map` from each run over the simulator's true floor plan. Green is floor 
 | Planned path too close to walls | Wider padding arm matched control. |
 | Command latency | Zero latency arm still cancelled 45 % of goals. |
 
+## Update, 2026-11-17
+
+Three more arms on the same seeds (33000-33009, 10 runs, 900 s). Full write-up: [#144](https://github.com/maxhawksby/go2-fusion/issues/144#issuecomment-6958807301).
+
+| Arm | Finished | Mean mapped | Ended stuck | Collisions |
+|---|---:|---:|---:|---:|
+| Control | 0/10 | 77.0 % | 3 | 0 |
+| Turn in place first (rotation shim) | 0/10 | 85.3 % | 0 | 0 |
+| Collision monitor + turn in place | 0/10 | 54.7 % | 9 | 0 |
+
+- **Path trace** (#142). At a cancel, Oak is a median 0.06 m off the plan from 5 s earlier, but its heading is more than 0.35 rad off in 77 % of cancels. Oak is on the path and pointing the wrong way.
+- **Turn in place first** (PR #149). Kept. More map and no stuck runs. The obstacle watch still cancels 59 % of goals.
+- **Collision monitor.** Dropped for now. It scales Oak's speed down near obstacles, the result falls under the 0.15 m/s walking deadband, and Oak stands still.
+
+**Conclusion.** The conflict is physical. With a command lag of 1 s or more Oak needs 0.3 to 0.6 m of clearance at walking speed, Oak cannot walk slower than 0.15 m/s, and the test rooms need closer passes than that. The strict watch, the collision monitor and the flat grace each resolve the same conflict a different way. The simulator's lag is 1.0 s, which was chosen, not measured. Oak's true motion lag and stop distance decide which fix is safe. #141 measures them, and PR #147 reads the recordings.
+
+Simulator experiments are paused until #141 reports.
+
 ## Open
 
-- Why Oak leaves the planned path and meets a wall inside 0.30 m. Next step: one simulator run with a rosbag of `/plan`, `/odom`, `/cmd_vel` and `/local_costmap/costmap`, then replay the 30 s before several cancels.
+- Oak's true motion lag and stop distance (#141). Everything else waits on this.
 - The zero latency arm walked half as far. Unexplained; may be a simulator fault at zero delay.
 - The flat grace finishes maps but lets Oak walk at a real obstacle for up to 2.5 s. Not safe for Oak as is.
 - The simulator never reproduced the backpack hit.
