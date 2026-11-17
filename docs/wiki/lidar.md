@@ -2,7 +2,7 @@
 title: Lidar
 parent: senses
 code: [src/lidar_processor/**, src/lidar_processor_cpp/**, src/go2_robot_sdk/go2_robot_sdk/infrastructure/sensors/lidar_decoder.py]
-verified: 60d9fd799956
+verified: fe1fbd41dc26
 ---
 
 # Lidar
@@ -10,6 +10,14 @@ verified: 60d9fd799956
 The lidar is Oak's sense of shape: a laser scanner under its chin that measures the distance to walls and objects all around, which [SLAM](slam.md) needs to draw the map and [Nav2](nav2.md) needs to avoid bumping into things.
 
 Part of: [Senses](senses.md)
+
+The processed-cloud publisher needs a full ROS Header containing both its
+stamp and `base_link` frame. A known bug used only a Time message and raised
+`Time has no attribute frame_id`, blocking filtered/downsampled clouds while
+raw `/point_cloud2`, `/scan` and the SLAM map could still arrive. Jeth's separate
+Header repair is now prepared with a real-message regression test. It does
+not change filtering, frame choice or navigation. Restart the publisher only
+after recording the current run and applying the reviewed change.
 
 ## How it works
 
