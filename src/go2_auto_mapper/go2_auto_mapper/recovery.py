@@ -18,7 +18,10 @@ ROBOT_REAR_M = 0.45
 ROBOT_HALF_WIDTH_M = 0.20
 SAFETY_MARGIN_M = 0.05
 
-RECOVERY_SPEED_MPS = 0.10
+# Above Oak's walking deadband: it stands still for commands under about
+# 0.15 m/s (go2_sim sim.yaml min_walk_speed). At 0.10 every recovery move
+# timed out with Oak in place (issue #134).
+RECOVERY_SPEED_MPS = 0.20
 RECOVERY_TIME_LIMIT_SEC = 8.0
 # /scan arrives at about 4 Hz. Older than this, the corridor is stale.
 SCAN_MAX_AGE_SEC = 0.75
@@ -522,7 +525,7 @@ def latch_decision(forward_blocked, move):
     `forward_blocked` is whether something is still within the stop distance
     ahead. `move` is a recovery translation, or None when no direction is
     safe. Returns 'resume' (the block is gone), 'move' (a direction opened),
-    or 'hold' (stay stopped).
+    or 'hold' (no move of the mapper's own is safe).
     """
 
     if not forward_blocked:

@@ -1,0 +1,12 @@
+{
+  "world": "placeholder_rooms",
+  "seed": 32,
+  "runs": 10,
+  "timeout": 300,
+  "stall_timeout": 180,
+  "startup_timeout": 300,
+  "arms": {
+    "oak_sim_fixed": "HEAD",
+    "oak_sim_unfixed": "0e6fbd9675c47817d7029f2e3b820b53a4f4aac0"
+  }
+}

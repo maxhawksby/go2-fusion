@@ -1,0 +1,112 @@
+name: Finish hillclimb batch (experiment)
+
+# Overnight experiment for issue #98: runs the same seeded auto mapper batch
+# on each arm in .github/finish-hillclimb/batch.json, one simulator run per
+# runner, and writes one table per arm. Runs only on pushes to
+# max/exp/finish-hillclimb* branches. The harness (this file, one_run.py,
+# summarize.py) always comes from the pushed commit; only the arm's src/ and
+# docker/ change between arms.
+on:
+  push:
+    branches: ['max/exp/finish-hillclimb**']
+    paths-ignore: ['.audit/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finish-hillclimb-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/finish-hillclimb
+      - id: plan
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          b = json.load(open('.github/finish-hillclimb/batch.json'))
+          sha = os.environ['GITHUB_SHA']
+          inc = [{'arm': a, 'ref': sha if r == 'HEAD' else r, 'index': i}
+                 for i in range(b['runs']) for a, r in b['arms'].items()]
+          print('matrix=' + json.dumps({'include': inc}))
+          PY
+
+  run:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    name: ${{ matrix.arm }} run ${{ matrix.index }}
+    steps:
+      - name: checkout harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: harness
+          sparse-checkout: .github/finish-hillclimb
+          persist-credentials: false
+      - name: checkout arm
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.ref }}
+          path: arm
+          submodules: recursive
+          persist-credentials: false
+      - name: free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          docker image prune -af >/dev/null
+      - name: build image
+        working-directory: arm/docker
+        run: docker compose build
+      - name: one trial
+        working-directory: arm/docker
+        run: |
+          sudo mkdir -p /dev/input
+          b=../../harness/.github/finish-hillclimb/batch.json
+          j() { python3 -c "import json,sys; print(json.load(open('$b'))['$1'])"; }
+          docker compose run --rm -v "$PWD/../../harness/.github/finish-hillclimb:/harness:ro" unitree_ros \
+            python3 /harness/one_run.py ${{ matrix.index }} \
+              --world "$(j world)" --runs "$(j runs)" --seed "$(j seed)" \
+              --timeout "$(j timeout)" --stall-timeout "$(j stall_timeout)" \
+              --startup-timeout "$(j startup_timeout)" --no-scoreboard-bag \
+              --variant "${{ matrix.arm }}" \
+              --out /ros2_ws/src/go2_sim/results/hillclimb
+      - name: make results readable
+        if: always()
+        run: sudo chmod -R a+rX arm/src/go2_sim/results 2>/dev/null || true
+      - name: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.arm }}-run${{ matrix.index }}
+          path: arm/src/go2_sim/results/hillclimb/
+          if-no-files-found: warn
+
+  summary:
+    needs: run
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/finish-hillclimb
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+      - run: |
+          python3 -I .github/finish-hillclimb/summarize.py results .github/finish-hillclimb/batch.json | tee summary.md
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: summary
+          path: summary.md

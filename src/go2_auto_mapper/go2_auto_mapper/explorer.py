@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import ctypes
+import enum
 import math
 import os
 import signal
@@ -1120,6 +1121,30 @@ class FrontierExplorer(Node):
             for gx, gy in frontier
         )
 
+    def frontier_long_side_m(self, frontier):
+        xs = [p[0] for p in frontier]
+        ys = [p[1] for p in frontier]
+        cells = max(max(xs) - min(xs), max(ys) - min(ys)) + 1
+        return cells * self.map.info.resolution
+
+    def report_complete(self, frontiers):
+
+        if self.exploration_complete_logged:
+            return
+        if frontiers:
+            detail = (
+                f'Only {len(frontiers)} frontiers shorter '
+                f'than {NARROWER_THAN_DOOR_M:.1f} m left unreached. '
+                'Exploration complete.'
+            )
+        else:
+            detail = 'No frontiers found. Exploration complete.'
+        self.get_logger().info(detail)
+        self.exploration_complete_logged = True
+        if not self.exploration_terminal_emitted:
+            self.emit_event('exploration_completed', detail)
+            self.exploration_terminal_emitted = True
+
     def prune_dead_frontiers(self):
 
         now = time.monotonic()
@@ -1486,6 +1511,11 @@ class FrontierExplorer(Node):
         the cause was sensing that stopped updating; the latch then also
         waits for that sensing, not just for a clear way ahead."""
 
+        stale = refresh is not None or 'stale' in reason or 'missing' in reason
+        if refresh is None and stale:
+            refresh = (self.get_clock().now().nanoseconds * 1e-9, False)
+        elif refresh is None and self.recovery_fault:
+            refresh = self.fault_refresh
         self.recovery_fault = reason
         self.fault_refresh = refresh
         self.fault_checked_stamp = self._ros_stamp('scan')
@@ -1493,8 +1523,7 @@ class FrontierExplorer(Node):
         # publishes on the same mux input and would overwrite the zero.
         self.recovery_move = None
         self._hold_stop()
-        if ((refresh is not None or 'stale' in reason or 'missing' in reason)
-                and hasattr(self, 'emit_event')):
+        if stale and hasattr(self, 'emit_event'):
             self.emit_event('sensor_stale', reason)
         self.get_logger().error(
             f'Recovery stopped: {reason} '
@@ -1502,11 +1531,14 @@ class FrontierExplorer(Node):
         )
 
     def _consider_clearing_fault(self):
-        """A latched stop stays put until a new fresh scan changes the picture.
+        """A latched stop stays put until a new fresh scan is judged.
 
         If the way ahead is clear, exploration may continue. If it is still
-        blocked but a rear or side corridor is open, take that move. The same
-        scan is not judged twice.
+        blocked but a rear or side corridor is open, take that move. If none
+        is open, try a turn; once a turn was tried or none fits, release the
+        stop anyway: Oak is standing still on fresh sensing, so holding would
+        never change anything, and Nav2 checks its own footprint for the
+        next goal. The same scan is not judged twice.
         """
 
         self._hold_stop()
@@ -1556,17 +1588,19 @@ class FrontierExplorer(Node):
                 *view[:4], distance, scan, age, SCAN_MAX_AGE_SEC
             )
         decision = latch_decision(gap is not None, move)
-        if decision == 'hold':
-            if self._try_recovery_turn(scan):
-                return
-            self.get_logger().info(
-                'Still stopped: no safe direction on the latest scan.',
-                throttle_duration_sec=10.0,
-            )
+        if decision == 'hold' and (
+            not self._try_recovery_turn(scan).releases_stop
+        ):
             return
         reason = self.recovery_fault
         self.recovery_fault = None
         self.fault_refresh = None
+        if decision == 'hold':
+            self.get_logger().warn(
+                'No safe move or turn of the mapper\'s own; releasing the '
+                f'stop so Nav2 can plan the next goal (was: {reason}).'
+            )
+            return
         if decision == 'resume':
             self.get_logger().info(
                 f'Recovery latch cleared; forward is clear (was: {reason}).'
@@ -1684,7 +1718,7 @@ class FrontierExplorer(Node):
             *view[:4], distance, scan, self._scan_age(), SCAN_MAX_AGE_SEC
         )
         if move is None:
-            if self._try_recovery_turn(scan):
+            if self._try_recovery_turn(scan) is TurnOutcome.SENT:
                 return
             self._stop_for(reason)
             return
@@ -1704,10 +1738,10 @@ class FrontierExplorer(Node):
         )
         self.log_event(f'recovery move x={move[0]:.2f} y={move[1]:.2f}')
 
-    def _try_recovery_turn(self, scan):
+    def _try_recovery_turn(self, scan) -> 'TurnOutcome':
         """No translation is safe: turn in place toward the most open heading
         on the scan with Nav2's Spin, which checks the footprint against the
-        local costmap while turning. True when the turn was sent.
+        local costmap while turning.
 
         Clears any latched stop first: the zero twist it publishes on the
         mapper's mux input (priority 6) would override Spin on Nav2's
@@ -1721,13 +1755,13 @@ class FrontierExplorer(Node):
             self.last_recovery_turn_time is not None
             and now - self.last_recovery_turn_time < RECOVERY_TURN_RETRY_SEC
         ):
-            return False
+            return TurnOutcome.TRIED_RECENTLY
         age = self._scan_age()
         if (
             scan is None or age is None or age > SCAN_MAX_AGE_SEC
             or scan.header.frame_id != self.robot_frame
         ):
-            return False
+            return TurnOutcome.STALE_SCAN
         min_range = (
             ROBOT_FRONT_M + self.obstacle_stop_distance + RECOVERY_TURN_ROOM_M
         )
@@ -1735,7 +1769,7 @@ class FrontierExplorer(Node):
         if angle is None and self.failed_turn_sign:
             angle = choose_turn(scan, min_range)
         if angle is None:
-            return False
+            return TurnOutcome.NO_HEADING
 
         goal = Spin.Goal()
         goal.target_yaw = float(angle)
@@ -1743,7 +1777,7 @@ class FrontierExplorer(Node):
         if not self.start_maneuver(
             self.spin_client, goal, RECOVERY_TURN_NAME, RECOVERY_TURN_TIME_SEC
         ):
-            return False
+            return TurnOutcome.SPIN_SERVER_DOWN
 
         self.last_recovery_turn_time = now
         self.recovery_turn_angle = angle
@@ -1759,7 +1793,7 @@ class FrontierExplorer(Node):
             'in place toward open space'
             + (f' (was: {reason}).' if reason else '.')
         )
-        return True
+        return TurnOutcome.SENT
 
     def _recovery_progress(self, pose, x, y, yaw, move, distance):
         """Distance along the commanded translation, and the cross-track error."""
@@ -2482,20 +2516,15 @@ class FrontierExplorer(Node):
                 return
             self.verify_frontier_shrank(frontiers)
 
-        if not frontiers:
+        only_small = all(
+            self.frontier_long_side_m(f) < NARROWER_THAN_DOOR_M for f in frontiers
+        )
+        few_left = sum(len(f) for f in frontiers) < LEFTOVER_CELLS_MAX
 
-            if not self.exploration_complete_logged:
-                self.get_logger().info(
-                    'No frontiers found. Exploration complete.'
-                )
-                self.exploration_complete_logged = True
-                if not self.exploration_terminal_emitted:
-                    self.emit_event(
-                        'exploration_completed',
-                        'No frontiers found. Exploration complete.',
-                    )
-                    self.exploration_terminal_emitted = True
-
+        if not frontiers or (
+            only_small and (few_left or self.exploration_complete_logged)
+        ):
+            self.report_complete(frontiers)
             return
 
         self.exploration_complete_logged = False
@@ -2511,6 +2540,10 @@ class FrontierExplorer(Node):
         )
 
         if selected is WAITING_FOR_VLM:
+            return
+
+        if selected is None and only_small:
+            self.report_complete(frontiers)
             return
 
         if selected is None:
@@ -2712,6 +2745,22 @@ RECOVERY_TURN_TIME_SEC = 15.0
 RECOVERY_TURN_RETRY_SEC = 10.0
 RECOVERY_TURN_ROOM_M = 0.2
 
+
+class TurnOutcome(enum.Enum):
+    """What _try_recovery_turn did."""
+
+    SENT = enum.auto()
+    TRIED_RECENTLY = enum.auto()
+    NO_HEADING = enum.auto()
+    STALE_SCAN = enum.auto()
+    SPIN_SERVER_DOWN = enum.auto()
+
+    @property
+    def releases_stop(self):
+        """Release only once Nav2 judged a turn or none fits."""
+        return self in (TurnOutcome.TRIED_RECENTLY, TurnOutcome.NO_HEADING)
+
+
 # Slower than this toward the nose counts as not driving forward: an
 # obstacle ahead then doesn't abandon the goal (see watch_ahead).
 FORWARD_MOTION_MPS = 0.03
@@ -2722,6 +2771,10 @@ FORWARD_MOTION_MPS = 0.03
 OPEN_SPACE_SEARCH_RADIUS_M = 4.0
 OPEN_SPACE_MIN_MOVE_M = 0.5
 ESCAPE_COOLDOWN_SEC = 30.0
+
+NARROWER_THAN_DOOR_M = 0.6
+
+LEFTOVER_CELLS_MAX = 100
 
 # "No usable goal" this many loops in a row counts as stuck.
 STUCK_NO_GOAL_CYCLES = 2

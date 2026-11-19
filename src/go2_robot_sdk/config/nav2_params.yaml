@@ -154,7 +154,7 @@ controller_server:
       # Must match velocity_smoother below. The controller scores paths
       # assuming these limits; at 3.0 it planned for speeds the smoother then
       # cut to 0.5, so the robot didn't follow its plan and hit walls.
-      max_vel_x: 0.5
+      max_vel_x: 0.3
       max_vel_y: 0.0
       max_vel_theta: 1.0
       min_speed_xy: 0.0
@@ -162,12 +162,15 @@ controller_server:
       min_speed_theta: 0.0
       # Add high threshold velocity for turtlebot 3 issue.
       # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
-      acc_lim_x: 1.0
+      # Oak's /odom carries no speed, so DWB plans from zero every cycle and
+      # can only reach acc_lim / controller_frequency. 5.0 and 10.0 let it
+      # reach max_vel in one cycle; velocity_smoother still limits the real ramp.
+      acc_lim_x: 5.0
       acc_lim_y: 0.0
-      acc_lim_theta: 2.0
-      decel_lim_x: -1.0
+      acc_lim_theta: 10.0
+      decel_lim_x: -5.0
       decel_lim_y: 0.0
-      decel_lim_theta: -2.0
+      decel_lim_theta: -10.0
       vx_samples: 20
       vy_samples: 20
       vtheta_samples: 20
@@ -209,7 +212,9 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base_link
       use_sim_time: False
-      track_unknown_space: true
+      # false: unseen cells count as free here. With true, the full-body
+      # obstacle check rejected every turn next to unmapped floor on Oak.
+      track_unknown_space: false
       rolling_window: true
       width: 20
       height: 20
@@ -384,7 +389,7 @@ velocity_smoother:
   ros__parameters:
     use_sim_time: False
     smoothing_frequency: 20.0
-    max_velocity: [0.5, 0.0, 1.0]
+    max_velocity: [0.3, 0.0, 1.0]
     min_velocity: [-0.5, 0.0, -1.0]
     max_accel: [1.0, 0.0, 2.0]
     max_decel: [-1.0, 0.0, -2.0]
