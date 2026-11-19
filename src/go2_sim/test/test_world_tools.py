@@ -64,6 +64,16 @@ def test_map_round_trip(tmp_path):
     assert math.isclose(back.origin_x, grid.origin_x)
 
 
+def test_map_round_trip_preserves_unknown_cells(tmp_path):
+    grid = wt.Grid(
+        np.array([[wt.FREE, wt.OCCUPIED, 255]], dtype=np.uint8),
+        0.05, -1.0, -2.0)
+    path = str(tmp_path / 'unknown.yaml')
+    wt.write_map(grid, path)
+    back = wt.read_map(path)
+    assert np.array_equal(back.data, grid.data)
+
+
 def test_start_poses_are_seeded_and_clear():
     obstacles, _ = wt.load_obstacles(_world_text())
     grid = wt.rasterize(obstacles)
@@ -123,6 +133,17 @@ def test_compose_world_places_robot_and_keeps_plugins():
     # The world already has every required system: none added twice.
     names = [p.get('filename') for p in world.findall('plugin')]
     assert len(names) == len(set(names))
+
+
+def test_camera_only_when_asked_for():
+    with open(TEMPLATE) as f:
+        template = f.read()
+    plain = ET.fromstring(wt.render_robot(template))
+    assert plain.find("link/sensor[@name='front_camera']") is None
+    camera = ET.fromstring(wt.render_robot(template, camera_rate=5.0)).find(
+        "link/sensor[@name='front_camera']")
+    assert float(camera.find('update_rate').text) == 5.0
+    assert camera.find('topic').text == '/sim/camera'
 
 
 def test_compose_world_adds_missing_plugins():

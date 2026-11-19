@@ -86,7 +86,7 @@ Both compose files default to `webrtc`, so set `CONN_TYPE=cyclonedds` explicitly
 
 ## Path B: inside WSL2
 
-Use this path when you need a window (RViz, the C++ map viewer, the Julia viewer).
+Use this path when you need a window (RViz, the C++ map viewer).
 
 1. Install Ubuntu 22.04 once, in PowerShell: `wsl --install -d Ubuntu-22.04` (`wsl -l -v` shows it afterwards).
 2. Turn on Docker Desktop > Settings > Resources > WSL Integration > the toggle for `Ubuntu-22.04` > Apply & Restart. This is the step people miss: without it, `docker` is not reachable inside the distro even though it works from PowerShell.

@@ -2,7 +2,7 @@
 title: Simulator
 parent: lab-setup
 code: [src/go2_sim/**]
-verified: d4f76d4cc8c0
+verified: 782651e9d599
 ---
 
 # Simulator
@@ -38,15 +38,102 @@ Part of: [Lab setup](lab-setup.md)
 **Same wiring as the real robot.** The simulator starts the real stack, `robot.launch.py`, with one change: the [Go2 driver](go2-driver.md) is swapped for a stand-in, `sim_driver`. The stand-in speaks the driver's topics:
 
 - it takes commands from `/cmd_vel_out` ([twist_mux](twist-mux.md)'s output) and passes them to Gazebo after a short delay;
-- it publishes `/odom` and the `odom` -> `base_link` link of the [TF tree](tf.md), with made-up step-counting error added;
+- it publishes `/odom` and the `odom` -> `base_link` link of the [TF tree](tf.md), with made-up step-counting error added. `/odom` reports zero speed by default, like Oak's real driver, which never fills in the speed part. Nav2's local planner reads that speed, most of all in the last 0.3 m before a goal;
 - it publishes `/point_cloud2` in the `odom` frame, like the real driver, from a simulated lidar under Oak's chin (where `go2.urdf` puts it); `pointcloud_to_laserscan` turns it into `/scan` as usual;
 - it publishes a standing `/joint_states`, so RViz draws the legs.
 
-So SLAM, Nav2, twist_mux and the auto mapper run unchanged. `/imu`, `/go2_states` and the camera are not simulated. The cloud reaches `lidar_to_pointcloud` through the same `/robot0/point_cloud2` -> `/point_cloud2` rename as on the robot (the open topic question in the [Test log](test-log.md) applies here too).
+So SLAM, Nav2, twist_mux and the auto mapper run unchanged. A parity test (`test/test_sim_parity.py`) fails if the stand-in's topic names, frames, queue sizes or `/odom` speed stop matching the real driver, or if `sim.launch.py` starts `robot.launch.py` with other settings than Oak uses. `/imu` and `/go2_states` are not simulated. The front camera is optional and off unless you ask for it (see the dials): rendering it costs CPU on a laptop with no GPU. The cloud reaches `lidar_to_pointcloud` through the same `/robot0/point_cloud2` -> `/point_cloud2` rename as on the robot (the open topic question in the [Test log](test-log.md) applies here too).
 
 **Kept away from the real robot.** The simulator uses ROS domain 42 and talks only inside your computer (`ROS_LOCALHOST_ONLY=1`), so its drive commands can never reach a real Oak on the network. To look at its topics from another terminal, first run `export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=1`.
 
-**The world.** `placeholder_rooms` is a made-up 10 x 8 m flat: four rooms, 1.2 m doorways, two routes round (so SLAM can close a loop), a few furniture boxes and a pillar. It is not the lab. Jeth is building a tape-measured lab world (issue #28); any world drops in with `world:=`.
+**The world.** `placeholder_rooms` is a made-up 10 x 8 m flat: four rooms, 1.2 m doorways, two routes round (so SLAM can close a loop), a few furniture boxes and a pillar. It is not the lab. The tape-measured lab world (issue [#28](https://github.com/maxhawksby/go2-fusion/issues/28)) was closed as not planned in the 2026-11-15 issue reset, so there is no lab world yet. Any world drops in with `world:=`.
+
+## ITE-inspired hallways
+
+`ite_hallways` is a hallway-only practice world based on Noah's description,
+not a measured third-floor plan. It has a 24 x 24 m interior, a 3 m wide square
+perimeter corridor and a 5 m wide cross-hall linking the left and right sides.
+Two solid cores stand in for inaccessible rooms, elevators and stairs. Two
+solid table boxes sit at the west end of the lobby; the east boundary stands
+in for the closed elevator/stair entrance side. All dimensions are assumptions.
+TODO(noah): confirm orientation and replace assumed lengths with measurements.
+
+![Assumed hallway layout, closed cores and lobby tables](assets/ite-hallways.svg)
+
+This tests turning at corners, choosing a branch, closing loops and returning
+to hallways skipped while exploring the lobby. The explorer must retain
+reachable frontiers beyond the current view; heading toward the biggest open
+space alone does not guarantee it finishes. The generated answer key is used
+only by the scorers, not by SLAM or goal selection. Boxes make both collision
+geometry and scoring agree; individual rooms and stair drops are not simulated.
+
+From this branch's repo root in PowerShell, run these yourself, in order:
+
+```powershell
+# Unit checks, then a saved ground-truth preview; neither launches exploration.
+.\scripts\run_ite_hallways.ps1 -Mode Validate
+.\scripts\run_ite_hallways.ps1 -Mode Preview
+# One 60-second exploration run to check startup and saved artifacts.
+.\scripts\run_ite_hallways.ps1 -Mode Smoke
+# Only after the smoke run works: five matched starts, up to ten minutes each.
+.\scripts\run_ite_hallways.ps1 -Mode Batch -Runs 5 -Seed 28 -Timeout 600
+```
+
+The script reuses the installed `go2scoreboard-unitree_ros:latest` image;
+`-Image <existing-simulator-image>` selects another. It does not rebuild or
+download an image. Compose project `go2ite` gets its own build/install volumes,
+and a fixed container name prevents two script sessions running together. The
+image entrypoint builds the mounted workspace, so allow startup/build time.
+No new Docker dependencies are required for this world. Keep other simulator
+sessions stopped while running this suite. The trial runner selects an isolated
+ROS domain starting at 50 for each run; direct simulation launches default to 42.
+
+Each invocation saves `session.json`, the world, a tracked source patch, console
+log and exit code under `src/go2_sim/results/ite_hallways/`. Trial modes also
+save the existing CSV/report, maps, logs and scoreboard artifacts beneath that
+session's `trials/` folder. Bags are off by default; add `-RecordBag` when
+replay evidence is needed. Keep the commit unchanged during a batch. A successful
+process exit means the command ran; inspect `finished`, coverage, collisions and
+stop reasons to judge mapping. Startup failures are not algorithm failures.
+
+The headless preview writes a `.pgm` and `.yaml`; the drawing above can be
+viewed without Docker. GUI users can instead launch the existing simulator
+with `world:=ite_hallways x:=1.5 y:=1.5 yaw:=1.57 gui:=true explore:=false`
+and start exploration deliberately after checking the layout. PowerShell GUI
+setup is unchanged.
+
+### First hallway smoke result and diagnostic follow-up
+
+The first seed-28000 smoke test on November 10 ran for 60 seconds: 3.19%
+completeness, about 0.32 m traveled, zero collisions, one goal accepted and
+none reached. The scoreboard parity check passed. The initial spin predicted
+a collision, and Nav2 repeatedly failed its progress check; DWB later rejected
+unknown-region and oscillating trajectories. This establishes a stall, not its
+root cause. The aggregator's separate `Time`/`frame_id` error is also present,
+but this launch builds navigation's `/scan` from `/point_cloud2` directly.
+
+Keep the same world, seed and algorithm for one diagnostic repeat:
+
+```powershell
+.\scripts\run_ite_hallways.ps1 -Mode Smoke -Seed 28 -Variant scan_diagnostic -RecordBag
+```
+
+This records the existing scoreboard topics, including `/scan`, local costmap,
+TF, output velocity and ROS logs. It does not include the raw point cloud or
+every Nav2 internal topic. No longer batch is needed until the stall is understood.
+The offline helper reads bags without launching ROS nodes, playing messages or
+issuing motion commands. In a container with the workspace sourced, run:
+
+```shell
+python3 /ros2_ws/src/go2_sim/go2_sim/navigation_diagnostic.py /ros2_ws/src/go2_sim/results/ite_hallways
+```
+
+Each recorded run gets `navigation_diagnostic.json` next to its bag. It reports
+scan frames and directional returns, topic gaps, transforms present on both
+static and dynamic TF, output velocity and relevant failure logs. These are
+investigation clues, not a safety verdict. Aggregate scan statistics cover the
+whole bag, and costmap unknown percentage covers the whole grid. The first
+smoke test had bags disabled, so these measurements cannot be recovered from it.
 
 ## Watch one run (with windows)
 
@@ -74,7 +161,18 @@ This runs the auto mapper 10 times with no windows. Each run starts a fresh simu
 - **Distance**: how far Oak really walked.
 - **Finished**: yes if the auto mapper said it was done. Otherwise the note says why it stopped and where Oak ended up, so you can find the trouble spot.
 
-Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores it): `results.csv`, `results.md` (the table), each run's final map, and logs. Options: `--runs 3`, `--timeout 600`, `--stall-timeout 300` (0 = never), `--seed 2`, `--world <name or .sdf>`. Dials go after `--`, for example `ros2 run go2_sim trials --runs 5 -- lidar_rate:=2.0 odom_noise_xy:=0.05`.
+Results land in `src/go2_sim/results/<date-time>/` on your laptop (git ignores it): `results.csv`, `results.md` (the table), each run's final map, and logs. Options: `--runs 3`, `--timeout 600`, `--stall-timeout 300` (0 = never), `--seed 2`, `--world <name or .sdf>`. Dials for the simulator go after `--`, for example `ros2 run go2_sim trials --runs 5 -- lidar_rate:=2.0 odom_noise_xy:=0.05`. An experiment can temporarily change an auto-mapper ROS parameter without editing its code, for example `--variant blocked_grace --explorer-param blocked_timeout:=2.0`. The variant and every override are saved with the scoreboard run so comparisons do not mix configurations.
+
+The trial runner also starts the [Scoreboard](scoreboard.md) before each auto
+mapper. Its independent artifacts are under the run's `scoreboard/` folder,
+including a rosbag by default. The legacy simulator scorer remains in place and
+both scorers begin at the auto mapper's structured `exploration_started` event.
+The CSV reports whether reported odometry distance (within 10% or 0.5 m),
+completeness (within one percentage point) and collision counts agree. It also
+keeps Gazebo's hidden physical distance and reports the odometry error separately;
+that ground truth is an answer key, not data available to Oak. Use
+`--no-scoreboard-bag` for a small development run or `--no-scoreboard` to
+isolate the legacy scorer.
 
 ## Watch the trials live
 
@@ -99,14 +197,28 @@ Launch arguments (for `sim.launch.py`, or after `--` for trials). The odometry a
 | `gui` | `false` | Open the Gazebo window; also opens RViz unless `rviz:=false` |
 | `explore` | `false` | Start the auto mapper at once |
 | `lidar_rate` | 5 | Lidar scans per second. Measured on Oak: 3 to 6.8 for the cloud, 4 to 5 for `/scan` ([Driver](driver.md), [Test log](test-log.md)). Try 2 for a bad day |
-| `lidar_range` | 12 | Farthest the lidar sees (m) |
+| `lidar_range` | 20 | Farthest the lidar sees (m). 20 matches what SLAM and Nav2 are set for, not a measurement of Oak; Oak's real range is measured at the [lab visit](lab-visit.md) |
 | `odom_noise_xy` | 0.01 | Random step-counting error: about 1 cm after 1 m, 5 cm after 25 m |
 | `odom_noise_yaw` | 0.01 | Random turning error, the same idea for turns |
 | `odom_drift_yaw` | 0 | Steady heading drift, radians per meter walked (a slow curve SLAM has to fix) |
-| `cmd_latency` | 0.1 | Seconds between a drive command and Oak moving |
+| `cmd_latency` | 1.0 | Seconds between a drive command and Oak moving. Oak's rosbags show 2.2 to 2.4 s, but part of that may be `/odom` arriving late, so 2.3 s is an upper bound and 1.0 is a chosen middle (#129) |
 | `seed` | 0 | Odometry noise seed (0 = different every run) |
+| `camera_rate` | 0, or 5 with `vlm_mode` on | Front camera pictures per second on `/camera/image_raw`, 640 x 360. 0 means no camera. It sees 90 degrees across ([world_tools.py](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_sim/go2_sim/world_tools.py#L83)). The real camera sees about 73 degrees across, worked out from its lens calibration ([front_camera_720.yaml](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/calibration/front_camera_720.yaml)) |
+| `vlm_mode` | `off` | The auto mapper's [VLM](auto-mapper.md#using-the-vlm) goal ranking: `off`, `shadow` or `active`. Only used with `explore:=true` |
+| `vlm_url`, `vlm_model` | empty | Where the VLM server is and which model to ask, passed to the auto mapper |
 
-In `sim.yaml` only: `odom_scale_xy` and `odom_scale_yaw` (Oak says it went or turned a few % more than it did), `cmd_timeout` (Oak stops after 0.5 s without commands), speed and acceleration limits, the lidar mount position, and the self-filter box that drops lidar points on Oak's own head and legs (kept inside the 0.36 m nose, so something touching the nose is still seen). TODO(owner): measure Oak's real odometry error, command delay and stop timeout, and set these defaults from them.
+In `sim.yaml` only: `odom_true_speed` (default `false`; `true` puts Gazebo's true speed on `/odom`, which is how every simulator run before issue #106 worked, so to compare with those runs turn it on through a custom `params_file`), `odom_scale_xy` and `odom_scale_yaw` (Oak says it went or turned a few % more than it did), `cmd_timeout` (Oak stops after 0.5 s without commands), speed and acceleration limits, the lidar mount position, and the self-filter box that drops lidar points on Oak's own head and legs (kept inside the 0.36 m nose, so something touching the nose is still seen). TODO(owner): measure Oak's real odometry error, command delay and stop timeout, and set these defaults from them.
+
+Also in `sim.yaml`, set from Oak's 2026-11-16 rosbags (#129):
+
+- `base_height` 0.377 m (measured). The launch file reads it from `sim.yaml`, so the model and the odometry agree.
+- `odom_rate` 18 Hz (measured).
+- Deadband. Below `min_walk_speed` 0.15 m/s Oak stands still (guessed from the bags, low confidence). Standing, it ignores turns slower than `min_turn_rate` 0.3 rad/s (measured), and turns slower than `sure_turn_rate` 0.8 rad/s work only `unsure_turn_success` 60 % of the time (measured 45 to 73 %). Walking, small turns work.
+- `turn_gain` 0.8: Oak turns at 0.8 times the commanded rate (measured 0.72 to 0.87).
+- `lidar_z_noise` 0.065 m: random height noise on every lidar point, so the floor smears up toward `base_link` like Oak's (fitted to the measured floor heights: 2.6 % of floor points land above -0.25 m, Oak 2.3 %).
+- `lidar_blind_fraction` 0.45 of `lidar_blind_sectors` 36 directions return nothing, redrawn every `lidar_blind_hold` 10 s. This leaves unknown cells beside Oak in the local costmap, as on Oak (42 to 51 % within 1 m). The value is chosen, not measured.
+
+The trial runner puts `--floor-objects` (default 3) backpack-sized boxes, 0.45 x 0.30 x 0.2 m, on open floor in each run, at spots picked by the run's seed. They count as collisions when Oak hits them. They are lower than the ground truth's height band, so they do not change the map a run is scored against.
 
 ## Adding a world
 
@@ -116,18 +228,72 @@ Put the `.sdf` file anywhere and pass `world:=/ros2_ws/src/<path>.sdf`. Two rule
 
 The first 10-run batch in the placeholder world, default dials, real-time factor 1.0: **1 of 10 finished, mean map completeness 78.3 % (47.7 to 99.5 %), 0 collisions, 135 m walked**, about 4.5 minutes per run. Eight of the nine unfinished runs ended stuck at or beside a 1.2 m doorway (real doors are narrower).
 
-Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the first version of those fixes, before the unstuck move learned to check Oak's whole body through its allowed drift. With the final version, one 8-minute run (seed 1, 2026-10-31) mapped 48.3 %, with 0 costmap timeouts and 0 collisions, but latched stopped next to the 1.2 m doorway after 44 s ("no safe direction: rear and both sides lack clearance") and never moved again. Master without the fixes maps 5.0 % in the same run. TODO(Max): re-run the 10-run batch with the final fixes.
+Getting there, the simulator caught bugs in [Nav2](nav2.md) (the costmap stall below) and in the [Auto mapper](auto-mapper.md)'s unstuck move (three ways it refused every escape). That batch ran with the first version of those fixes, before the unstuck move learned to check Oak's whole body through its allowed drift. With the final version, one 8-minute run (seed 1, 2026-10-31) mapped 48.3 %, with 0 costmap timeouts and 0 collisions, but latched stopped next to the 1.2 m doorway after 44 s ("no safe direction: rear and both sides lack clearance") and never moved again. Master without the fixes maps 5.0 % in the same run. The 10-run batch was run again with the final fixes on 2026-11-06, on master `714de91`: 0 of 10 finished, mean 71.0 % (34.9 to 99.4 %), 0 collisions, 124.7 m walked. Eight of the ten latched on "no safe direction" ([Experiments](experiments.md), recorded in [1648e94](https://github.com/maxhawksby/go2-fusion/commit/1648e943ec5ae0d3a839ee45fb0e6b4330896408)).
 
 Every simulator experiment since 2026-11-06 (hypothesis, change, runs, why each run quit, verdict) is logged in the [experiments journal](experiments.md).
+
+## VLM test (2026-10-31)
+
+One 8-minute run with the VLM on and one with it off, in the placeholder world with `seed:=1`, using Qwen2.5-VL 7B:
+
+| | VLM `active` | VLM off |
+|---|---|---|
+| Known map squares at 2 minutes | 27,894 | 27,948 |
+| Known map squares at 8 minutes | 28,322 | 28,148 |
+| Goals sent / reached | 7 / 5 | 6 / 5 |
+| Finished exploring | No | No |
+
+The VLM made no measurable difference, but one run each is too few to say more, and this world's plain gray walls give a camera model little to go on. A world that looks like the real lab would be a fairer test. Both runs stopped mapping after about 2 minutes on `Still stopped: no safe direction on the latest scan`, the latch the [Experiments](experiments.md) page is chasing.
 
 ## What it found so far
 
 Before the recovery fixes (master's old Nav2 settings and auto mapper), a 2-run check maps 5.1 % and 5.8 % and never moves: the auto mapper logs "timed out waiting for fresh costmap" after its first scan (first item below).
 
+The first [Scoreboard](scoreboard.md) integration proof on 2026-11-05
+reproduced that stop with seed 27. It also proved that the new scorer and this
+legacy scorer agree despite the failed exploration: both measured 0.0 m,
+0 collisions and 5.7% completeness. Treat that as measurement-pipeline
+evidence, not as a successful mapping run.
+
+After pull request #41 merged the costmap and recovery fixes, the same seed was
+rerun on 2026-11-05. It traveled 2.8 m, mapped 48.0% and recorded 0 collisions
+before the runner declared it stuck after 60 seconds with less than 0.25 m of
+new movement. The independent scoreboard measured 2.7235 m, 47.959% and 0
+collisions. This confirms the old startup stall is fixed and the measurement
+paths agree, but it does not claim that exploration finishes reliably.
+
+On 2026-11-06, a three-run batch demonstrated the remaining variability: two
+starts reached 92.0% and 85.2%, while one stalled early. That batch also exposed
+a validation bug: the explorer could keep mapping between the legacy snapshot
+and scoreboard finalization, and simulator reset jumps inflated legacy distance.
+The trial runner now freezes exploration at one measurement boundary, applies
+the scoreboard's 1 m jump rejection to truth odometry, and preserves unknown
+cells in saved maps. A deterministic seed-27 validation then passed independent
+parity at 48.6% completeness, 3.3 m versus 3.119 m, and zero collisions. See
+the [experiments journal](experiments.md) for the evidence and limitations.
+
 - **The auto mapper stalls waiting for a costmap.** After Oak stops or spins in place, it waits for a fresh `/local_costmap/costmap`, but Nav2 only re-sends the full grid when its rolling window moves, so it can wait forever ("timed out waiting for fresh costmap"). Fixed with `always_send_full_costmap` (see [Nav2](nav2.md)); still to confirm on Oak.
-- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits, even with open floor behind. The lidar there reads true distances (checked beam by beam against the true map), so this is the auto mapper's own check, not the simulator. Three bugs caused it, all fixed (see [Auto mapper](auto-mapper.md)); still to confirm on Oak.
+- **The auto mapper latches stopped next to close obstacles.** Its unstuck move says "no safe direction: rear and both sides lack clearance" and waits. Earlier recovery bugs were fixed (see [Auto mapper](auto-mapper.md)), but repeat runs show a remaining case where Oak is genuinely too close to fit the fixed 0.3 m escape. Shorter bounded recovery moves are the next experiment; no Oak result is claimed yet.
 - **Nav2 drives Oak to within 0.05-0.25 m of door jambs, the pillar and furniture**, then reports "No valid trajectories" or "Failed to make progress". TODO(Luis): does Oak get that close on the real floor?
-- **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. The real driver might hit the same thing at startup (see [TF and robot model](tf.md)).
+- **`go2.urdf`'s fixed `odom` -> `base_link` joint** puts `base_link` on the floor until odometry starts; a lidar cloud sent before then shows the floor as walls. The stand-in driver now waits for odometry first. It is not known yet whether the real driver can send a cloud before odometry; the [lab visit](lab-visit.md) records it (see [TF and robot model](tf.md)).
+
+## Known differences from Oak
+
+The simulator runs Oak's real stack, but a stand-in driver feeds it. Each row is a way that stand-in differs from Oak, so a fix can pass here and still fail on the robot. Issue #109 tracks them. "The lab bag" is one recording of Oak's lidar cloud and odometry, planned in issue #103 and the [Next lab visit](lab-visit.md) page. Step numbers are steps on that page.
+
+| What differs | Simulator | Oak | Status | Closed by |
+| --- | --- | --- | --- | --- |
+| Speed in `/odom` | Zero, like Oak. `odom_true_speed: true` brings back the true speed | Always zero. The driver never sets it. | Closed | Pull request #107 |
+| Lidar queue depth | 1, like Oak | 1 | Closed | Pull request #107 |
+| What the lidar cloud is | One clean sweep | Oak's own 3D map, piling up in `odom` | Accepted for now | The lab bag, step 2 |
+| Points on Oak's own body | Filtered out | Not filtered. Oak froze on close returns in an empty hallway on 2026-11-08. | Accepted for now | The lab bag, step 4 |
+| `base_link` height and tilt | Fixed at 0.32 m, always level | Drifts and tilts | Accepted for now | The lab bag, step 7 |
+| Lidar range | 20 m, the same as the stack | The stack is set for about 20 m. Oak's real range is not known. | Changed from 12 m to 20 m in #115 | Step 4 measures the real range |
+| Body and motion | A 0.70 x 0.31 m box that slides, with a 0.1 s delay | Legs. The delay was never measured. | Accepted for now | Steps 5 and 7 |
+| Lidar cloud before odometry at start-up | Held back until odometry starts | No guard | Accepted. Without the guard, the simulator draws fake walls, so we keep it. | The lab bag, step 2, shows whether Oak ever sends a cloud first |
+| How the explorer starts | A plain node from the launch file | From the RViz panel, so an RViz crash ends the run | Accepted on purpose. Copying Oak here would make the simulator worse. | Fixed on the lab side. Step 6 starts the explorer from a terminal. |
+
+A good simulator score is a first check, not proof. When a measurement lands, edit its row in this table to close it.
 
 ## How it breaks
 
@@ -135,12 +301,13 @@ Before the recovery fixes (master's old Nav2 settings and auto mapper), a 2-run 
 - **No lidar, startup timeout.** The headless lidar is drawn with OpenGL; without a GPU, Mesa's software renderer (llvmpipe) does it, which works (tested, see the box at the top). If the trial log says `startup timeout: no lidar on /point_cloud2`, look at `logs/run_01_launch.log` for OpenGL errors.
 - **Runs slower than real time.** The auto mapper's waits are in wall-clock seconds, so a slow simulator makes it give up early and scores look worse than they are. The trial runner prints a real-time factor per run. Below about 0.9, close the Gazebo window (on a laptop without a GPU it alone halves the speed) or close other programs. Fewer lidar points is not a fix: below 720 per ring, `/scan` gets holes the auto mapper treats as unsafe.
 - **It is kinder than the real Oak.** Perfectly flat floor, no people, no glass or mirrors, a cleaner lidar, and a body that slides instead of stepping. A good trial score is a first check, not proof; confirm on Oak and log it in the [Test log](test-log.md).
+- **Old results are not comparable.** Runs before issue #106 had true speed on `/odom`, so Nav2 slowed down near goals differently. Compare new runs only with a new baseline. A guess, not measured: with zero speed, Nav2 may turn in place 0.25 to 0.3 m from a goal until its progress checker gives up; the simulator can now show this.
 - **Collisions push, not stop.** Gazebo keeps pushing Oak at the commanded speed while it touches a wall, so one long scrape counts as one bump.
 - **The RViz AutoMapper panel works** (it starts the auto mapper in the simulator's domain), but its Reset maps button restarts SLAM, which makes that run's score meaningless.
 
 ## Who's on it and what's next
 
-Max added the simulator (pull request #35). Next: Jeth's lab world (issue #28) in place of the placeholder, and real odometry and lidar numbers from Oak for the dials. TODO(owner): an owner for the simulator.
+Max added the simulator (pull request #35). Next: real odometry and lidar numbers from Oak for the dials. The lab-world issue (#28) was closed as not planned on 2026-11-15. TODO(owner): an owner for the simulator.
 
 ## The code
 

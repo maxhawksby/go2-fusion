@@ -40,11 +40,13 @@ REQUIRED_WORLD_PLUGINS = [
 # ----------------------------------------------------------------------------
 
 def render_robot(template_text, base_height=0.32, lidar_rate=5.0,
-                 lidar_range=12.0, lidar_samples=720, lidar_noise=0.01):
+                 lidar_range=20.0, lidar_samples=720, lidar_noise=0.01, camera_rate=0.0):
     """Fill the $fields of the Oak model template (models/oak/model.sdf.template).
 
     base_height is how high base_link rides above the floor; the feet slab,
-    bumper and legs are sized from it.
+    bumper and legs are sized from it. camera_rate > 0 adds the front camera
+    at that many pictures a second; 0 leaves it out, since rendering it costs
+    CPU on laptops without a GPU.
     """
     bumper_bottom = 0.08                      # floor clearance of the bumper
     bumper_top = base_height + 0.08           # top of the body
@@ -59,10 +61,31 @@ def render_robot(template_text, base_height=0.32, lidar_rate=5.0,
         lidar_range=lidar_range,
         lidar_samples=int(lidar_samples),
         lidar_noise=lidar_noise,
+        camera=CAMERA_SENSOR.format(rate=camera_rate) if camera_rate > 0 else '',
     )
     return string.Template(template_text).substitute(
         {k: (f'{v:.4f}' if isinstance(v, float) else str(v))
          for k, v in values.items()})
+
+
+# Oak's front camera: in the head, looking straight ahead (go2.urdf's
+# front_camera). 1280x720 like the real one would be slow to render on a CPU,
+# so a quarter of that; the VLM shrinks pictures to 448 wide anyway. The
+# horizontal field of view is a guess. TODO(owner): measure the real camera's.
+CAMERA_SENSOR = """
+    <sensor name="front_camera" type="camera">
+      <pose>0.31 0 0.05 0 0 0</pose>
+      <topic>/sim/camera</topic>
+      <update_rate>{rate}</update_rate>
+      <always_on>1</always_on>
+      <visualize>false</visualize>
+      <camera>
+        <horizontal_fov>1.5708</horizontal_fov>
+        <image><width>640</width><height>360</height><format>R8G8B8</format></image>
+        <clip><near>0.05</near><far>30</far></clip>
+        <visibility_mask>4294967293</visibility_mask>
+      </camera>
+    </sensor>"""
 
 
 def world_name(world_text):
@@ -309,7 +332,9 @@ def write_map(grid, yaml_path):
         f.write(f'image: {os.path.basename(pgm_path)}\n'
                 f'resolution: {grid.resolution}\n'
                 f'origin: [{grid.origin_x}, {grid.origin_y}, 0.0]\n'
-                'negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.25\n')
+                # Map-server's conventional threshold keeps gray 205 as
+                # unknown. At 0.25 it was incorrectly reloaded as free.
+                'negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n')
     return pgm_path
 
 
@@ -399,6 +424,48 @@ def sample_start_pose(grid, rng, clearance=0.7, tries=20000):
     y = grid.origin_y + (rows[i] + 0.5) * grid.resolution
     yaw = float(rng.uniform(-math.pi, math.pi))
     return float(x), float(y), yaw
+
+
+# A backpack lying on the floor, as Oak walked into on 2026-11-16 (#127): about
+# 0.45 x 0.30 m and 0.2 m tall (not measured). Lower than the ground truth's
+# height band, so it never changes the map a run is scored against.
+FLOOR_OBJECT_SIZE = (0.45, 0.30, 0.20)
+
+
+def place_floor_objects(grid, rng, start_pose, count=3, wall_clearance=0.5,
+                        start_clearance=1.5, spacing=1.0, tries=2000):
+    """Up to count (x, y, yaw) spots for floor objects on open floor: clear of
+    walls and furniture, away from the start pose and from each other."""
+    inside = interior_mask(grid)
+    open_floor = inside & ~dilate(~inside, int(math.ceil(wall_clearance / grid.resolution)))
+    rows, cols = np.nonzero(open_floor)
+    spots = []
+    for _ in range(tries):
+        if len(spots) == count or len(rows) == 0:
+            break
+        i = int(rng.integers(len(rows)))
+        x = grid.origin_x + (cols[i] + 0.5) * grid.resolution
+        y = grid.origin_y + (rows[i] + 0.5) * grid.resolution
+        if math.hypot(x - start_pose[0], y - start_pose[1]) < start_clearance:
+            continue
+        if any(math.hypot(x - sx, y - sy) < spacing for sx, sy, _ in spots):
+            continue
+        spots.append((float(x), float(y), float(rng.uniform(-math.pi, math.pi))))
+    return spots
+
+
+def add_floor_objects(world_text, spots, size=FLOOR_OBJECT_SIZE):
+    """The world SDF with one static floor box (size x, y, z) at each spot."""
+    sx, sy, sz = size
+    models = ''
+    for i, (x, y, yaw) in enumerate(spots):
+        geometry = f'<geometry><box><size>{sx} {sy} {sz}</size></box></geometry>'
+        models += (f'    <model name="floor_object_{i}"><static>true</static>'
+                   f'<pose>{x:.3f} {y:.3f} {sz / 2:.3f} 0 0 {yaw:.4f}</pose><link name="link">'
+                   f'<collision name="collision">{geometry}</collision>'
+                   f'<visual name="visual">{geometry}</visual></link></model>\n')
+    idx = world_text.rfind('</world>')
+    return world_text[:idx] + models + world_text[idx:]
 
 
 def score_completeness(gt, slam, start_pose, wall_margin=0.10):

@@ -23,3 +23,7 @@ node_modules/
 
 # Agent worktrees
 .worktrees/
+
+# Training data lives on the GPU server, never in the repo.
+data/
+.claude/worktrees/

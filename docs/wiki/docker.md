@@ -2,7 +2,7 @@
 title: Docker
 parent: lab-setup
 code: [docker/**, requirements.txt]
-verified: c940962a6e69
+verified: 5631dbb69ee1
 ---
 
 # Docker
@@ -15,9 +15,9 @@ Part of: [Lab setup](lab-setup.md)
 
 Two words to know: an **image** is the recipe-baked box, built once; a **container** is a running copy of it.
 
-Our image holds **only the dependencies** (ROS packages, PyTorch, Open3D, Julia, Gazebo Fortress for the [Simulator](simulator.md) and so on), not our code. The Mac image installs Gazebo too, so the simulator runs there as well.
+Our image holds **only the dependencies** (ROS packages, PyTorch, Open3D, Gazebo Fortress for the [Simulator](simulator.md) and so on), not our code. The Mac image installs Gazebo too, so the simulator runs there as well.
 When the container starts, Docker **mounts** your repo's `src/` folder inside it at `/ros2_ws/src`, so the container sees your edits instantly.
-Only `src/` (plus the Julia map viewer folder) is mounted: other repo folders such as `docs/`, `tools/` and `host_tools/` are not inside the container.
+Only `src/` is mounted: other repo folders such as `docs/`, `tools/` and `host_tools/` are not inside the container.
 Then the start-up script (`entrypoint.sh`) builds the workspace with `colcon build --symlink-install` and runs the default command, `ros2 launch go2_robot_sdk robot.launch.py` (the full robot stack).
 Build output is kept in Docker volumes, so each start only rebuilds what changed.
 
@@ -50,6 +50,11 @@ On Windows from PowerShell, add `-f docker-compose.windows.yml` after `docker co
 - `Dockerfile` - the main image (CPU-only PyTorch, to avoid a multi-GB GPU download).
 - `docker-compose.yml` - for Linux and WSL: shares your display (for RViz), gamepads (`/dev/input`) and the host network.
 - `docker-compose.windows.yml` - for Windows PowerShell: no display or gamepad, and publishes Foxglove on port 8765 (change with `FOXGLOVE_PORT`).
+- `docker-compose.ite.yml` - an override used by `scripts/run_ite_hallways.ps1`
+  after the Windows file. It reuses an installed simulator image without
+  pulling one. Project `go2ite` keeps its build volumes apart from lab and
+  other review work. See [ITE-inspired hallways](simulator.md#ite-inspired-hallways)
+  for validation, preview and user-run experiments.
 - `docker-compose.gpu.yml` + `Dockerfile.gpu` - optional, on top of the Windows file, for an NVIDIA GPU: YOLO runs on CUDA and RViz draws on the GPU.
 - `mac/` - the Mac setup (see [Mac setup](mac-setup.md)).
 - `entrypoint.sh`, `dev_aliases.sh` - start-up build and the shortcuts above.
@@ -74,7 +79,7 @@ On Windows from PowerShell, add `-f docker-compose.windows.yml` after `docker co
 
 ## Who's on it and what's next
 
-TODO(owner): no single owner. Luis pinned Julia to 1.13.1 and restored the Foxglove port; Noah moved packages under `src/`.
+TODO(owner): no single owner. Luis restored the Foxglove port; Noah moved packages under `src/`.
 
 ## The code
 

@@ -36,7 +36,7 @@ Each time Oak has moved 0.2 m or turned 0.2 rad (about 11 degrees), slam_toolbox
 - [Nav2](nav2.md) - plans on `/map` and uses `map` to know where the robot is.
 - [Auto mapper](auto-mapper.md) - looks for unexplored edges of `/map`.
 - [Map viewers](map-viewers.md) and [RViz panels](rviz-panels.md) - show `/map`.
-- [Object detection](object-detection.md) - the unmerged map-memory branch pins objects to the `map` frame.
+- [Object detection](object-detection.md) - pins the objects it remembers to the `map` frame (merged in [d0d7409](https://github.com/maxhawksby/go2-fusion/commit/d0d7409b7262768ccbd527f628a5c2a7388bba39)).
 
 ## How it breaks
 
@@ -51,7 +51,7 @@ These come from comments Luis left in `mapper_params_online_async.yaml` in Octob
 
 ## Who's on it and what's next
 
-Luis tuned SLAM in October for the auto mapper (map updates every second, more scans per turn). Next: full exploration tests on Oak. TODO(owner): how to save a finished map for later use with `navigation.launch.py`.
+Luis tuned SLAM in October for the auto mapper (map updates every second, more scans per turn). Next: full exploration tests on Oak.
 
 ## The code
 
@@ -67,4 +67,18 @@ docker compose exec unitree_ros bash -ic 'ros2 topic hz /map'                 # 
 docker compose exec unitree_ros bash -ic 'ros2 run tf2_ros tf2_echo map odom'
 ```
 
-<!-- sources: src/go2_robot_sdk/config/mapper_params_online_async.yaml (comments), launch/robot.launch.py (slam_toolbox node, respawn), launch/mapping.launch.py, src/go2_rviz_plugins/src/auto_mapper_panel.cpp (Reset maps), src/go2_auto_mapper/README.md, docs/USEFUL_COMMANDS.md, git log Oct 14-19 (Luis), contract team updates -->
+**Saving a map for `navigation.launch.py`.** While SLAM is still running, save `/map` with Nav2's map saver. It comes with `nav2_map_server`, which the driver package already depends on ([package.xml](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/package.xml#L21)):
+
+```shell
+docker compose exec unitree_ros bash -ic 'mkdir -p /ros2_ws/src/maps && ros2 run nav2_map_server map_saver_cli -f /ros2_ws/src/maps/lab'
+```
+
+It writes two files: `lab.pgm` (the picture) and `lab.yaml` (its scale and where it sits). Save under `/ros2_ws/src/`, because that is the only folder the container shares with your laptop ([docker-compose.yml](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/docker/docker-compose.yml#L14)). On your laptop the files appear in the repo's `src/maps/`. A map saved anywhere else is lost when the container is removed. Then load it:
+
+```shell
+ros2 launch go2_robot_sdk navigation.launch.py map:=/ros2_ws/src/maps/lab.yaml
+```
+
+`navigation.launch.py` stops at once with `Map file not found` if the path is wrong ([navigation.launch.py](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/launch/navigation.launch.py#L22-L30)). These steps come from the code and the standard Nav2 tool. Nobody has tried them on Oak or in the simulator yet.
+
+<!-- sources: src/go2_robot_sdk/config/mapper_params_online_async.yaml (comments), launch/robot.launch.py (slam_toolbox node, respawn), launch/mapping.launch.py, src/go2_rviz_plugins/src/auto_mapper_panel.cpp (Reset maps), src/go2_auto_mapper/README.md, docs/USEFUL_COMMANDS.md, git log Oct 14-19 (Luis), contract team updates; map saving: src/go2_robot_sdk/package.xml (nav2_map_server), docker/docker-compose.yml (src mount), launch/navigation.launch.py (_validate_map_arg) -->

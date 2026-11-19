@@ -18,18 +18,19 @@ All ROS packages live under `src/`.
 | `lidar_processor`, `lidar_processor_cpp` | Point cloud processing |
 | `go2_rviz_plugins` | RViz panels: map viewer, auto mapper, keyboard teleop |
 | `coco_detector` | Object detection on the camera feed (MobileNet, `/detected_objects`); to be retired in favor of `object_detection` |
-| `object_detection` | YOLOv8 detector with rough object positions and a 20 s memory (`/detected_objects/poses`, `/detected_objects_dict`) |
+| `object_detection` | YOLOv8 detector with rough object positions and a 20 s memory on the map (`/detected_objects_dict`, RViz markers on `/detected_objects/markers`) |
 | `object_navigation` | Walks toward a detected object (`/navigate_to_object`); no obstacle avoidance |
 | `go2_llm_agent` | Plain-English commands to robot actions via an LLM. The team is moving it to a local Ollama model (Qwen) on `adib/feat/llm-agent`; on master its pip deps are not in the image, so it builds but does not run |
 | `speech_processor` | Text to speech through the robot's speaker |
 | `front_leg_controller` | Leg/posture commands |
 | `go2_sim` | Gazebo Fortress simulator: a velocity-driven Oak running the real stack, and an auto mapper trial runner |
+| `go2_scoreboard` | Records and grades auto mapper runs (distance, map, events, collisions, CPU and RAM) without controlling Oak; can replay a rosbag into the same report |
 
 `host_tools/` holds tools that run on the host, outside Docker (not ROS packages): `speech_to_text/vad_listen.py` sends microphone transcripts to `go2_llm_agent`. [Decisions](docs/wiki/decisions.md) records what came from Riley Francis's ROS2-LLM-Nav and why.
 
 ## Build and run: always in Docker
 
-The image holds only dependencies. Only the repo's `src/` folder is mounted, at `/ros2_ws/src` (plus `go2_map_viewer_julia/` at `/ros2_ws/src/go2_map_viewer_julia`); colcon's `build/`, `install/` and `log/` live in Docker volumes. Other repo folders (`docs/`, `scripts/`, `host_tools/`) are not in the container. The container runs `colcon build --symlink-install` on start. Never install ROS or packages on the host.
+The image holds only dependencies. Only the repo's `src/` folder is mounted, at `/ros2_ws/src`; colcon's `build/`, `install/` and `log/` live in Docker volumes. Other repo folders (`docs/`, `scripts/`, `host_tools/`) are not in the container. The container runs `colcon build --symlink-install` on start. Never install ROS or packages on the host.
 
 ```shell
 docker info                                          # if this fails, ask the human to start Docker Desktop; never start/restart it yourself
@@ -79,5 +80,10 @@ The team docs are a wiki graph: `README.md` is the center page "Oak", hub pages 
 - Your own branches are personal sandboxes: commit and push to them freely, no review needed.
 - Commit messages: one short sentence that says exactly what changed, starting with the part of Oak it touches, e.g. `Auto mapper: skip frontiers it can't reach`. Never `fix`, `wip` or `updates`. Many commits before a push are fine; each still says what it did. The pull request then explains Who, What, Why, Before and After.
 - Keep branches small (one feature or fix). Before opening a PR: `git fetch && git rebase origin/master`.
-- Only merging into `master` needs review: a GitHub pull request with one teammate's approval and green automatic checks. Don't push to `master` directly.
-- Review is for changes to the robot: anything in `src/`, `docker/` or `host_tools/`, or the robot build check (`.github/workflows/ros_build.yaml`), needs one teammate's approval, even when it is confirmed working on Oak. Everything else (wiki pages, guides, the wiki site, the Discord bot, other team tooling) needs no approval: once the checks pass, Max (the repo admin) merges it.
+- Only merging into `master` goes through a pull request with green automatic checks. Don't push to `master` directly.
+- The `review-gate` check decides how much review a pull request needs from the files it changes, and labels it:
+  - `tier:high`: anything in `src/` (except the scoreboard `src/go2_scoreboard/`, the simulator `src/go2_sim/` and package `test/` folders, which cannot move Oak and are medium unless they change a `package.xml`), `docker/` or `host_tools/`, the robot build check (`.github/workflows/ros_build.yaml`), or `requirements*.txt`. One teammate's approval on the latest commit, even when it is confirmed working on Oak.
+  - `tier:medium`: team tooling, CI, agent rules (`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.agents/`, `.github/`) and anything else. One approval, or Max (the repo admin) merges it.
+  - `tier:low`: wiki pages, guides and images. No approval. It merges by itself once the checks pass.
+  - Add the `risk:medium` or `risk:high` label to raise a tier. Nothing lowers one. A new push clears earlier approvals.
+- Claude runs on GitHub. It reviews every pull request that is not a draft, and it answers `@claude` in an issue or pull request comment from anyone with write access. Adding the `ready-for-agent` label to an issue starts Claude on it with pstack: it opens a pull request on a branch named for whoever added the label, and never merges. A run that ends with no pull request and no comment shows red. An issue can name its starting branch on a line that starts `Base branch:`. It works on a GitHub runner with no robot and no lab, so a person still proves a fix in the simulator or on Oak.

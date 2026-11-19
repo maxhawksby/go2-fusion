@@ -16,6 +16,12 @@ namespace
 {
 constexpr double kHintBarPx = 24.0;
 
+// How long the spin thread waits for work before checking whether to stop.
+constexpr auto kSpinPollPeriod = std::chrono::milliseconds(100);
+
+// How long closing the panel waits for Nav2 to answer its goals and cancels.
+constexpr auto kCancelOnCloseTimeout = std::chrono::seconds(2);
+
 // 0 = free -> white, 100 = occupied -> black, -1 = unknown -> mid gray.
 QRgb cellColor(int8_t value)
 {
@@ -240,6 +246,38 @@ MapViewerPanel::MapViewerPanel(QWidget * parent)
 
 MapViewerPanel::~MapViewerPanel()
 {
+  // Destroying the action client doesn't stop Nav2: a goal sent from this
+  // panel would keep the robot walking with no Cancel button left. Cancel
+  // it while the spin thread is still running to carry the requests out.
+  const auto deadline = std::chrono::steady_clock::now() + kCancelOnCloseTimeout;
+  std::vector<CancelFuture> cancels;
+  {
+    std::unique_lock<std::mutex> lock(goal_mutex_);
+    closing_ = true;
+    if (current_goal_handle_) {
+      close_cancels_.push_back(nav_client_->async_cancel_goal(current_goal_handle_));
+      current_goal_handle_.reset();
+    }
+    // A goal not accepted yet has no handle: wait for Nav2's answer. The
+    // response callback cancels it if accepted (closing_ is set).
+    const bool answered = goals_answered_.wait_until(
+      lock, deadline, [this]() {return goals_awaiting_answer_ == 0;});
+    if (!answered) {
+      // Nav2 may still accept it later, with nothing left to cancel it. This
+      // also cancels other nodes' goals: stopping the robot is the safe side.
+      close_cancels_.push_back(nav_client_->async_cancel_all_goals());
+    }
+    cancels = close_cancels_;
+  }
+  // Its own deadline: the answer wait above may have used up the first one.
+  // Known limit: a goal Nav2 receives only after the cancel-all is not
+  // covered; that needs Nav2 to be failing already (no answer in 2 s).
+  const auto cancel_deadline = std::chrono::steady_clock::now() + kCancelOnCloseTimeout;
+  for (const auto & cancel : cancels) {
+    cancel.wait_until(cancel_deadline);
+  }
+
+  stop_spinning_ = true;
   executor_.cancel();
   if (spin_thread_.joinable()) {
     spin_thread_.join();
@@ -248,7 +286,11 @@ MapViewerPanel::~MapViewerPanel()
 
 void MapViewerPanel::spinNode()
 {
-  executor_.spin();
+  // Not executor_.spin(): a cancel() that lands before spin() starts is lost,
+  // and the destructor's join() would then wait forever.
+  while (!stop_spinning_ && rclcpp::ok()) {
+    executor_.spin_once(kSpinPollPeriod);
+  }
 }
 
 void MapViewerPanel::setStatus(const QString & text)
@@ -335,6 +377,15 @@ void MapViewerPanel::sendGoal(double x, double y)
   send_goal_options.goal_response_callback =
     [this, my_generation](const GoalHandleNav::SharedPtr & handle) {
       std::lock_guard<std::mutex> lock(goal_mutex_);
+      --goals_awaiting_answer_;
+      goals_answered_.notify_all();
+      if (closing_) {
+        // The panel is closing: nothing may keep driving, whatever goal it is.
+        if (handle) {
+          close_cancels_.push_back(nav_client_->async_cancel_goal(handle));
+        }
+        return;
+      }
       if (my_generation != goal_generation_) {
         return;
       }
@@ -357,9 +408,12 @@ void MapViewerPanel::sendGoal(double x, double y)
     [this, my_generation](const GoalHandleNav::WrappedResult & result) {
       {
         std::lock_guard<std::mutex> lock(goal_mutex_);
-        if (my_generation == goal_generation_) {
-          current_goal_handle_.reset();
+        if (my_generation != goal_generation_) {
+          // A replaced goal finishing (usually "cancelled") says nothing
+          // about the goal that is current now.
+          return;
         }
+        current_goal_handle_.reset();
       }
       const char * outcome = "UNKNOWN";
       switch (result.code) {
@@ -372,6 +426,10 @@ void MapViewerPanel::sendGoal(double x, double y)
     };
 
   setStatus(QString("Sending goal: x=%1 y=%2").arg(x, 0, 'f', 2).arg(y, 0, 'f', 2));
+  {
+    std::lock_guard<std::mutex> lock(goal_mutex_);
+    ++goals_awaiting_answer_;
+  }
   nav_client_->async_send_goal(goal_msg, send_goal_options);
 }
 

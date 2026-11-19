@@ -32,6 +32,7 @@ Part of: [Lab setup](lab-setup.md)
    With firmware 1.1.15+, put `ROBOT_AES_KEY=<key> ` in front. On Windows PowerShell use the Windows compose file and `$env:` variables (see [WSL and Windows](wsl.md)).
 4. **Wait for success:** `Robot 0 validated and ready` in the logs, then RViz opens with lidar dots and the camera image.
 5. **Before moving the robot,** make sure someone is watching Oak and the space around it is clear.
+6. **Keep a map you made.** Before you stop SLAM, save the map into `/ros2_ws/src/maps/`, the only folder that survives the container. See "Saving a map" on the [SLAM](slam.md#the-code) page.
 
 ## Build habits
 
@@ -65,6 +66,6 @@ The three most common lab problems, from the records:
 
 ## Who's on it and what's next
 
-Noah documented a repeatable lab-testing workflow for his dashboard (`docs/DASHBOARD_LAB_GUIDE.md` on branch `feat/desktop-app-prototype`). TODO(owner): merge the useful parts into this checklist once that branch lands.
+Noah documented a repeatable lab-testing workflow for his dashboard (`docs/DASHBOARD_LAB_GUIDE.md` on branch `feat/desktop-app-prototype`). That branch will not land: its pull request [#14](https://github.com/maxhawksby/go2-fusion/pull/14) was closed without merging on 2026-10-26. TODO(noah): is anything in `DASHBOARD_LAB_GUIDE.md` still worth copying into this checklist?
 
 <!-- sources: docker/LAB_CHECKLIST.md (folded in here and deleted 2026-10-22); docs/WINDOWS_SETUP.md (lab details: ask the lab, never commit); docs/FUSION.md row 14; README.md step 3; src/go2_robot_sdk/go2_robot_sdk/main.py (retry with backoff); infrastructure/webrtc/connection_health.py (5 s stall); docs/TEST_LOG.md data stall note; origin/feat/desktop-app-prototype docs/DASHBOARD_LAB_GUIDE.md. Lab network name and robot IP deliberately omitted. -->

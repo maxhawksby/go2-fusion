@@ -10,6 +10,8 @@ import os
 import shutil
 import tempfile
 
+import yaml
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, EmitEvent, ExecuteProcess,
@@ -33,9 +35,14 @@ ARGS = [
     ('rviz', '', 'Open RViz (default: same as gui)'),
     ('explore', 'false', 'Start the auto mapper right away'),
     ('lidar_rate', '5.0', 'Lidar scans per second (real Oak: about 3-7)'),
-    ('lidar_range', '12.0', 'Lidar maximum range (m)'),
+    ('lidar_range', '20.0', 'Lidar maximum range (m)'),
     ('lidar_samples', '720', 'Lidar points per ring (16 rings); fewer leaves holes in /scan'),
     ('lidar_noise', '0.01', 'Lidar range noise, standard deviation (m)'),
+    ('camera_rate', '', 'Front camera pictures per second on /camera/image_raw; 0 = no '
+     'camera (default: 5 with vlm_mode on, else 0)'),
+    ('vlm_mode', 'off', "The auto mapper's VLM frontier ranking: off, shadow or active"),
+    ('vlm_url', '', 'Override: VLM chat completions URL'),
+    ('vlm_model', '', 'Override: VLM model name'),
     ('params_file', '', 'sim_driver dials (default: go2_sim/config/sim.yaml)'),
     ('odom_noise_xy', '', 'Override: odometry noise, m per sqrt(m)'),
     ('odom_noise_yaw', '', 'Override: odometry noise, rad per sqrt(rad)'),
@@ -88,14 +95,19 @@ def _setup(context):
     os.environ['IGN_GAZEBO_RESOURCE_PATH'] = os.pathsep.join(p for p in resource if p)
 
     params_file = _arg(context, 'params_file') or os.path.join(share, 'config', 'sim.yaml')
-    base_height = 0.32
+    # One base_height for the model's legs and the driver's odometry.
+    with open(params_file) as f:
+        base_height = float(yaml.safe_load(f)['go2_sim_driver']['ros__parameters']['base_height'])
+    vlm_mode = _arg(context, 'vlm_mode')
+    camera_rate = _arg(context, 'camera_rate') or ('0' if vlm_mode == 'off' else '5')
     with open(os.path.join(share, 'models', 'oak', 'model.sdf.template')) as f:
         robot = world_tools.render_robot(
             f.read(), base_height=base_height,
             lidar_rate=float(_arg(context, 'lidar_rate')),
             lidar_range=float(_arg(context, 'lidar_range')),
             lidar_samples=int(_arg(context, 'lidar_samples')),
-            lidar_noise=float(_arg(context, 'lidar_noise')))
+            lidar_noise=float(_arg(context, 'lidar_noise')),
+            camera_rate=float(camera_rate))
     with open(world_path) as f:
         world_text = f.read()
     pose = (float(_arg(context, 'x')), float(_arg(context, 'y')),
@@ -158,8 +170,13 @@ def _setup(context):
                 'single_robot_conf.rviz')],
             output='screen'))
     if _arg(context, 'explore').lower() == 'true':
+        explorer_params = {'vlm_mode': vlm_mode}
+        for name in ('vlm_url', 'vlm_model'):
+            if _arg(context, name):
+                explorer_params[name] = _arg(context, name)
         actions.append(Node(package='go2_auto_mapper', executable='explorer',
-                            name='frontier_explorer', output='screen'))
+                            name='frontier_explorer', parameters=[explorer_params],
+                            output='screen'))
     print(f'[go2_sim] world {world_path}, start {pose[0]:.2f} {pose[1]:.2f} '
           f'yaw {pose[3]:.2f}, ROS_DOMAIN_ID={os.environ.get("ROS_DOMAIN_ID", "0")}, '
           f'{"window" if gui else "headless"}')

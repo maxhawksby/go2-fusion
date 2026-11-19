@@ -13,10 +13,26 @@ Part of: [Lab setup](lab-setup.md)
 
 This page is the log itself. Newest session first.
 Each test gets one of these results: **pass**, **fail**, **partial**, or **not run**, plus a short note on what we saw.
-An **Open issues** list carries over between sessions until each issue is fixed and retested on Oak.
+Anything still broken after a session becomes a GitHub issue, linked from the session's table.
 During a session, the note-taker (often Claude, from Max's feedback and its own measurements) updates this page and commits it at the end.
 
 It matters because robot time is scarce: one dog, one connection at a time. The log tells you what is already known, so you test what is new.
+
+## 2026-11-08 - ISL lab, Oak, Wi-Fi (WebRTC)
+
+Code: `noah/feat/scoreboard` at `843ad4a`.
+
+| Test | Result | What we saw |
+| --- | --- | --- |
+| WebRTC and sensing preflight | pass | Oak validated once; `/odom` was about 20 Hz, `/scan` about 3.2 Hz, `/map` had one slam_toolbox publisher, and Nav2 exposed one `/navigate_to_pose` server. |
+| First physical scoreboard run | pass | The ready gate succeeded before exploration. A 57.169 s run recorded 3.3359 m travel and 12.955 square meters of known map, two failed goals, one recovery, zero collisions, zero touches and no warnings. Completeness stayed null because no measured answer map exists. |
+| Evidence finalization | pass | JSON, scorecard/timeline/resource CSVs, Markdown report, PGM/YAML map and a 4.29 MB rosbag finalized on the host. |
+| Stop after the run | pass | Ctrl+C stopped the explorer. Cancel-all found no remaining Nav2 goals and `/cmd_vel_out` produced no active command during a five-second check. |
+| Auto mapper in a clear hallway | **fail** | Oak reported obstacles 0.20 m and 0.05 m beyond its nose, failed two goals, attempted one open-space recovery and latched at `no safe direction`, although the operator saw no obstacle. The recorded raw scan did contain close returns. The bag lacked `/local_costmap/costmap`, so the next diagnostic run must record it to distinguish scan/self/floor returns from costmap or TF errors. |
+
+No second autonomous run was attempted. The priority is now to diagnose the
+false or misinterpreted close returns before tuning frontier selection or
+testing a different exploration algorithm.
 
 ## 2026-10-11 - ISL lab, Oak, Wi-Fi (WebRTC)
 
@@ -42,24 +58,24 @@ Earlier tests ran on `f85e703` (fusion before Luis's update); marked "old code" 
 
 ## Open issues
 
-1. Retest Nav2 goals and MapViewer click-to-walk on new code.
-2. Retest keyboard driving feel with both teleop fixes.
-3. Find out what starts `lidar_to_pointcloud` and whether its input topic is right.
-4. Confirm by eye that Oak stops cleanly when a drive source goes quiet.
-5. WSL has 7.4 GB RAM: keep builds at `-j4` / 2 workers, or raise `memory=` in `.wslconfig`.
-6. Gamepad LB deadman: no longer required. The team no longer uses an Xbox gamepad; it drives with the Oak ROS2 pad, which sends signals differently. The pad talks straight to Oak and skips ROS (Max, 2026-10-22).
+Open work is not kept on this page. Checks still owed from past sessions were GitHub issues. Both were closed as not planned in the 2026-11-15 issue reset. Their text stays searchable, and work that still matters gets a new, smaller issue under [#58](https://github.com/maxhawksby/go2-fusion/issues/58):
 
-Still to check from the fusion follow-ups (see [Decisions](decisions.md)): the driver reconnects after a Wi-Fi drop, TTS with the new 4 KB chunks, each twist_mux input actually reaching the driver, the sit message, the RViz panels, and `CONN_TYPE=webrtc` as the compose default.
+- [#71](https://github.com/maxhawksby/go2-fusion/issues/71): the retests left open since the 2026-10-11 session.
+- [#57](https://github.com/maxhawksby/go2-fusion/issues/57): the 2026-11-08 hallway failure and the supervised lab safety mode.
+
+When a session finds something broken, open an issue and link it from that session's table.
+
+Tips that are not tasks: WSL has 7.4 GB RAM, so keep builds at `-j4` / 2 workers or raise `memory=` in `.wslconfig`. The gamepad LB deadman test is no longer required; the team drives with the Oak ROS2 pad, which talks straight to Oak and skips ROS (Max, 2026-10-22).
 
 ## Connects to
 
 - [Lab checklist](lab-checklist.md): how to get connected for a session.
-- [Roadmap](roadmap.md) and the [Oak](../../README.md) front page: open issues show up there.
+- [Roadmap](roadmap.md): the scorecard these sessions feed. Open work is in GitHub issues.
 - Program pages such as [Keyboard teleop](keyboard-teleop.md), [Nav2](nav2.md) and [Go2 driver](go2-driver.md) quote these results in their "How it breaks" sections.
 
 ## How it breaks
 
-- **It goes stale.** The last recorded session is 2026-10-11. Luis's auto mapper work and later fixes have no logged robot session yet. TODO(owner): add sessions since then.
+- **It goes stale.** The newest recorded session is [2026-11-08](#2026-11-08---isl-lab-oak-wi-fi-webrtc): the first scoreboard run on Oak and the hallway auto mapper failure. A session nobody writes up here is lost to the rest of the team.
 
 ## How to add a session
 
@@ -67,6 +83,6 @@ Add a new `## <date> - <place>, Oak, <Wi-Fi or Ethernet>` section above the newe
 
 ## Who's on it and what's next
 
-Max keeps the log. Next: the retests above, and Luis's full exploration tests with the auto mapper.
+Max keeps the log. Next: the checks from the closed issues above that still matter, and Luis's full exploration tests with the auto mapper.
 
 <!-- sources: docs/TEST_LOG.md (whole file, folded in here and deleted 2026-10-22); docs/FUSION.md "Follow-ups for the team" 4; README.md open issues; team update 2026-10-18 (Luis next: full exploration tests); git log c18ca87 -->

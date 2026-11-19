@@ -1,0 +1,135 @@
+# Risk-tier gate. The tiers follow AGENTS.md (Git) and docs/adr/0004.
+#   low    (wiki pages, guides, plain text, raster images) -> 0 approvals, merges by itself when all checks are green
+#   medium (team tooling, CI, agent rules, and code that
+#           cannot move Oak: scoreboard, simulator, tests)  -> 1 approval, or Max merges as admin
+#   high   (Oak's software and its build check)            -> 1 teammate approval
+# The tier comes from the changed paths. A person can raise it with a label
+# (risk:medium or risk:high). Nothing can lower it. The PR author's own review never counts.
+#
+# The verdict is the commit status `review-gate` on the PR's latest commit, which the
+# master ruleset requires. This file always runs from master, never from the pull request,
+# so a pull request cannot edit the gate to pass itself:
+#   - pull_request_target runs the base branch's copy.
+#   - A review cannot trigger this file directly (that event runs the pull request's copy),
+#     so review-gate-review-event.yml fires on reviews and this file runs after it.
+# It never checks out or runs pull request code. It only reads the pull request through the API.
+name: review-gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  workflow_run:
+    workflows: [review-gate-review-event]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  statuses: write
+
+# One verdict per PR at a time, so label edits from two runs don't race.
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number || github.event.workflow_run.head_sha || 'all' }}
+  cancel-in-progress: true
+
+jobs:
+  verdict:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const REQUIRED = { low: 0, medium: 1, high: 1 };
+
+            // HIGH is anything that changes what runs on Oak or what the Docker image holds.
+            const HIGH = [
+              /^src\//, /^docker\//, /^host_tools\//,
+              /^\.github\/workflows\/ros_build\.yaml$/,
+              /(^|\/)requirements[^/]*\.txt$/, /^\.gitmodules$/, /(^|\/)\.env/,
+            ];
+            // Under src/ but cannot move Oak: the scoreboard only records, the simulator never
+            // connects to Oak, and tests do not ship. package.xml stays high: it changes the image.
+            const CANNOT_MOVE_OAK = [/^src\/go2_scoreboard\//, /^src\/go2_sim\//, /^src\/[^/]+\/test\//];
+            const isHigh = p => HIGH.some(r => r.test(p)) &&
+              !(CANNOT_MOVE_OAK.some(r => r.test(p)) && !/(^|\/)package\.xml$/.test(p));
+            // Never low: these files steer CI and every teammate's agent, so a person merges them.
+            const RULES = [/^\.github\//, /^\.claude\//, /^\.agents\//, /(^|\/)(AGENTS|CLAUDE|SKILL)\.md$/];
+            // No .svg, .html or .yml in LOW: the wiki site serves master, and those can carry script or config.
+            const LOW = [/\.md$/i, /\.txt$/i, /\.(png|jpe?g|webp|gif)$/i];
+            const BIG_DIFF = 800; // lines; a big "low" PR becomes medium
+            const isLow = p => LOW.some(r => r.test(p)) && !RULES.some(r => r.test(p));
+
+            async function judge(number) {
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+              if (pr.state !== 'open') return;
+              const head = pr.head.sha;
+
+              // Tier, from every changed and renamed-from path.
+              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
+              const paths = files.flatMap(f => [f.filename, f.previous_filename].filter(Boolean));
+              const lines = files.reduce((n, f) => n + f.additions + f.deletions, 0);
+              let tier = 'medium';
+              if (paths.some(isHigh)) tier = 'high';
+              else if (paths.length && paths.every(isLow)) tier = 'low';
+              if (tier === 'low' && lines > BIG_DIFF) tier = 'medium';
+              const labels = pr.labels.map(l => l.name);
+              if (labels.includes('risk:high')) tier = 'high';
+              else if (labels.includes('risk:medium') && tier === 'low') tier = 'medium';
+              const required = REQUIRED[tier];
+
+              // Keep one tier:* label in sync.
+              for (const t of ['low', 'medium', 'high']) {
+                const name = `tier:${t}`;
+                try {
+                  if (t === tier && !labels.includes(name)) await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [name] });
+                  if (t !== tier && labels.includes(name)) await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name });
+                } catch (e) {
+                  core.warning(`#${number}: could not update label ${name}: ${e.message}`);
+                }
+              }
+
+              // Human approvals on the CURRENT commit only.
+              const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: number, per_page: 100 });
+              const latest = new Map();
+              for (const r of reviews) {
+                if (!r.user || r.user.type === 'Bot' || r.user.login === pr.user.login) continue;
+                if (r.state === 'COMMENTED') continue;
+                latest.set(r.user.login, r);
+              }
+              const blockers = [...latest.values()].filter(r => r.state === 'CHANGES_REQUESTED').map(r => r.user.login);
+              const approvers = [...latest.values()].filter(r => r.state === 'APPROVED' && r.commit_id === head).map(r => r.user.login);
+              const pass = blockers.length === 0 && approvers.length >= required;
+
+              const description = (`tier ${tier}: ${approvers.length}/${required} approvals on ${head.slice(0, 7)}` +
+                (blockers.length ? `, changes requested by ${blockers.join(', ')}` : '')).slice(0, 140);
+              await github.rest.repos.createCommitStatus({
+                owner, repo, sha: head, context: 'review-gate',
+                state: pass ? 'success' : 'failure', description,
+                target_url: `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              });
+              const line = `#${number} ${pass ? 'pass' : 'hold'}: ${description} (${paths.length} files, ${lines} lines)`;
+              core.info(line);
+              await core.summary.addRaw(line + '\n\n').write();
+
+              // Low tier: merge by itself once every required check is green.
+              if (pass && tier === 'low' && !pr.auto_merge && !pr.draft) {
+                await github.graphql(
+                  `mutation($id: ID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId } }`,
+                  { id: pr.node_id }
+                ).catch(e => core.warning(`#${number}: could not enable auto-merge: ${e.message}`));
+              }
+            }
+
+            let numbers;
+            if (context.eventName === 'pull_request_target') {
+              numbers = [context.payload.pull_request.number];
+            } else {
+              // After a review, judge the pull requests on that commit. A manual run judges every open one.
+              const sha = context.eventName === 'workflow_run' ? context.payload.workflow_run.head_sha : null;
+              const open = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', per_page: 100 });
+              numbers = open.filter(p => !sha || p.head.sha === sha).map(p => p.number);
+            }
+            for (const n of numbers) await judge(n);

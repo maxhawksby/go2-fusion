@@ -2,6 +2,7 @@
 
 import ctypes
 import math
+import os
 import signal
 import time
 
@@ -10,27 +11,34 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rcl_interfaces.msg import ParameterDescriptor
+from rclpy.signals import SignalHandlerOptions
 
+from action_msgs.srv import CancelGoal
 from nav_msgs.msg import OccupancyGrid
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped, Twist
-from sensor_msgs.msg import LaserScan, PointCloud2
+from sensor_msgs.msg import Image, LaserScan, PointCloud2
+from std_msgs.msg import String
+from go2_interfaces.msg import AutoMapperEvent
 from go2_auto_mapper.recovery import (
-    DRIFT_ACROSS_M,
-    DRIFT_YAW_RAD,
     RECOVERY_SPEED_MPS,
     RECOVERY_TIME_LIMIT_SEC,
     REFRESH_TIMEOUT_SEC,
+    ROBOT_FRONT_M,
     SCAN_MAX_AGE_SEC,
     SENSING_MAX_AGE_SEC,
     SLAM_MIN_TRAVEL_M,
     assess_recovery,
+    choose_turn,
+    drift_limits,
     latch_decision,
     refresh_status,
     scan_age,
     scan_covers_move,
     stale_sources,
     swept_clear,
+    translation_open,
 )
 
 from builtin_interfaces.msg import Duration
@@ -52,6 +60,17 @@ from go2_auto_mapper.frontier_scoring import (
     remaining_size,
     visit_utility,
     world_key,
+)
+from go2_auto_mapper.social_space import line_crosses, parse_people, social_zones, zone_at
+from go2_auto_mapper.nav_log import NavLog, known_cell_count
+from go2_auto_mapper.vlm_ranking import (
+    ViewMemory,
+    VlmClient,
+    match_score,
+    suggestion_bonus,
+    usable_heading,
+    vlm_bonus,
+    vlm_mode_name,
 )
 
 
@@ -85,6 +104,34 @@ class FrontierExplorer(Node):
         self.declare_parameter('info_gain_rays', 48)
         self.declare_parameter('info_gain_cells_per_meter', 100.0)
 
+        # A vision-language model on a GPU server re-ranks the best goals
+        # from the camera's view toward each (vlm_ranking.py). 'off': not
+        # used. 'shadow': asked, and its pick logged next to ours, but ours
+        # is used. 'active': its score is added to ours, worth vlm_weight
+        # cells from a sure no to a sure yes. vlm_url is an OpenAI-compatible
+        # chat endpoint (vLLM, Ollama); VLM_API_KEY in the environment is
+        # sent if the server needs one.
+        # VLM_MODE, VLM_URL and VLM_MODEL set the defaults: the RViz panel's Start
+        # button runs the explorer with no parameters.
+        # dynamic_typing: `-p vlm_mode:=off` arrives as the boolean False
+        # (YAML), which a string parameter refuses at startup.
+        self.declare_parameter(
+            'vlm_mode', os.environ.get('VLM_MODE', 'off'),
+            ParameterDescriptor(dynamic_typing=True))
+        self.declare_parameter(
+            'vlm_url', os.environ.get('VLM_URL', 'http://localhost:8000/v1/chat/completions'))
+        self.declare_parameter(
+            'vlm_model', os.environ.get('VLM_MODEL', 'Qwen/Qwen2.5-VL-7B-Instruct'))
+        self.declare_parameter('vlm_weight', 400.0)
+        self.declare_parameter('vlm_timeout', 8.0)
+        self.declare_parameter('vlm_candidates', 4)
+        # In active mode, unknown cells a goal is worth extra for lying the way
+        # vlm_view last suggested. Needs the panel's VLM view on.
+        self.declare_parameter('vlm_suggest_weight', 300.0)
+        # Folder for the navigation log (nav_log.py); empty is off. NAV_LOG_DIR
+        # sets the default, since the RViz panel's Start passes no parameters.
+        self.declare_parameter('nav_log_dir', os.environ.get('NAV_LOG_DIR', ''))
+
         # A full turn in place gives SLAM a 360 degree lidar view, so it can
         # place the robot on the map before (and after) each leg of exploring.
         self.declare_parameter('scan_on_start', True)
@@ -106,6 +153,14 @@ class FrontierExplorer(Node):
         # side, scan there, then carry on exploring.
         self.declare_parameter('open_space_clearance', 0.8)
         self.declare_parameter('stuck_failure_count', 3)
+
+        # People from object_detection's /people (ideas from SocialNav):
+        # don't pick goals in someone's personal space, across where they
+        # are walking or inside a group, and stop briefly to let a person
+        # ahead pass. Without /people nothing changes.
+        self.declare_parameter('avoid_people', True)
+        self.declare_parameter('yield_to_people', True)
+        self.declare_parameter('personal_space', 1.0)
 
         self.map_topic = self.get_parameter(
             'map_topic'
@@ -152,6 +207,9 @@ class FrontierExplorer(Node):
         self.stuck_failure_count = self.get_parameter(
             'stuck_failure_count'
         ).value
+        self.avoid_people = self.get_parameter('avoid_people').value
+        self.yield_to_people = self.get_parameter('yield_to_people').value
+        self.personal_space = self.get_parameter('personal_space').value
 
         # -----------------------------
         # Map
@@ -174,6 +232,22 @@ class FrontierExplorer(Node):
         self.fault_checked_stamp = None
         # Own twist_mux input (priority 6): above Nav2, below keyboard and joystick.
         self.recovery_pub = self.create_publisher(Twist, '/cmd_vel_mapper', 10)
+        # Measurement-only event stream used by the scoreboard. It does not
+        # carry commands and has no effect on exploration decisions.
+        event_qos = QoSProfile(
+            depth=100,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+        )
+        self.event_pub = self.create_publisher(
+            AutoMapperEvent, '/auto_mapper/events', event_qos)
+        self.goal_sequence = 0
+        self.active_goal_sequence = 0
+        self.goal_outcome_emitted = True
+        self.exploration_terminal_emitted = False
+        # The goal Nav2 is driving to, for watchers such as socialnav_view.
+        self.goal_pub = self.create_publisher(PoseStamped, '~/goal', 10)
         sensor_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', lambda msg: self.observe('scan', msg), sensor_qos)
@@ -208,6 +282,18 @@ class FrontierExplorer(Node):
             self.local_costmap_callback,
             map_qos
         )
+
+        # (people, monotonic receipt time), from object_detection.
+        self.people = ([], None)
+        # When the robot started waiting for a person ahead, and whether this
+        # person has used up their wait (see yield_for_people).
+        self.yield_since = None
+        self.yield_spent = False
+        if self.avoid_people or self.yield_to_people:
+            self.people_sub = self.create_subscription(
+                String, '/people',
+                lambda msg: setattr(self, 'people', (parse_people(msg.data), time.monotonic())),
+                10)
 
         # -----------------------------
         # TF
@@ -294,6 +380,16 @@ class FrontierExplorer(Node):
         self.blocked_since = None
         self.blocked_heading = None
         self.blocked_time = None
+        # Pose on the previous watch_ahead tick (frame, x, y, yaw, monotonic),
+        # to tell driving forward from turning in place.
+        self.last_watch_pose = None
+
+        # Turning in place when no translation is safe (see
+        # _try_recovery_turn): when the last one started, its angle, and the
+        # direction (1 left, -1 right) of one Nav2 aborted, tried last.
+        self.last_recovery_turn_time = None
+        self.recovery_turn_angle = 0.0
+        self.failed_turn_sign = 0
 
         # Getting unstuck (see request_escape / start_escape).
         self.consecutive_failures = 0
@@ -303,6 +399,12 @@ class FrontierExplorer(Node):
         self.last_escape_time = None
 
         self.exploration_complete_logged = False
+
+        # Shutdown (see stop()): set once stopping starts, so nothing new moves
+        # the robot. pending_submissions holds (future, action name) for goals
+        # Nav2 hasn't accepted or rejected yet.
+        self.shutting_down = False
+        self.pending_submissions = []
 
         # Don't start immediately.
         self.timer = self.create_timer(
@@ -324,9 +426,46 @@ class FrontierExplorer(Node):
             Trigger, '~/scan', self.handle_scan_request
         )
 
+        self.setup_vlm()
+        nav_log_dir = self.get_parameter('nav_log_dir').value
+        self.nav_log = None
+        if nav_log_dir:
+            self.nav_log = NavLog(nav_log_dir, warn=self.get_logger().warn)
+            self.get_logger().info(f'Keeping a navigation log in {nav_log_dir}.')
+
         self.get_logger().info(
             'Go2 Frontier Explorer started.'
         )
+        self.emit_event('exploration_started', detail='frontier explorer started')
+
+    def emit_event(self, event_type, detail='', x=math.nan, y=math.nan,
+                   goal_sequence=None):
+        """Publish a structured observation without changing robot state."""
+        try:
+            event = AutoMapperEvent()
+            event.stamp = self.get_clock().now().to_msg()
+            event.event_type = event_type
+            event.goal_sequence = int(
+                self.active_goal_sequence if goal_sequence is None else goal_sequence)
+            event.target_x = float(x)
+            event.target_y = float(y)
+            event.detail = str(detail)
+            self.event_pub.publish(event)
+        except Exception as error:
+            # Scoring is optional. A reporting failure must never change the
+            # explorer's goal, recovery, or stop behavior.
+            self.get_logger().warn(
+                f'Could not publish automapper event {event_type}: {error}',
+                throttle_duration_sec=10.0,
+            )
+
+    def emit_goal_outcome(self, event_type, detail=''):
+        """Emit at most one terminal outcome for the active goal."""
+        if self.goal_outcome_emitted or self.active_goal_sequence == 0:
+            return
+        x, y = self.current_goal if self.current_goal is not None else (math.nan, math.nan)
+        self.emit_event(event_type, detail, x, y)
+        self.goal_outcome_emitted = True
 
     # ==========================================================
     # MAP CALLBACK
@@ -419,6 +558,25 @@ class FrontierExplorer(Node):
         except TransformException:
 
             return None
+
+    def people_zones(self):
+        """Circles around people, their next steps and groups, in the map
+        frame; empty when /people is stale or TF can't place it."""
+
+        people, received = self.people
+        if not people or received is None or time.monotonic() - received > PEOPLE_MAX_AGE_SEC:
+            return []
+        try:
+            t = self.tf_buffer.lookup_transform(
+                self.map_frame, PEOPLE_FRAME, rclpy.time.Time()
+            ).transform
+        except TransformException:
+            return []
+        q = t.rotation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        return social_zones(
+            people, t.translation.x, t.translation.y, yaw, personal=self.personal_space
+        )
 
     # ==========================================================
     # MAP CELL HELPERS
@@ -562,6 +720,7 @@ class FrontierExplorer(Node):
         # direction counts as open.
         view = self.local_view()
         blocked = self.recently_blocked() and self.blocked_heading is not None
+        zones = self.people_zones() if self.avoid_people else []
 
         # Skip frontiers a recent visit didn't shrink: the scan at the goal
         # couldn't see into them, so going back would just repeat that.
@@ -683,6 +842,14 @@ class FrontierExplorer(Node):
                 < BLOCKED_CONE_RAD
             )
 
+            # 2: the goal is in someone's space; 1: the straight way there
+            # crosses a person, their next steps or a group; 0: neither.
+            social = 0
+            if zone_at(goal_x, goal_y, zones) is not None:
+                social = 2
+            elif line_crosses(robot_x, robot_y, goal_x, goal_y, zones) is not None:
+                social = 1
+
             candidates.append(
                 (
                     score,
@@ -693,19 +860,21 @@ class FrontierExplorer(Node):
                     line_clear,
                     toward_blocked,
                     goal_range,
-                    frontier
+                    frontier,
+                    social
                 )
             )
 
         if not candidates:
             return None
 
-        # In order: stay away from a just-blocked direction, then walk far
-        # enough, then have a clear straight line in Nav2's costmap, then the
-        # score. Each only breaks ties of the ones before it, so exploring
-        # never stalls when no candidate is ideal.
+        # In order: stay away from a just-blocked direction, then out of
+        # people's space, then walk far enough, then have a clear straight
+        # line in Nav2's costmap and past people, then the score. Each only
+        # breaks ties of the ones before it, so exploring never stalls when
+        # no candidate is ideal.
         def tier(c):
-            return (c[6], not c[4], not c[5])
+            return (c[6], c[9] == 2, not c[4], not c[5], c[9] == 1)
 
         best_tier = min(tier(c) for c in candidates)
         pool = [c for c in candidates if tier(c) == best_tier]
@@ -725,11 +894,196 @@ class FrontierExplorer(Node):
                 ) + c[1:]
                 for c in pool
             ]
+            if self.vlm_client is not None:
+                pool = self.rank_with_vlm(pool, robot_x, robot_y)
+                if pool is None:
+                    return WAITING_FOR_VLM
+                if self.vlm_mode == 'active':
+                    pool = self.follow_suggestion(pool, robot_x, robot_y)
 
         best = min(pool, key=lambda c: c[0])
 
         # (score, x, y, frontier size, frontier cells)
         return best[:4] + (best[8],)
+
+    # ==========================================================
+    # VLM FRONTIER RANKING (vlm_ranking.py)
+    # ==========================================================
+
+    def setup_vlm(self):
+        """Camera subscription and server client, unless vlm_mode is off."""
+
+        self.vlm_client = None
+        self.vlm_mode = vlm_mode_name(self.get_parameter('vlm_mode').value)
+        if self.vlm_mode == 'off':
+            return
+        if self.vlm_mode not in ('shadow', 'active'):
+            self.get_logger().warn(
+                f"Unknown vlm_mode '{self.vlm_mode}' (off, shadow or active); "
+                'not using the VLM.'
+            )
+            return
+
+        url = self.get_parameter('vlm_url').value
+        self.vlm_weight = self.get_parameter('vlm_weight').value
+        self.vlm_timeout = self.get_parameter('vlm_timeout').value
+        self.vlm_candidates = max(1, self.get_parameter('vlm_candidates').value)
+        self.vlm_client = VlmClient(
+            url,
+            self.get_parameter('vlm_model').value,
+            self.vlm_timeout,
+            encode_jpeg,
+            api_key=os.environ.get('VLM_API_KEY'),
+        )
+        self.vlm_ranking = None
+        self.vlm_wait_started = None
+        self.vlm_retry_after = 0.0
+        self.views = ViewMemory(bins=VIEW_BINS)
+        self.last_view_time = 0.0
+        self.camera_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.camera_callback,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        )
+        self.vlm_suggest_weight = self.get_parameter('vlm_suggest_weight').value
+        self.vlm_suggestion = None
+        if self.vlm_mode == 'active':
+            self.suggestion_sub = self.create_subscription(
+                String, '/vlm/suggestion', self.suggestion_callback,
+                QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+            )
+        self.get_logger().info(f'VLM ranking in {self.vlm_mode} mode, asking {url}.')
+
+    def suggestion_callback(self, msg):
+        self.vlm_suggestion = msg.data
+
+    def follow_suggestion(self, pool, robot_x, robot_y):
+        """The pool with goals the way the VLM suggests scoring better, if it
+        has a recent suggestion the lidar agrees with. Only goals the map
+        already offered can win, and Nav2 still drives to them."""
+
+        heading = usable_heading(self.vlm_suggestion, time.time())
+        if heading is None:
+            return pool
+
+        ranked = [
+            (c[0] - suggestion_bonus(
+                math.atan2(c[2] - robot_y, c[1] - robot_x), heading, self.vlm_suggest_weight),
+             ) + c[1:]
+            for c in pool
+        ]
+        before = min(pool, key=lambda c: c[0])
+        after = min(ranked, key=lambda c: c[0])
+        if before[1:3] != after[1:3]:
+            self.get_logger().info(
+                f'VLM suggestion changes the goal from ({before[1]:.2f}, {before[2]:.2f}) '
+                f'to ({after[1]:.2f}, {after[2]:.2f}).'
+            )
+        return ranked
+
+    def camera_callback(self, msg):
+        """Remember the frame by the heading it was taken at. A few per
+        second is plenty: the robot turns a full circle in about 10 s."""
+
+        now = time.monotonic()
+        if now - self.last_view_time < VIEW_PERIOD_SEC:
+            return
+        pose = self.get_robot_pose(self.map_frame)
+        if pose is None:
+            return
+        self.last_view_time = now
+        self.views.remember(*pose, msg, now)
+
+    def rank_with_vlm(self, pool, robot_x, robot_y):
+        """The pool with the VLM's opinion added to the best few scores, the
+        pool unchanged if the VLM can't help now, or None (active mode
+        only) to wait one more loop for an answer that is on its way.
+        """
+
+        now = time.monotonic()
+        result = self.vlm_client.take_result()
+        if result is not None:
+            if result.scores is None:
+                self.get_logger().warn(
+                    f'VLM gave no ranking ({result.reason}); using the map '
+                    f'score alone for {VLM_RETRY_SEC:.0f} s.'
+                )
+                self.vlm_retry_after = now + VLM_RETRY_SEC
+            else:
+                self.vlm_ranking = result
+
+        top = sorted(pool, key=lambda c: c[0])[:self.vlm_candidates]
+        fresh = (
+            self.vlm_ranking is not None
+            and now - self.vlm_ranking.finished_at < VLM_RESULT_MAX_AGE_SEC
+        )
+        scores = [
+            match_score(self.vlm_ranking, c[1], c[2], VLM_MATCH_RADIUS_M) if fresh else None
+            for c in top
+        ]
+
+        if None in scores:
+            if now < self.vlm_retry_after:
+                return pool
+            if not self.vlm_client.busy() and not self.ask_vlm(top, robot_x, robot_y):
+                return pool
+            # Bounded per goal choice, not per request: goals that shift
+            # with each map update must not keep the robot waiting.
+            if self.vlm_wait_started is None:
+                self.vlm_wait_started = now
+            if self.vlm_mode == 'active' and now - self.vlm_wait_started < self.vlm_timeout:
+                self.get_logger().info(
+                    'Waiting for the VLM ranking...', throttle_duration_sec=5.0
+                )
+                return None
+            self.vlm_wait_started = None
+            return pool
+
+        self.vlm_wait_started = None
+
+        ranked = [
+            (c[0] - vlm_bonus(s, self.vlm_weight),) + c[1:]
+            for c, s in zip(top, scores)
+        ]
+        ours = top[0]
+        theirs = min(ranked, key=lambda c: c[0])
+        verdict = 'agrees' if theirs[1:3] == ours[1:3] else 'differs'
+        self.get_logger().info(
+            f'VLM {verdict}: map score picks ({ours[1]:.2f}, {ours[2]:.2f}), '
+            f'with VLM ({theirs[1]:.2f}, {theirs[2]:.2f}). Scores '
+            f'{[round(s, 2) for s in scores]}: {self.vlm_ranking.reason}'
+        )
+        # Spent: the next goal is asked about from wherever the robot is then.
+        self.vlm_ranking = None
+        return pool if self.vlm_mode == 'shadow' else ranked
+
+    def ask_vlm(self, top, robot_x, robot_y):
+        """Send the camera views toward the best goals; False if there are
+        none to send (e.g. the robot hasn't turned around here yet)."""
+
+        now = time.monotonic()
+        frames = [
+            self.views.view_toward(
+                robot_x, robot_y,
+                math.atan2(c[2] - robot_y, c[1] - robot_x),
+                now, VIEW_MAX_OFFSET_M, VIEW_MAX_ANGLE_RAD, VIEW_MAX_AGE_SEC,
+            )
+            for c in top
+        ]
+        if all(frame is None for frame in frames):
+            self.get_logger().info(
+                'No camera view toward any goal yet; using the map score.',
+                throttle_duration_sec=10.0
+            )
+            return False
+        # The score is -(revealed - cells_per_meter * walk), so the cells can be
+        # had back without casting the rays again.
+        facts = [
+            f'The map says it is {c[7]:.1f} m away and could show about '
+            f'{max(0, round(self.info_gain_cells_per_meter * c[7] - c[0]))} unknown cells.'
+            for c in top
+        ]
+        self.vlm_client.submit([(c[1], c[2]) for c in top], frames, facts)
+        return True
 
     def revealed_from(self, x, y):
         """Unknown cells the lidar would see from world point (x, y)."""
@@ -835,17 +1189,27 @@ class FrontierExplorer(Node):
 
         self.goal_active = True
         self.goal_is_escape = is_escape
+        self.goal_sequence += 1
+        self.active_goal_sequence = self.goal_sequence
+        sequence = self.active_goal_sequence
+        self.goal_outcome_emitted = False
         # Set by the caller for frontier goals once this returns True.
         self.goal_frontier = None
         self.current_goal = (x, y)
         self.goal_sent_time = time.monotonic()
+        self.emit_event(
+            'goal_sent', 'escape goal' if is_escape else 'exploration goal', x, y)
+        if is_escape:
+            self.emit_event('recovery_started', 'navigation to open space', x, y)
 
+        self.goal_pub.publish(goal.pose)
         future = self.nav_client.send_goal_async(
             goal
         )
+        self._track_submission(future, 'navigate_to_pose')
 
         future.add_done_callback(
-            self.goal_response_callback
+            lambda result: self.goal_response_callback(result, sequence)
         )
 
         return True
@@ -854,7 +1218,14 @@ class FrontierExplorer(Node):
     # NAV2 RESPONSE
     # ==========================================================
 
-    def goal_response_callback(self, future):
+    def _is_current_navigation_goal(self, sequence):
+        """Late action replies must not mutate a newer goal or a stopped run."""
+        return (
+            self.goal_active and not self.shutting_down
+            and (sequence is None or sequence == self.active_goal_sequence)
+        )
+
+    def goal_response_callback(self, future, sequence=None):
 
         try:
 
@@ -862,13 +1233,28 @@ class FrontierExplorer(Node):
 
         except Exception as e:
 
+            if not self._is_current_navigation_goal(sequence):
+                return
+
             self.get_logger().error(
                 f'Navigation goal failed: {e}'
             )
 
-            self.record_goal_failure()
+            self.record_goal_failure(f'goal response error: {e}')
             self.goal_active = False
             self.goal_sent_time = None
+            return
+
+        if not self._is_current_navigation_goal(sequence):
+            # A submission can be accepted after timeout or shutdown. Never
+            # attach it to the new goal; request cancellation of its own handle.
+            if goal_handle.accepted:
+                try:
+                    self._adopt_orphan(goal_handle, self.nav_client)
+                except Exception as error:
+                    self._stop_for(
+                        f'Could not cancel inactive goal {sequence}: {error}'
+                    )
             return
 
         if not goal_handle.accepted:
@@ -877,7 +1263,7 @@ class FrontierExplorer(Node):
                 'Nav2 rejected the exploration goal.'
             )
 
-            self.record_goal_failure()
+            self.record_goal_failure('Nav2 rejected goal')
             self.goal_active = False
             self.goal_sent_time = None
             return
@@ -887,11 +1273,13 @@ class FrontierExplorer(Node):
         self.get_logger().info(
             'Exploration goal accepted.'
         )
+        x, y = self.current_goal if self.current_goal is not None else (math.nan, math.nan)
+        self.emit_event('goal_accepted', 'Nav2 accepted goal', x, y)
 
         result_future = goal_handle.get_result_async()
 
         result_future.add_done_callback(
-            self.navigation_result_callback
+            lambda result: self.navigation_result_callback(result, sequence)
         )
 
     def blacklist_current_goal(self):
@@ -899,10 +1287,11 @@ class FrontierExplorer(Node):
             x, y = self.current_goal
             self.failed_goals.append((x, y, time.monotonic()))
 
-    def record_goal_failure(self):
+    def record_goal_failure(self, detail='navigation failed'):
         """A goal was rejected, failed or stalled: avoid that spot for a
         while, and treat several failures in a row as being stuck."""
 
+        self.emit_goal_outcome('goal_failed', detail)
         self.blacklist_current_goal()
         # Never reached, so there's no visit to judge the frontier by.
         self.goal_frontier = None
@@ -926,7 +1315,13 @@ class FrontierExplorer(Node):
     # NAVIGATION RESULT
     # ==========================================================
 
-    def navigation_result_callback(self, future):
+    def navigation_result_callback(self, future, sequence=None):
+
+        if not self._is_current_navigation_goal(sequence):
+            self.get_logger().info(
+                f'Ignoring result for inactive navigation goal {sequence}.'
+            )
+            return
 
         try:
 
@@ -941,6 +1336,10 @@ class FrontierExplorer(Node):
                     else 'Reached exploration goal.'
                 )
                 self.consecutive_failures = 0
+                self.emit_goal_outcome('goal_reached', 'Nav2 reached goal')
+                if self.goal_is_escape:
+                    self.emit_event('recovery_finished', 'reached open space')
+                self.log_goal_ended('reached')
 
                 if self.scan_after_goal or self.goal_is_escape:
                     self.scan_pending = True
@@ -956,14 +1355,17 @@ class FrontierExplorer(Node):
 
                 # Interrupted for a requested scan: not the goal's fault.
                 self.get_logger().info('Goal paused for the requested scan.')
+                self.emit_goal_outcome('goal_cancelled', 'paused for requested scan')
+                self.log_goal_ended('paused')
 
             else:
 
                 self.get_logger().warn(
                     f'Navigation ended with status {status}'
                 )
+                self.log_goal_ended('failed')
 
-                self.record_goal_failure()
+                self.record_goal_failure(f'Nav2 result status {status}')
 
         except Exception as e:
 
@@ -971,7 +1373,7 @@ class FrontierExplorer(Node):
                 f'Navigation result error: {e}'
             )
 
-            self.record_goal_failure()
+            self.record_goal_failure(f'navigation result error: {e}')
 
         self.current_goal_handle = None
         self.goal_active = False
@@ -986,6 +1388,11 @@ class FrontierExplorer(Node):
         """Turn 360 degrees as soon as possible: the current goal is paused
         (not counted as failed), and failed spots are forgiven, since the
         scan gives SLAM fresh data and they may be reachable now."""
+
+        if self.shutting_down:
+            response.success = False
+            response.message = 'The explorer is shutting down.'
+            return response
 
         if self.maneuver_active and self.maneuver_name == 'Scan':
             response.success = False
@@ -1086,6 +1493,9 @@ class FrontierExplorer(Node):
         # publishes on the same mux input and would overwrite the zero.
         self.recovery_move = None
         self._hold_stop()
+        if ((refresh is not None or 'stale' in reason or 'missing' in reason)
+                and hasattr(self, 'emit_event')):
+            self.emit_event('sensor_stale', reason)
         self.get_logger().error(
             f'Recovery stopped: {reason} '
             'A later fresh scan can clear this; Scan clears it now.'
@@ -1142,11 +1552,13 @@ class FrontierExplorer(Node):
         distance = min(max(float(self.backup_distance), 0.05), 0.5)
         move = None
         if gap is not None:
-            move, _reason = assess_recovery(
+            move, _reason, leaving = assess_recovery(
                 *view[:4], distance, scan, age, SCAN_MAX_AGE_SEC
             )
         decision = latch_decision(gap is not None, move)
         if decision == 'hold':
+            if self._try_recovery_turn(scan):
+                return
             self.get_logger().info(
                 'Still stopped: no safe direction on the latest scan.',
                 throttle_duration_sec=10.0,
@@ -1162,11 +1574,18 @@ class FrontierExplorer(Node):
             return
         grid, x, y, yaw, _ = view
         self.recovery_move = (
-            x, y, yaw, move, grid.header.frame_id, time.monotonic()
+            x, y, yaw, move, grid.header.frame_id, time.monotonic(), leaving
+        )
+        kind = 'leaving' if leaving else 'recovery'
+        self.emit_event(
+            'recovery_started',
+            f'latched {kind} translation x={move[0]:.2f}, y={move[1]:.2f}',
         )
         self.get_logger().info(
-            f'Fresh scan opened a way out: x={move[0]:.2f}, y={move[1]:.2f} m '
-            f'(was: {reason}).'
+            f'Fresh scan opened a way out: x={move[0]:.2f}, y={move[1]:.2f} m'
+            + (', moving away from a wall close beside the body'
+               if leaving else '')
+            + f' (was: {reason}).'
         )
 
     def _scan_age(self):
@@ -1261,17 +1680,86 @@ class FrontierExplorer(Node):
             )
             return
         distance = min(max(float(self.backup_distance), 0.05), 0.5)
-        move, reason = assess_recovery(
+        move, reason, leaving = assess_recovery(
             *view[:4], distance, scan, self._scan_age(), SCAN_MAX_AGE_SEC
         )
         if move is None:
+            if self._try_recovery_turn(scan):
+                return
             self._stop_for(reason)
             return
         grid, x, y, yaw, _ = view
-        self.recovery_move = (x, y, yaw, move, grid.header.frame_id, time.monotonic())
-        self.get_logger().info(
-            f'Recovery translation: x={move[0]:.2f}, y={move[1]:.2f} m.'
+        self.recovery_move = (
+            x, y, yaw, move, grid.header.frame_id, time.monotonic(), leaving
         )
+        kind = 'leaving' if leaving else 'recovery'
+        self.emit_event(
+            'recovery_started',
+            f'{kind} translation x={move[0]:.2f}, y={move[1]:.2f}',
+        )
+        self.get_logger().info(
+            f'Recovery translation: x={move[0]:.2f}, y={move[1]:.2f} m'
+            + (', moving away from a wall close beside the body.'
+               if leaving else '.')
+        )
+        self.log_event(f'recovery move x={move[0]:.2f} y={move[1]:.2f}')
+
+    def _try_recovery_turn(self, scan):
+        """No translation is safe: turn in place toward the most open heading
+        on the scan with Nav2's Spin, which checks the footprint against the
+        local costmap while turning. True when the turn was sent.
+
+        Clears any latched stop first: the zero twist it publishes on the
+        mapper's mux input (priority 6) would override Spin on Nav2's
+        (priority 5). Not tried on a stale scan, and not again within
+        RECOVERY_TURN_RETRY_SEC, so a turn that doesn't help can't make Oak
+        swing back and forth.
+        """
+
+        now = time.monotonic()
+        if (
+            self.last_recovery_turn_time is not None
+            and now - self.last_recovery_turn_time < RECOVERY_TURN_RETRY_SEC
+        ):
+            return False
+        age = self._scan_age()
+        if (
+            scan is None or age is None or age > SCAN_MAX_AGE_SEC
+            or scan.header.frame_id != self.robot_frame
+        ):
+            return False
+        min_range = (
+            ROBOT_FRONT_M + self.obstacle_stop_distance + RECOVERY_TURN_ROOM_M
+        )
+        angle = choose_turn(scan, min_range, self.failed_turn_sign)
+        if angle is None and self.failed_turn_sign:
+            angle = choose_turn(scan, min_range)
+        if angle is None:
+            return False
+
+        goal = Spin.Goal()
+        goal.target_yaw = float(angle)
+        goal.time_allowance = Duration(sec=int(RECOVERY_TURN_TIME_SEC))
+        if not self.start_maneuver(
+            self.spin_client, goal, RECOVERY_TURN_NAME, RECOVERY_TURN_TIME_SEC
+        ):
+            return False
+
+        self.last_recovery_turn_time = now
+        self.recovery_turn_angle = angle
+        reason = self.recovery_fault
+        self.recovery_fault = None
+        self.fault_refresh = None
+        self.recovery_move = None
+        self.emit_event(
+            'recovery_started', f'recovery turn {math.degrees(angle):.0f} deg'
+        )
+        self.get_logger().info(
+            f'No safe translation; turning {math.degrees(angle):.0f} deg '
+            'in place toward open space'
+            + (f' (was: {reason}).' if reason else '.')
+        )
+        return True
 
     def _recovery_progress(self, pose, x, y, yaw, move, distance):
         """Distance along the commanded translation, and the cross-track error."""
@@ -1286,14 +1774,16 @@ class FrontierExplorer(Node):
         return along, across
 
     def _recovery_block_reason(self, pose, view, started, progress, distance,
-                               across, move, start_pose):
-        """Why the translation must stop, or None while it may continue."""
+                               across, move, start_pose, leaving=False):
+        """Why the translation must stop, or None while it may continue.
+        A leaving move keeps ignoring the walls it leaves behind, and must
+        stay within the tighter drift limits that makes safe."""
 
         if pose is None or view is None:
             return 'odometry transform or costmap went stale during the move'
         if time.monotonic() - started > RECOVERY_TIME_LIMIT_SEC:
             return f'time limit of {RECOVERY_TIME_LIMIT_SEC:.0f} s reached'
-        if across > DRIFT_ACROSS_M:
+        if across > drift_limits(leaving)[1]:
             return 'pose drifted off the commanded translation'
         if progress >= distance:
             return None
@@ -1309,8 +1799,9 @@ class FrontierExplorer(Node):
         # here, with the full drift allowance again (stricter).
         scale = max(0.10, distance - progress) / distance
         step = (move[0] * scale, move[1] * scale)
-        if not scan_covers_move(scan, *step) or not swept_clear(
-            view[0], *start_pose, *move, start=max(0.0, progress)
+        if not scan_covers_move(scan, *step, leaving=leaving) or not swept_clear(
+            view[0], *start_pose, *move, start=max(0.0, progress),
+            leaving=leaving,
         ):
             return 'clearance lost: obstacle or unknown coverage in the move'
         return None
@@ -1320,6 +1811,7 @@ class FrontierExplorer(Node):
 
         self._hold_stop()
         self.recovery_move = None
+        self.emit_event('recovery_finished', f'translated {moved:.3f} m')
         need_map = moved >= SLAM_MIN_TRAVEL_M
         self.refresh_after = (
             self.get_clock().now().nanoseconds * 1e-9,
@@ -1334,21 +1826,23 @@ class FrontierExplorer(Node):
         )
 
     def tick_recovery(self):
-        x, y, yaw, move, frame, started = self.recovery_move
+        x, y, yaw, move, frame, started, leaving = self.recovery_move
+        max_yaw, max_across = drift_limits(leaving)
         pose = self.get_robot_pose(frame)
         view = self.local_view()
         distance = math.hypot(*move)
         progress, across = self._recovery_progress(pose, x, y, yaw, move, distance)
         yaw_drift = (
-            pose is not None and angle_difference(pose[2], yaw) > DRIFT_YAW_RAD
+            pose is not None and angle_difference(pose[2], yaw) > max_yaw
         )
         if yaw_drift:
-            across = max(across, DRIFT_ACROSS_M + 0.01)
-        if pose is not None and progress >= distance and across <= DRIFT_ACROSS_M:
+            across = max(across, max_across + 0.01)
+        if pose is not None and progress >= distance and across <= max_across:
             self._finish_recovery(progress)
             return
         reason = self._recovery_block_reason(
-            pose, view, started, progress, distance, across, move, (x, y, yaw)
+            pose, view, started, progress, distance, across, move, (x, y, yaw),
+            leaving,
         )
         if reason is not None:
             self.recovery_move = None
@@ -1380,11 +1874,24 @@ class FrontierExplorer(Node):
         self.maneuver_time_allowance = time_allowance
 
         future = client.send_goal_async(goal)
+        self._track_submission(
+            future, 'spin' if client is self.spin_client else 'backup'
+        )
         future.add_done_callback(
             lambda f, g=generation, c=client:
             self.maneuver_response_callback(f, g, c)
         )
         return True
+
+    def _track_submission(self, future, action_name):
+        """Remember a goal Nav2 hasn't answered yet, so stop() can wait for
+        it: until accepted it has no handle to cancel."""
+
+        self.pending_submissions.append((future, action_name))
+        future.add_done_callback(
+            lambda f: self.pending_submissions.remove((f, action_name))
+            if (f, action_name) in self.pending_submissions else None
+        )
 
     def maneuver_response_callback(self, future, generation, client):
 
@@ -1459,6 +1966,27 @@ class FrontierExplorer(Node):
 
         if self.maneuver_name == 'Scan' and status != 4:
             self._stop_for(f'scan maneuver ended with status {status}')
+        if self.maneuver_name == RECOVERY_TURN_NAME:
+            if status == 4:
+                self.failed_turn_sign = 0
+                self.emit_event(
+                    'recovery_finished',
+                    f'turned {math.degrees(self.recovery_turn_angle):.0f} deg',
+                )
+                # Like a translation: the next goal waits for fresh sensing.
+                # A turn alone doesn't make slam_toolbox publish a new /map.
+                self.refresh_after = (
+                    self.get_clock().now().nanoseconds * 1e-9,
+                    time.monotonic(),
+                    False,
+                )
+            else:
+                # Nav2 saw a collision ahead (or gave up): next time, try
+                # the other way first.
+                self.failed_turn_sign = (
+                    1 if self.recovery_turn_angle > 0 else -1
+                )
+                self._stop_for(f'recovery turn ended with status {status}')
         if status == 4:
             self.get_logger().info(f'{self.maneuver_name} complete.')
         elif not self.recovery_fault:
@@ -1511,7 +2039,7 @@ class FrontierExplorer(Node):
         )
 
     def _adopt_orphan(self, handle, client):
-        """Nav2 accepted a maneuver the explorer had already given up on.
+        """Nav2 accepted an action the explorer had already given up on.
         Cancel it and block motion until it's confirmed ended."""
 
         handle.cancel_goal_async()
@@ -1520,7 +2048,7 @@ class FrontierExplorer(Node):
         handle.get_result_async().add_done_callback(
             lambda f, o=orphan: self._orphan_result(f, o)
         )
-        reason = 'Nav2 accepted an abandoned turn/back-up late'
+        reason = 'Nav2 accepted an abandoned action late'
         if self.recovery_fault:
             # Keep the existing stop's reason and requirements.
             self.recovery_move = None
@@ -1537,7 +2065,7 @@ class FrontierExplorer(Node):
         if status in TERMINAL_ACTION_STATUSES and orphan in self.orphans:
             self.orphans.remove(orphan)
             self.get_logger().info(
-                f'Late turn/back-up ended in Nav2 (status {status}).'
+                f'Late action ended in Nav2 (status {status}).'
             )
 
     def _check_unresolved(self):
@@ -1551,7 +2079,7 @@ class FrontierExplorer(Node):
             )
             if ended:
                 self.orphans.remove(orphan)
-                self.get_logger().info(f'Late turn/back-up ended ({why}).')
+                self.get_logger().info(f'Late action ended ({why}).')
 
     def finish_maneuver(self):
         # Retire this maneuver's number: any reply that still arrives for it
@@ -1606,11 +2134,14 @@ class FrontierExplorer(Node):
             if self.maneuver_active:
                 self.blocked_since = None
                 return
+            if self.yield_for_people():
+                return
 
             view = self.local_view()
             if view is None:
                 return
             grid, x, y, yaw, _ = view
+            forward = self._forward_speed(grid.header.frame_id, x, y, yaw)
 
             gap = free_distance_ahead(
                 grid, x, y, yaw, self.obstacle_stop_distance
@@ -1625,6 +2156,23 @@ class FrontierExplorer(Node):
 
             if self.current_goal_handle is None:
                 return  # goal not accepted yet; nothing to cancel
+
+            distance = min(max(float(self.backup_distance), 0.05), 0.5)
+            if (
+                forward is not None and forward < FORWARD_MOTION_MPS
+                and translation_open(grid, x, y, yaw, distance)
+            ):
+                # Turning in place (or standing still): the nose swinging
+                # past a wall isn't a drive into it, and Nav2's controller
+                # checks the footprint for that turn itself. Abandoning the
+                # goal here left Oak crosswise in narrow passages, with no
+                # safe way back or sideways (found in go2_sim). But only
+                # while a recovery translation is still open: Nav2 checks
+                # the bare footprint, no margin, so it would turn Oak right
+                # up against the wall, where no turn, back-up or side step
+                # is allowed any more (found in go2_sim).
+                self.blocked_since = None
+                return
 
             now = time.monotonic()
             if self.blocked_since is None:
@@ -1658,6 +2206,60 @@ class FrontierExplorer(Node):
                 self._stop_for(f'obstacle watch error: {e}')
             else:
                 self.get_logger().error(f'Obstacle watch error: {e}')
+
+    def yield_for_people(self):
+        """While driving to a goal, hold still when a person, their next
+        steps or a group is just ahead, so they can pass. True while holding.
+
+        The wait ends after YIELD_MAX_SEC, under Nav2's 10 s progress check,
+        and is not repeated until the way ahead has been clear once: someone
+        standing still in a hallway must not stop exploring. Nav2's own
+        obstacle avoidance still applies after that."""
+
+        if not (self.yield_to_people and self.goal_active):
+            self.yield_since, self.yield_spent = None, False
+            return False
+        pose = self.get_robot_pose(self.map_frame)
+        if pose is None:
+            return False
+        x, y, yaw = pose
+        ahead = line_crosses(
+            x, y, x + YIELD_LOOKAHEAD_M * math.cos(yaw), y + YIELD_LOOKAHEAD_M * math.sin(yaw),
+            self.people_zones(),
+        )
+        if ahead is None:
+            self.yield_since, self.yield_spent = None, False
+            return False
+        if self.yield_spent:
+            return False
+        now = time.monotonic()
+        if self.yield_since is None:
+            self.yield_since = now
+            self.get_logger().info(f'A {ahead.kind} is just ahead; waiting for them to pass.')
+        if now - self.yield_since >= YIELD_MAX_SEC:
+            self.yield_spent = True
+            self.get_logger().info('Still in the way; carrying on around them.')
+            return False
+        self._hold_stop()
+        return True
+
+    def _forward_speed(self, frame, x, y, yaw):
+        """Speed toward the nose since the previous watch_ahead tick, in m/s,
+        or None when that can't be told (first tick, frame change, or a gap
+        of ticks). None keeps the old behavior: an obstacle ahead counts."""
+
+        now = time.monotonic()
+        last = self.last_watch_pose
+        self.last_watch_pose = (frame, x, y, yaw, now)
+        if last is None or last[0] != frame:
+            return None
+        dt = now - last[4]
+        if dt <= 0.0 or dt > 3.0 * WATCH_PERIOD_SEC:
+            return None
+        return (
+            (x - last[1]) * math.cos(last[3])
+            + (y - last[2]) * math.sin(last[3])
+        ) / dt
 
     def back_away_while_idle(self, gap):
         """Something is right in front and the robot isn't driving anywhere:
@@ -1698,6 +2300,7 @@ class FrontierExplorer(Node):
             return
 
         self.get_logger().warn(f'Stuck ({reason}): heading for open space.')
+        self.log_event(f'stuck: {reason}')
         self.escape_pending = True
 
     def start_escape(self):
@@ -1886,6 +2489,12 @@ class FrontierExplorer(Node):
                     'No frontiers found. Exploration complete.'
                 )
                 self.exploration_complete_logged = True
+                if not self.exploration_terminal_emitted:
+                    self.emit_event(
+                        'exploration_completed',
+                        'No frontiers found. Exploration complete.',
+                    )
+                    self.exploration_terminal_emitted = True
 
             return
 
@@ -1900,6 +2509,9 @@ class FrontierExplorer(Node):
             robot_x,
             robot_y
         )
+
+        if selected is WAITING_FOR_VLM:
+            return
 
         if selected is None:
             self.get_logger().info(
@@ -1929,16 +2541,73 @@ class FrontierExplorer(Node):
             # Sized in keys, the unit verify_frontier_shrank measures in.
             keys = self.frontier_keys(frontier)
             self.goal_frontier = (keys, len(keys))
+            self.log_goal_sent(robot_x, robot_y, x, y, size, score)
+
+    def log_goal_sent(self, robot_x, robot_y, x, y, size, score):
+        """Note the new goal in the navigation log, with the camera view toward
+        it if the VLM has been keeping views. A logging failure must not stop
+        exploring, with a goal already on its way."""
+
+        if self.nav_log is None:
+            return
+        try:
+            jpeg = None
+            if self.vlm_client is not None:
+                frame = self.views.view_toward(
+                    robot_x, robot_y, math.atan2(y - robot_y, x - robot_x),
+                    time.monotonic(), VIEW_MAX_OFFSET_M, VIEW_MAX_ANGLE_RAD, VIEW_MAX_AGE_SEC,
+                )
+                if frame is not None:
+                    jpeg = encode_jpeg(frame)
+            self.nav_log.goal_sent(
+                (robot_x, robot_y), (x, y), known_cell_count(self.map.data), size, score, jpeg
+            )
+        except Exception as e:
+            self.get_logger().warn(f'Navigation log error: {e}')
+
+    def log_event(self, what):
+        if self.nav_log is not None:
+            self.nav_log.event(what)
+
+    def log_goal_ended(self, result):
+        if self.nav_log is not None and not self.goal_is_escape:
+            self.nav_log.goal_ended(result)
 
     def stop(self):
+        # Nothing new may start moving the robot from here on.
+        self.shutting_down = True
+        self.timer.cancel()
+        self.watch_timer.cancel()
+        self.recovery_move = None
         self.recovery_pub.publish(Twist())
-        # Cancel whatever Nav2 goal is in flight so the robot doesn't
-        # keep walking toward it after we've stopped sending new ones.
-        # rclpy.spin() has already returned by the time this runs, so we
-        # spin briefly here too, otherwise the cancel request is just
-        # queued and never actually sent before the node is destroyed.
+        if not self.exploration_terminal_emitted:
+            self.emit_goal_outcome('goal_cancelled', 'explorer stopped')
+            self.emit_event('exploration_stopped', 'explorer stopped')
+            self.exploration_terminal_emitted = True
+
+        # The goal Oak is walking to goes first: the waits below can take
+        # several seconds when Nav2 is slow, and the RViz panel force-kills
+        # the explorer if it takes too long. rclpy.spin() has already
+        # returned, so spin briefly to actually send the cancel.
         if self.current_goal_handle is not None:
             self.get_logger().info('Cancelling active navigation goal.')
+            future = self.current_goal_handle.cancel_goal_async()
+            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+            self.current_goal_handle = None
+
+        # A goal Nav2 hasn't answered yet has no handle to cancel. Wait (and
+        # spin, so the answer is processed) until it's accepted, which sets
+        # the handles cancelled below, or rejected.
+        deadline = time.monotonic() + SHUTDOWN_ACCEPT_WAIT_SEC
+        for future, action_name in list(self.pending_submissions):
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                rclpy.spin_until_future_complete(self, future, timeout_sec=remaining)
+            if not future.done():
+                self._cancel_all_goals(action_name)
+
+        # A goal accepted during the wait above.
+        if self.current_goal_handle is not None:
             future = self.current_goal_handle.cancel_goal_async()
             rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
         for orphan in self.orphans:
@@ -1949,6 +2618,49 @@ class FrontierExplorer(Node):
             future = self.maneuver_handle.cancel_goal_async()
             rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
 
+        # Write out the last goal, which is otherwise only written when the
+        # next one is sent.
+        if self.nav_log is not None and self.map is not None:
+            self.nav_log.finish(known_cell_count(self.map.data))
+
+    def _cancel_all_goals(self, action_name):
+        """Last resort on shutdown: Nav2 never answered one of our goals, so
+        it may still accept and run it with nobody tracking it. Cancel every
+        goal on that action (a zero goal ID and stamp means all), even other
+        nodes' goals: stopping the robot is the safe outcome.
+
+        Known limit: a goal Nav2 receives only after this cancel is not
+        covered. That needs Nav2 to be failing already (no answer in
+        SHUTDOWN_ACCEPT_WAIT_SEC); the keyboard or joystick still override it.
+        """
+
+        self.get_logger().error(
+            f'Nav2 never answered a {action_name} goal; cancelling all '
+            f'{action_name} goals so the robot stops.'
+        )
+        client = self.create_client(
+            CancelGoal, f'/{action_name}/_action/cancel_goal'
+        )
+        if client.wait_for_service(timeout_sec=1.0):
+            future = client.call_async(CancelGoal.Request())
+            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+        else:
+            self.get_logger().error(
+                f'{action_name} cancel service unavailable. Stop the robot by '
+                f'hand: ros2 service call /{action_name}/_action/cancel_goal '
+                'action_msgs/srv/CancelGoal "{}"'
+            )
+        self.destroy_client(client)
+
+
+# How long stop() waits for Nav2 to answer goals it hasn't accepted yet.
+SHUTDOWN_ACCEPT_WAIT_SEC = 2.0
+
+
+
+
+# How long stop() waits for Nav2 to answer goals it hasn't accepted yet.
+SHUTDOWN_ACCEPT_WAIT_SEC = 2.0
 
 PR_SET_PDEATHSIG = 1  # from <linux/prctl.h>
 
@@ -1991,6 +2703,19 @@ BACKUP_TIME_ALLOWANCE_SEC = 10.0
 # and behind doesn't retry (and get refused by Nav2) every quarter second.
 BACKUP_RETRY_SEC = 5.0
 
+# Turning in place when no translation is safe (_try_recovery_turn): the
+# maneuver's name, Nav2's time limit for it, the least time between two
+# such turns, and how much room past the stop distance the new heading must
+# have on the scan, so the turn doesn't end facing another close wall.
+RECOVERY_TURN_NAME = 'Recovery turn'
+RECOVERY_TURN_TIME_SEC = 15.0
+RECOVERY_TURN_RETRY_SEC = 10.0
+RECOVERY_TURN_ROOM_M = 0.2
+
+# Slower than this toward the nose counts as not driving forward: an
+# obstacle ahead then doesn't abandon the goal (see watch_ahead).
+FORWARD_MOTION_MPS = 0.03
+
 # Getting unstuck: how far from the robot to look for open space, the least
 # it must move to count, and the pause between escapes so a failed escape
 # can't immediately trigger another one.
@@ -2000,6 +2725,61 @@ ESCAPE_COOLDOWN_SEC = 30.0
 
 # "No usable goal" this many loops in a row counts as stuck.
 STUCK_NO_GOAL_CYCLES = 2
+
+# object_detection publishes /people in this frame.
+PEOPLE_FRAME = 'odom'
+# /people older than this is ignored: the people have moved on.
+PEOPLE_MAX_AGE_SEC = 2.0
+# How far ahead a person makes the robot wait, and for how long at most.
+# The wait must stay under Nav2's progress checker (10 s,
+# movement_time_allowance in nav2_params.yaml) or Nav2 aborts the goal.
+YIELD_LOOKAHEAD_M = 1.5
+YIELD_MAX_SEC = 6.0
+
+# choose_frontier's answer while active VLM mode waits for a ranking.
+WAITING_FOR_VLM = object()
+
+# Camera views kept for the VLM: one per 45 degrees of heading, a few per
+# second at most. A view counts toward a goal if it was taken within
+# VIEW_MAX_OFFSET_M of where the robot is now, in the last VIEW_MAX_AGE_SEC,
+# and faces within VIEW_MAX_ANGLE_RAD of the goal (inside a ~90 degree
+# camera view).
+VIEW_BINS = 8
+VIEW_PERIOD_SEC = 0.3
+VIEW_MAX_OFFSET_M = 1.0
+VIEW_MAX_AGE_SEC = 120.0
+VIEW_MAX_ANGLE_RAD = math.radians(35.0)
+
+# A VLM ranking applies to goals within VLM_MATCH_RADIUS_M of the ones it
+# was asked about, for VLM_RESULT_MAX_AGE_SEC. After a failed request, the
+# map score is used alone for VLM_RETRY_SEC before asking again.
+VLM_MATCH_RADIUS_M = 0.5
+VLM_RESULT_MAX_AGE_SEC = 30.0
+VLM_RETRY_SEC = 30.0
+
+# Images sent to the VLM are shrunk to this width: plenty for "doorway or
+# wall", and it keeps each request small over the SSH tunnel.
+VLM_IMAGE_WIDTH = 448
+VLM_JPEG_QUALITY = 80
+
+
+def encode_jpeg(msg):
+    """A camera Image message as JPEG bytes, shrunk to VLM_IMAGE_WIDTH.
+
+    Imported here so the explorer runs without OpenCV when vlm_mode is off.
+    Runs on the VLM client's thread, not the explorer's.
+    """
+    import cv2
+    from cv_bridge import CvBridge
+
+    image = CvBridge().imgmsg_to_cv2(msg, desired_encoding='bgr8')
+    height, width = image.shape[:2]
+    if width > VLM_IMAGE_WIDTH:
+        image = cv2.resize(image, (VLM_IMAGE_WIDTH, int(height * VLM_IMAGE_WIDTH / width)))
+    ok, jpeg = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, VLM_JPEG_QUALITY])
+    if not ok:
+        raise ValueError('JPEG encoding failed')
+    return jpeg.tobytes()
 
 
 def stop_when_parent_dies():
@@ -2023,8 +2803,8 @@ def main(args=None):
 
     # Keep the ROS context alive while Ctrl+C runs stop(). The default rclpy
     # signal handler shuts the context down first, which prevents the final
-    # zero velocity and active Nav2 goal cancellation from being published.
-    from rclpy.signals import SignalHandlerOptions
+    # zero velocity, active Nav2 goal cancellation, and exploration_stopped
+    # event from being published.
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
 
     node = FrontierExplorer()
@@ -2036,6 +2816,8 @@ def main(args=None):
         raise KeyboardInterrupt
 
     previous_sigint_handler = signal.signal(signal.SIGINT, request_shutdown)
+    # SIGTERM (e.g. docker stop) is treated the same way.
+    previous_sigterm_handler = signal.signal(signal.SIGTERM, request_shutdown)
 
     try:
         rclpy.spin(node)
@@ -2055,6 +2837,7 @@ def main(args=None):
         if rclpy.ok():
             rclpy.shutdown()
         signal.signal(signal.SIGINT, previous_sigint_handler)
+        signal.signal(signal.SIGTERM, previous_sigterm_handler)
 
 
 if __name__ == '__main__':

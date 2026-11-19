@@ -2,7 +2,7 @@
 title: Object navigation
 parent: brains
 code: [src/object_navigation/**]
-verified: a8d2f1f50297
+verified: e809b36ce7c5
 ---
 
 # Object navigation
@@ -39,14 +39,14 @@ When you publish an ID on `/navigate_to_object`, this node locks onto that objec
 ## How it breaks
 
 - **The target ID must match exactly.** A name that is not in the memory is ignored with a warning.
-- **It assumes object positions are already relative to Oak's body**, and they are only as good as the detector's rough estimate.
+- **It reads each object's `x` and `y`, which are relative to Oak's body.** The detector now remembers objects on the map, but still works out `x` and `y` from where Oak stands now, so this node did not need to change. They are only as good as the detector's rough estimate.
 - **It stops if the object leaves the memory**, for example when the camera loses sight of it for 20 s.
 - **An idle keyboard or gamepad used to freeze it.** Before the fixes in [Decisions](decisions.md) (rows 13 and 16), idle controllers kept sending "speed 0" on higher-priority inputs, which blocked object navigation.
 - In the 2026-10-11 lab test, the referee worked: object nav drove forward, the keyboard took over for a turn, then object nav resumed. "Object nav to a chair" end to end was **not run yet** ([Test log](test-log.md)).
 
 ## Who's on it and what's next
 
-Written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav). Nobody is working on it this week. Max's YOLO map-memory branch (`max/feat/yolo-map-memory`, objects remembered on the map) touches this node for small style fixes; its pull request was closed without merging on 2026-10-26. TODO(Max): who owns object navigation next, and whether it should go through Nav2 for obstacle avoidance.
+Written by Riley Francis in [ROS2-LLM-Nav](https://github.com/RileyFrancis/ROS2-LLM-Nav). Nobody is working on it this week. Max's map memory (objects remembered on the map), merged with people tracking, made two small style fixes here: a bad JSON message is now the only error it catches, and the file ends with a newline. TODO(Max): who owns object navigation next, and whether it should go through Nav2 for obstacle avoidance.
 
 ## The code
 

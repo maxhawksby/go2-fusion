@@ -1,0 +1,20 @@
+# Latest state and measurements for one mapping run.
+builtin_interfaces/Time stamp
+string run_id
+string state
+float64 elapsed_s
+float64 distance_m
+float64 known_area_m2
+float64 completeness_pct
+uint32 goals_sent
+uint32 goals_reached
+uint32 goals_failed
+uint32 goals_cancelled
+uint32 recoveries
+uint32 collisions
+uint32 safety_stops
+uint32 human_touches
+float64 cpu_pct
+float64 memory_mb
+string end_reason
+string[] warnings

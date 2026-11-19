@@ -17,6 +17,7 @@ Think of how you would find your way around a new building:
 2. Someone points at a spot on the plan and you plan a route around the furniture and walk it, stepping around anything in the way. That is **[Nav2](nav2.md)**.
 3. Nobody points anywhere, so you go and check the doorways and corners you haven't seen yet, until the plan is complete. That is the **[Auto mapper](auto-mapper.md)**.
 4. A friend watches the plan fill in on a screen and taps where you should go next. Those are the **[Map viewers](map-viewers.md)** (and RViz).
+5. A judge records the run, saves its evidence and compares repeated trials. That is the **[Scoreboard](scoreboard.md)**.
 
 All of it runs on the laptop, inside Docker, as part of the normal robot stack (`robot.launch.py` starts SLAM and Nav2 by default). It is built from the [Senses](senses.md): the lidar's flat scan `/scan` and the robot's odometry, tied together by TF.
 
@@ -25,7 +26,8 @@ All of it runs on the laptop, inside Docker, as part of the normal robot stack (
 1. [SLAM](slam.md) - `slam_toolbox` builds a 2D grid map of the room (`/map`) from `/scan` and odometry, and keeps correcting where Oak is on it.
 2. [Nav2](nav2.md) - plans a path to a goal on the map and steers Oak along it, publishing on `/cmd_vel` (twist_mux priority 5).
 3. [Auto mapper](auto-mapper.md) - autonomous frontier exploration: finds unexplored edges of the SLAM map and sends Nav2 goals there. It moves the robot on its own.
-4. [Map viewers](map-viewers.md) - two learning viewers of the live map: an SFML C++ window where a click sends a Nav2 goal, and a read-only Julia dashboard.
+4. [Map viewers](map-viewers.md) - a learning viewer of the live map: an SFML C++ window where a click sends a Nav2 goal.
+5. [Scoreboard](scoreboard.md) - measurement-only recording, reports and deterministic bag replay for automapper trials.
 
 ## Three words you will meet everywhere
 
@@ -53,6 +55,7 @@ All of it runs on the laptop, inside Docker, as part of the normal robot stack (
 - [Brains](brains.md) - the [LLM agent](llm-agent.md) and [Object navigation](object-navigation.md) also send the robot places.
 - [Driver](driver.md) - if the robot link drops, the map stops growing and Nav2 stops.
 - [Lab setup](lab-setup.md) - how to get the stack running before any of this works.
+- [Scoreboard](scoreboard.md) - records evidence from this hub without sending movement commands.
 
 ## Where things stand
 

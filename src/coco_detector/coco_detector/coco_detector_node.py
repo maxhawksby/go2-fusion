@@ -32,7 +32,9 @@ class CocoDetectorNode(Node):
     def __init__(self):
         super().__init__("coco_detector_node")
         self.declare_parameter('device', 'auto')
-        self.declare_parameter('detection_threshold', 0.9)
+        # Minimum score for a detection. At 0.9 it ignored anything it wasn't
+        # 90% sure of and missed most objects; raise it if you see false ones.
+        self.declare_parameter('detection_threshold', 0.5)
         self.declare_parameter('publish_annotated_image', True)
         # Hz; <= 0 means no throttling. Full FasterRCNN inference on every
         # single incoming frame with no limit risked an unbounded growing
