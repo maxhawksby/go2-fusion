@@ -45,6 +45,29 @@ def wrap(a):
     return math.atan2(math.sin(a), math.cos(a))
 
 
+def oak_response(vx, vy, wz, u, min_walk_speed, min_turn_rate, sure_turn_rate,
+                 unsure_turn_success, turn_gain):
+    """The motion Oak makes for a velocity command, after its deadband and turn gain.
+
+    Below min_walk_speed Oak stands still; standing, it ignores turns slower
+    than min_turn_rate and makes turns below sure_turn_rate only when the
+    uniform draw u is under unsure_turn_success. Walking, any turn works.
+    """
+    if math.hypot(vx, vy) < min_walk_speed:
+        vx = vy = 0.0
+        rate = abs(wz)
+        if rate < min_turn_rate or (rate < sure_turn_rate and u >= unsure_turn_success):
+            wz = 0.0
+    return vx, vy, wz * turn_gain
+
+
+def blind_points(xy, blind_sectors, sector_count):
+    """True for each point whose azimuth (around base_link) falls in a blind sector."""
+    az = np.arctan2(xy[:, 1], xy[:, 0])
+    sector = ((az + math.pi) / (2 * math.pi) * sector_count).astype(int) % sector_count
+    return np.isin(sector, blind_sectors)
+
+
 def approach(current, target, max_step):
     if max_step <= 0:
         return target
@@ -63,6 +86,8 @@ class SimDriver(Node):
         self.scale_yaw = p('odom_scale_yaw', 0.0).value     # 0.02 = reports 2 % too much turn
         self.drift_yaw = p('odom_drift_yaw', 0.0).value     # rad of heading drift per m
         self.odom_rate = p('odom_rate', 15.0).value         # Hz, real Oak about 13
+        # Oak's driver leaves /odom's twist at 0, and Nav2's DWB reads it.
+        self.odom_true_speed = p('odom_true_speed', False).value
         self.base_height = p('base_height', 0.32).value     # base_link above the floor
         # Commands.
         self.latency = p('cmd_latency', 0.1).value          # s from /cmd_vel_out to motion
@@ -72,27 +97,41 @@ class SimDriver(Node):
         self.max_wz = p('max_vel_yaw', 2.0).value
         self.acc_xy = p('max_accel_xy', 1.5).value          # m/s^2, 0 = instant
         self.acc_yaw = p('max_accel_yaw', 3.0).value        # rad/s^2, 0 = instant
+        # Oak's deadband and turn gain (sim.yaml has the measurements).
+        self.min_walk_speed = p('min_walk_speed', 0.0).value
+        self.min_turn_rate = p('min_turn_rate', 0.0).value
+        self.sure_turn_rate = p('sure_turn_rate', 0.0).value
+        self.unsure_turn_success = p('unsure_turn_success', 1.0).value
+        self.turn_gain = p('turn_gain', 1.0).value
         # Lidar.
         self.lidar_mount = (p('lidar_x', 0.28945).value, p('lidar_y', 0.0).value,
                             p('lidar_z', -0.046825).value)
-        self.lidar_range = p('lidar_range', 12.0).value
+        self.lidar_range = p('lidar_range', 20.0).value
         # Points inside this box around base_link are Oak's own head and legs:
         # dropped, as on the real robot (its cloud has no points on its body).
         # Kept inside the 0.36 m nose so obstacles touching it stay visible.
         self.self_box = (p('self_filter_x', 0.32).value, p('self_filter_y', 0.18).value)
+        # Oak's floor smear and blind directions (sim.yaml has the measurements).
+        self.z_noise = p('lidar_z_noise', 0.0).value     # m, sd of each point's height
+        self.blind_fraction = p('lidar_blind_fraction', 0.0).value
+        self.blind_sector_count = int(p('lidar_blind_sectors', 36).value)
+        self.blind_hold = p('lidar_blind_hold', 10.0).value  # s before new blind sectors
         seed = p('seed', 0).value
         self.rng = np.random.default_rng(seed if seed > 0 else None)
 
         self.tf = TransformBroadcaster(self)
         self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
         self.joint_pub = self.create_publisher(JointState, 'joint_states', 10)
-        best_effort = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
-        self.cloud_pub = self.create_publisher(PointCloud2, 'point_cloud2', best_effort)
+        self.cloud_pub = self.create_publisher(
+            PointCloud2, 'point_cloud2',
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.gz_cmd_pub = self.create_publisher(Twist, '/sim/cmd_vel', 10)
 
         self.create_subscription(Twist, 'cmd_vel_out', self.on_cmd, 10)
         self.create_subscription(Odometry, '/sim/ground_truth/odom', self.on_truth, 50)
-        self.create_subscription(PointCloud2, '/sim/lidar/points', self.on_points, best_effort)
+        self.create_subscription(
+            PointCloud2, '/sim/lidar/points', self.on_points,
+            QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT))
 
         self.pending = deque()          # (due time ns, Twist)
         self.target = (0.0, 0.0, 0.0)
@@ -105,8 +144,10 @@ class SimDriver(Node):
         # go2.urdf also has a fixed odom -> base_link joint at floor level. A
         # cloud sent before our odometry starts is placed with that one, so the
         # floor lands in /scan's band and SLAM draws rings of fake wall around
-        # the start. The real driver has odometry before its first cloud.
+        # the start.
         self.odom_started = False
+        self.blind = np.array([], dtype=int)
+        self.blind_drawn_ns = None
 
         self.cmd_period = 0.02
         self.create_timer(self.cmd_period, self.step_cmd)
@@ -125,9 +166,12 @@ class SimDriver(Node):
         now = self.get_clock().now().nanoseconds
         while self.pending and self.pending[0][0] <= now:
             _, msg = self.pending.popleft()
-            self.target = (max(-self.max_vx, min(self.max_vx, msg.linear.x)),
-                           max(-self.max_vy, min(self.max_vy, msg.linear.y)),
-                           max(-self.max_wz, min(self.max_wz, msg.angular.z)))
+            self.target = oak_response(
+                max(-self.max_vx, min(self.max_vx, msg.linear.x)),
+                max(-self.max_vy, min(self.max_vy, msg.linear.y)),
+                max(-self.max_wz, min(self.max_wz, msg.angular.z)),
+                self.rng.random(), self.min_walk_speed, self.min_turn_rate,
+                self.sure_turn_rate, self.unsure_turn_success, self.turn_gain)
             self.target_time = now
         if self.target_time is None or (now - self.target_time) * 1e-9 > self.cmd_timeout:
             self.target = (0.0, 0.0, 0.0)
@@ -168,8 +212,9 @@ class SimDriver(Node):
         ox, oy, oyaw = self.odom
         c, s = math.cos(oyaw), math.sin(oyaw)
         self.odom = [ox + c * nx - s * ny, oy + s * nx + c * ny, wrap(oyaw + nyaw)]
-        tw = msg.twist.twist
-        self.odom_twist = (tw.linear.x, tw.linear.y, tw.angular.z)
+        if self.odom_true_speed:
+            tw = msg.twist.twist
+            self.odom_twist = (tw.linear.x, tw.linear.y, tw.angular.z)
 
         now = self.get_clock().now()
         if self.last_odom_pub is not None and \
@@ -224,6 +269,14 @@ class SimDriver(Node):
         pts = pts + np.array(self.lidar_mount)
         body = (np.abs(pts[:, 0]) < self.self_box[0]) & (np.abs(pts[:, 1]) < self.self_box[1])
         pts = pts[~body]
+        now_ns = self.get_clock().now().nanoseconds
+        if self.blind_drawn_ns is None or (now_ns - self.blind_drawn_ns) * 1e-9 >= self.blind_hold:
+            count = int(round(self.blind_fraction * self.blind_sector_count))
+            self.blind = self.rng.choice(self.blind_sector_count, count, replace=False)
+            self.blind_drawn_ns = now_ns
+        pts = pts[~blind_points(pts, self.blind, self.blind_sector_count)]
+        if self.z_noise > 0:
+            pts[:, 2] += self.rng.normal(0.0, self.z_noise, len(pts))
         # base_link -> odom, with Oak's own (noisy) pose estimate.
         x, y, yaw = self.odom
         c, s = math.cos(yaw), math.sin(yaw)

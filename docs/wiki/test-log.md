@@ -58,7 +58,7 @@ Earlier tests ran on `f85e703` (fusion before Luis's update); marked "old code" 
 
 ## Open issues
 
-Open work is not kept on this page. Checks still owed from past sessions are GitHub issues:
+Open work is not kept on this page. Checks still owed from past sessions were GitHub issues. Both were closed as not planned in the 2026-11-15 issue reset. Their text stays searchable, and work that still matters gets a new, smaller issue under [#58](https://github.com/maxhawksby/go2-fusion/issues/58):
 
 - [#71](https://github.com/maxhawksby/go2-fusion/issues/71): the retests left open since the 2026-10-11 session.
 - [#57](https://github.com/maxhawksby/go2-fusion/issues/57): the 2026-11-08 hallway failure and the supervised lab safety mode.
@@ -75,7 +75,7 @@ Tips that are not tasks: WSL has 7.4 GB RAM, so keep builds at `-j4` / 2 workers
 
 ## How it breaks
 
-- **It goes stale.** The last recorded session is 2026-10-11. Luis's auto mapper work and later fixes have no logged robot session yet. TODO(owner): add sessions since then.
+- **It goes stale.** The newest recorded session is [2026-11-08](#2026-11-08---isl-lab-oak-wi-fi-webrtc): the first scoreboard run on Oak and the hallway auto mapper failure. A session nobody writes up here is lost to the rest of the team.
 
 ## How to add a session
 
@@ -83,6 +83,6 @@ Add a new `## <date> - <place>, Oak, <Wi-Fi or Ethernet>` section above the newe
 
 ## Who's on it and what's next
 
-Max keeps the log. Next: the retests above, and Luis's full exploration tests with the auto mapper.
+Max keeps the log. Next: the checks from the closed issues above that still matter, and Luis's full exploration tests with the auto mapper.
 
 <!-- sources: docs/TEST_LOG.md (whole file, folded in here and deleted 2026-10-22); docs/FUSION.md "Follow-ups for the team" 4; README.md open issues; team update 2026-10-18 (Luis next: full exploration tests); git log c18ca87 -->

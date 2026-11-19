@@ -62,6 +62,7 @@ You are set up. From here, the [Docker](docker.md) page explains the daily edit 
 3. [Mac setup](mac-setup.md) - running the container on a Mac, with RViz through XQuartz.
 4. [Command cheat sheet](commands.md) - copy-paste commands for RViz, the map viewers, keyboard driving, auto mapping and rebuilds.
 5. [Lab checklist](lab-checklist.md) - what to do before and at the lab to connect to the real Oak.
+   - [Next lab visit](lab-visit.md) - the run sheet for the next visit: what to record and measure, in order.
 6. [Test log](test-log.md) - what we tested on Oak, what passed, and what is still open.
 7. [Simulator](simulator.md) - a pretend Oak in Gazebo: watch the auto mapper with no robot, or run it 10 times and get a score table.
 8. [Experiments](experiments.md) - the lab notebook of every simulator experiment: what we changed, the numbers, why runs quit, and what we learned.
@@ -79,9 +80,9 @@ Ask a teammate for them, then follow the [Lab checklist](lab-checklist.md).
 
 ## Who's on it
 
-- Noah wrote a repeatable lab-testing workflow for his Oak Control dashboard (`docs/DASHBOARD_LAB_GUIDE.md` on branch `feat/desktop-app-prototype`, not on master yet). He also moved all ROS packages into `src/` and organized the root docs.
+- Noah wrote a repeatable lab-testing workflow for his Oak Control dashboard (`docs/DASHBOARD_LAB_GUIDE.md` on branch `feat/desktop-app-prototype`; its pull request [#14](https://github.com/maxhawksby/go2-fusion/pull/14) was closed without merging on 2026-10-26, so it will not reach master as it is). He also moved all ROS packages into `src/` and organized the root docs.
 - Adib wrote the [Mac setup](mac-setup.md) (`docker/mac/`).
 - Max keeps the [test log](test-log.md).
-- TODO(owner): confirm the minimum laptop RAM (the README says about 16 GB).
+- TODO(owner): what is the minimum laptop RAM? The README says about 16 GB. The records show only that one build crashed with 7.4 GB for WSL ([Test log](test-log.md)) and that the headless simulator ran in 6 GB ([Simulator](simulator.md)).
 
 <!-- sources: README.md "Start here" steps; CONTRIBUTING.md one-time setup and edit loop; AGENTS.md build section; docker/entrypoint.sh (submodule message, colcon build); docker/LAB_CHECKLIST.md (~15 min rebuild); docs/RUNNING_IN_WSL.md (WSL integration); docs/TEST_LOG.md (7.4 GB OOM, -j4 / 2 workers, open issue 5); macos_setup.md; docker/mac/go2.sh; git log 7fc71a8, cc38921, f0dba33; origin/feat/desktop-app-prototype docs/DASHBOARD_LAB_GUIDE.md -->

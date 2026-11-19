@@ -7,13 +7,16 @@ name: Wiki refresh
 on:
   push:
     branches-ignore: [master]
+  # Runs from master's copy of this file, never the pull request's code.
+  pull_request_target:
+    types: [opened, reopened, review_requested, ready_for_review, closed]
 
 permissions:
   actions: write
 
-concurrency:
-  group: wiki-refresh
-  cancel-in-progress: true
+# No concurrency group: this job only asks for a rebuild and ends in seconds.
+# Cancelling it showed pull requests a red check; the Wiki site workflow's own
+# group already collapses the rebuilds.
 
 jobs:
   refresh:

@@ -28,11 +28,10 @@ on:
     types: [opened, edited, labeled, unlabeled, closed, reopened]
   issue_comment:
     types: [created, edited, deleted]
-  pull_request_target:
-    # no "synchronize": a push to a pull request's branch already asks for a
-    # rebuild through wiki-refresh.yml, and two runs at once cancel one
-    # another, which shows the pull request a cancelled check
-    types: [opened, reopened, review_requested, ready_for_review, closed]
+  # No pull_request_target: a run started by a pull request shows on it as a
+  # check, and the concurrency group below cancels it whenever any other
+  # event rebuilds the site. Pull request events ask for a rebuild through
+  # wiki-refresh.yml instead.
   schedule:
     - cron: "17 * * * *"  # hourly safety net; events above cover most changes
   workflow_dispatch:

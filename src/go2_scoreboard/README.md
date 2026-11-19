@@ -27,5 +27,11 @@ Replay a recorded bag:
 ros2 run go2_scoreboard replay /path/to/run/bag --out /path/to/replays
 ```
 
+Read a lab recording into stop distance, command latency or object visibility:
+
+```shell
+ros2 run go2_scoreboard lab_measure /path/to/lab_stop --kind stop
+```
+
 See [the Scoreboard wiki page](../../docs/wiki/scoreboard.md) for topics,
 services, output files and failure modes.
