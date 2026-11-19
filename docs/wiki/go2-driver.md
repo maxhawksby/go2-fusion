@@ -2,7 +2,7 @@
 title: Go2 driver
 parent: driver
 code: [src/go2_robot_sdk/**]
-verified: c41860ecdc70
+verified: eabbd534344a
 ---
 
 # Go2 driver
@@ -17,6 +17,15 @@ Part of: [Driver](driver.md)
 When data arrives from the dog it decodes it and publishes `/odom`, `/imu`, `/joint_states`, `/point_cloud2`, `/camera/image_raw`, `/camera/camera_info` and `/go2_states`.
 When a command arrives on `/cmd_vel_out` or `/webrtc_req`, it sends it to the dog.
 A zero velocity is forwarded too, as an explicit stop (an older version dropped zeros, so "stop" never arrived).
+
+**Stale-sensor stop.** Nav2 and the auto mapper steer by the lidar and odometry. If those stop arriving, they keep driving on an old picture of the room. So the driver only forwards a move while its sensors are fresh: odometry, the lidar (when `decode_lidar` is on), and (with one robot) the `/scan` that Nav2's costmap reads. `/scan` is watched whenever `sensor_watch_scan` is on, even with lidar decoding off, because Nav2 can still drive on it. If any of them has sent nothing for `sensor_timeout_sec` (default 1 second), the driver sends the dog a stop instead of the move, and stops it at once if it was already moving. When fresh data comes back, the next move goes through again. Before the first data arrives after start, Oak also will not move. Teleop and the gamepad are held too; sit and stand requests (`/webrtc_req`) are not. Only the WebRTC (Wi-Fi) link is watched; CycloneDDS is not.
+
+Each stop and each resume is reported on `/safety/events` (a `diagnostic_msgs/DiagnosticStatus`, for the scoreboard). `sensor_stale` (level WARN) says which sensors went quiet and how old their data is (`sensor`, `age_s`); `sensor_fresh` (level OK) says they are back, plus how long Oak was held (`stopped_s`). The robot number is in `hardware_id`. This topic is temporary: once Noah's scoreboard event stream (`/auto_mapper/events`, PR #47) is on master, the driver will report these there instead.
+
+Parameters (change live with `ros2 param set /go2_driver_node <name> <value>`):
+
+- `sensor_timeout_sec` (1.0) - how old sensor data may get before Oak is held still. 0 turns the stop off.
+- `sensor_watch_scan` (true) - also require `/scan`, whether or not lidar is decoded. Turn it off only when running the driver without the laser-scan converter, or Oak will never move. `webrtc_web.launch.py` has no converter, so it turns this off.
 
 The code is split into layers: `domain/` (plain data and constants, like the robot command numbers), `application/` (what to do with data and commands), `infrastructure/` (the WebRTC link, decoders, ROS publishing) and `presentation/` (the ROS node itself).
 
@@ -43,6 +52,8 @@ Other launch files (`robot_cpp`, `navigation`, `mapping`, `webrtc_web`) are vari
 
 - **Oak walked into a wall** (2026-10-11, old code): the driver dropped every zero velocity, so stop never reached the dog. Fixed; on new code the stop arrived.
 - **Data stalls:** the camera kept streaming but lidar and odometry went silent after a Ctrl+C. The driver now treats 5 seconds without data as a lost connection and reconnects. A forced restart also recovered it then: `docker compose up -d --force-recreate`.
+- **Oak will not move and the log says `Not moving robot 0: no fresh ...`.** The stale-sensor stop is holding it. The message names the quiet sensor. If it is `scan`, check the laser-scan converter is running (`ros2 topic hz /scan`). If it is `lidar` or `odom`, the robot link stalled; the reconnect above should bring it back, and Oak moves again on its own.
+- **Short stops while driving** mean the data arrived more than 1 second late. On a weak Wi-Fi link that may happen often. TODO(max): measure how often on Oak before tuning `sensor_timeout_sec`.
 - **Lidar or camera silent after a reconnect** (October 2026): odometry came back but the cloud or the camera did not, and the 5-second check could not see it because other data kept arriving. The driver now watches the lidar and the camera on their own; see [Robot link](robot-link.md). Every 30 s it logs how fast each arrives, as a line like `Robot 0 streams: lidar 6.8/s, camera …/s`.
 - **One bad video frame used to end the camera feed for good.** Now it gives up only after 10 errors in a row.
 - **`ElevenLabs API key not provided`** in the logs is the text-to-speech node, not the driver. Ignore it.

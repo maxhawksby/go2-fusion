@@ -11,6 +11,7 @@
   <depend>go2_interfaces</depend>
   <!-- unitree_go merged into go2_interfaces -->
   <depend>sensor_msgs</depend>
+  <depend>diagnostic_msgs</depend>
 
   <exec_depend>twist_mux</exec_depend>
   <exec_depend>joy</exec_depend>
