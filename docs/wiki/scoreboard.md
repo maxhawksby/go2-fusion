@@ -17,6 +17,12 @@ Part of: [Maps and navigation](maps-nav.md)
 
 - Time, odometry distance and known map area.
 - Goal outcomes and recovery or stale-sensor events from the [Auto mapper](auto-mapper.md).
+- Why the run ended. When the auto mapper is stopped from outside (the trial
+  runner or the RViz panel), the end reason says "explorer stopped". If the
+  auto mapper was frozen on a stop at that moment, such as "no safe direction",
+  the scoreboard adds it: `explorer stopped (stop latched: no safe direction ...)`.
+  A stop that already let go is not added. Only stale-sensor stops count as
+  safety stops.
 - Collisions from the simulator bumper or a manual marker on Oak.
 - Human touches marked by the operator.
 - Container and ROS-process CPU and memory use.

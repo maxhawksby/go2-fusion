@@ -1426,6 +1426,8 @@ class FrontierExplorer(Node):
             self.goal_cancelled_for_scan = True
             self.current_goal_handle.cancel_goal_async()
 
+        if self.recovery_fault:
+            self.emit_event('stop_cleared', self.recovery_fault)
         self.recovery_fault = None
         self.fault_refresh = None
         self.fault_checked_stamp = None
@@ -1493,9 +1495,10 @@ class FrontierExplorer(Node):
         # publishes on the same mux input and would overwrite the zero.
         self.recovery_move = None
         self._hold_stop()
-        if ((refresh is not None or 'stale' in reason or 'missing' in reason)
-                and hasattr(self, 'emit_event')):
-            self.emit_event('sensor_stale', reason)
+        if hasattr(self, 'emit_event'):
+            if refresh is not None or 'stale' in reason or 'missing' in reason:
+                self.emit_event('sensor_stale', reason)
+            self.emit_event('stop_latched', reason)
         self.get_logger().error(
             f'Recovery stopped: {reason} '
             'A later fresh scan can clear this; Scan clears it now.'
@@ -2121,7 +2124,10 @@ class FrontierExplorer(Node):
             # precedence over a recovery translation.
             if self.recovery_fault or self.orphans or self.maneuver_stopping:
                 self.recovery_move = None
+                latched = self.recovery_fault
                 self._consider_clearing_fault()
+                if latched and not self.recovery_fault:
+                    self.emit_event('stop_cleared', latched)
                 return
             if self.recovery_move is not None:
                 self.tick_recovery()

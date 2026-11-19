@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: fe57b5fed706
+verified: dceb4687ca42
 ---
 
 # Auto mapper
@@ -43,8 +43,9 @@ ownership and scoring repairs separate when comparing behavior.
 
 At the same state transitions it publishes structured, reliable
 `/auto_mapper/events` messages for the [Scoreboard](scoreboard.md): exploration
-start/stop/completion, goal sent/accepted/outcome, recovery start/finish and
-stale sensing. These messages observe existing choices; they do not choose a
+start/stop/completion, goal sent/accepted/outcome, recovery start/finish,
+stale sensing, and each time it freezes on a stop (`stop_latched`, with the
+reason) or lets go of one (`stop_cleared`). These messages observe existing choices; they do not choose a
 frontier, change a threshold or send motion.
 
 **Buttons.** The RViz AutoMapper panel has **Start/Stop**, **Scan** (pause the goal, forget recent failures, turn 360 degrees; the same as calling `/frontier_explorer/scan`) and **Reset maps** (restart SLAM with an empty 2D map and clear the 3D point cloud).
