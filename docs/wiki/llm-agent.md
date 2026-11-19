@@ -2,7 +2,7 @@
 title: LLM agent
 parent: brains
 code: [src/go2_llm_agent/**]
-verified: 0b77d52b63f9
+verified: 96e1ea24f469
 ---
 
 # LLM agent
@@ -13,21 +13,21 @@ Part of: [Brains](brains.md)
 
 ## How it works
 
-An *LLM* (large language model) is the kind of AI behind chatbots. The agent hands your sentence to the model, and the model answers with a short plan: a list of steps such as "walk forward 3 s" and "turn left 90 degrees". The agent then runs each step by publishing speeds on its own drive topic.
+An *LLM* (large language model) is the kind of AI behind chatbots. Familiar, complete commands use a small local parser immediately; other wording goes to Qwen for interpretation. Both paths produce the same action plan, such as "walk forward 3 s" and "turn left 90 degrees". The agent runs each step by publishing speeds on its own drive topic. The local parser skips the model call; it does not skip the agent or its movement controller.
 
 **Two versions exist right now.**
 
-- **On `master` (Riley's original):** built by Riley Francis on OpenAI's paid GPT-4o-mini, using the LangChain and LangGraph libraries. We brought it in almost as-is. Its Python libraries are deliberately not installed in our Docker image, so it builds but `ros2 run` fails on missing imports.
+- **On upstream `master` before this branch merges (Riley's original):** built by Riley Francis on OpenAI's paid GPT-4o-mini, using the LangChain and LangGraph libraries. We brought it in almost as-is. Its Python libraries are deliberately not installed in our Docker image, so it builds but `ros2 run` fails on missing imports.
 - **On branch `adib/feat/llm-agent` (the team's direction):** Adib replaced the paid model with **Ollama**, a free program that runs AI models on your own computer, running a small **Qwen** model (`qwen3:4b-instruct-2507-q4_K_M`). No API key and no extra Python libraries are needed.
 
-In Adib's version, a local checker validates every plan before anything moves: at most 4 steps, each timed move at most 5 s, walking at 0.2 m/s and turning at 0.5 rad/s. If any part of a request is unsupported, nothing runs. Typing `stop` cancels right away, without waiting for the model. Angle turns ("turn left 90 degrees") watch Oak's heading on `/odom` and stop when the turn is done, instead of guessing from time.
+In Adib's version, a local checker validates every plan before anything moves. Walking uses 0.5 m/s and turning uses 1.5 rad/s. Positive durations and angles have no fixed upper cap, and there is no fixed action-count or total-plan duration cap. Input and model-output sizes remain bounded; incomplete plans do not execute. Typing `stop` cancels locally without waiting for Qwen. Angle turns ("turn left 90 degrees") watch Oak's measured heading on `/odom`. The controller slows near the target, corrects overshoot and waits for fresh readings to show a stable final heading. Missing or stale feedback refuses the turn. A completion deadline stops stalled turns; it never declares an angle reached. Physical turning accuracy needs lab measurement.
 
 Example, in simulation (the default, which moves nothing):
 
 ```text
 go2> walk backward for one second
-[SIMULATION] velocity: forward=-0.2 m/s, left-turn=0 rad/s
-Completed; stopped.
+[SIMULATION] velocity: forward=-0.5 m/s, left-turn=0 rad/s
+Finished publishing this plan; sent stop. Robot movement is not acknowledged.
 ```
 
 **The Claude plan was dropped.** On 2026-10-08 the team planned to rebuild the agent on Anthropic's Claude. That plan is superseded by Adib's Ollama agent, because Ollama runs free and local with no paid API key, and its plan file was deleted (git history keeps it). See [Decisions](decisions.md).
