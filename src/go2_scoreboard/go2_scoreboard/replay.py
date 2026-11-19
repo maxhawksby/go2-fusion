@@ -19,27 +19,32 @@ def _stamp_seconds(message, bag_timestamp_ns):
     return float(bag_timestamp_ns) * 1e-9
 
 
-def replay_bag(bag_path, output_dir, ground_truth_path='', start_pose=(0.0, 0.0, 0.0)):
+def open_bag(bag_path):
+    """Open a rosbag2 folder: its reader, the message class per topic, and warnings."""
     try:
         import rosbag2_py
-        from rclpy.serialization import deserialize_message
         from rosidl_runtime_py.utilities import get_message
     except ImportError as error:
         raise RuntimeError('rosbag2_py and ROS message support are required for replay') from error
 
-    storage = rosbag2_py.StorageOptions(
-        uri=os.path.abspath(bag_path), storage_id='sqlite3')
-    converter = rosbag2_py.ConverterOptions('', '')
     reader = rosbag2_py.SequentialReader()
-    reader.open(storage, converter)
-    topic_types = {item.name: item.type for item in reader.get_all_topics_and_types()}
+    reader.open(
+        rosbag2_py.StorageOptions(uri=os.path.abspath(bag_path), storage_id='sqlite3'),
+        rosbag2_py.ConverterOptions('', ''))
     message_types = {}
     warnings = []
-    for topic, type_name in topic_types.items():
+    for item in reader.get_all_topics_and_types():
         try:
-            message_types[topic] = get_message(type_name)
+            message_types[item.name] = get_message(item.type)
         except (AttributeError, ModuleNotFoundError, ValueError) as error:
-            warnings.append(f'could not load {type_name} on {topic}: {error}')
+            warnings.append(f'could not load {item.type} on {item.name}: {error}')
+    return reader, message_types, warnings
+
+
+def replay_bag(bag_path, output_dir, ground_truth_path='', start_pose=(0.0, 0.0, 0.0)):
+    from rclpy.serialization import deserialize_message
+
+    reader, message_types, warnings = open_bag(bag_path)
 
     # Bags deliberately begin while the recorder is WAITING, so they contain
     # pre-mission odometry and maps. Discover whether a real start event exists
@@ -55,8 +60,7 @@ def replay_bag(bag_path, output_dir, ground_truth_path='', start_pose=(0.0, 0.0,
             if event.event_type == 'exploration_started':
                 has_start_event = True
                 break
-    reader = rosbag2_py.SequentialReader()
-    reader.open(storage, converter)
+    reader, _, _ = open_bag(bag_path)
 
     run_id = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S_replay')
     accumulator = RunAccumulator(run_id=run_id, source='replay', run_label='replay')

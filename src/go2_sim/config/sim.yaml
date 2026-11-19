@@ -1,6 +1,7 @@
 # Dials for the simulated Oak driver (sim_driver.py). Launch arguments of the
 # same name in sim.launch.py override the most used ones. docs/wiki/simulator.md
-# explains each. TODO(owner): measure the real values on Oak.
+# explains each. Values marked 'Oak' were measured from the 2026-11-16 run
+# rosbags (issue #129, evidence in #124, #125, #127).
 go2_sim_driver:
   ros__parameters:
     # Odometry error. Noise grows with the square root of distance (or turn),
@@ -10,21 +11,46 @@ go2_sim_driver:
     odom_scale_xy: 0.0       # 0.02 = odometry says 2 % farther than true
     odom_scale_yaw: 0.0      # 0.02 = odometry says 2 % more turn than true
     odom_drift_yaw: 0.0      # rad of heading drift per metre walked
-    odom_rate: 15.0          # Hz; the real driver gives about 13 (driver.md)
-    base_height: 0.32        # m, base_link above the floor
+    odom_rate: 18.0          # Hz; Oak 2026-11-16: about 18
+    odom_true_speed: false   # true = /odom carries Gazebo's speed; Oak's always says 0
+    base_height: 0.377       # m, base_link above the floor; Oak 2026-11-16: 0.377
     # Commands
-    cmd_latency: 0.1         # s between /cmd_vel_out and Oak starting to move
+    # Oak 2026-11-16: 2.2-2.4 s from command to motion in the rosbag record
+    # times, part of it /odom transport delay, so 2.3 s is an upper bound.
+    # 1.0 is a chosen middle until the delay is split.
+    cmd_latency: 1.0         # s between /cmd_vel_out and Oak starting to move
     cmd_timeout: 0.5         # s without a command before Oak stops
     max_vel_x: 1.0
     max_vel_y: 0.6
     max_vel_yaw: 2.0
     max_accel_xy: 1.5        # m/s^2 (0 = instant)
     max_accel_yaw: 3.0       # rad/s^2 (0 = instant)
+    # Deadband. Below min_walk_speed Oak stands still (inferred, low
+    # confidence: |vx| < 0.15 m/s gave no motion). Standing, it ignores turns
+    # under min_turn_rate (Oak: none below 0.3 rad/s), makes turns under
+    # sure_turn_rate only unsure_turn_success of the time (Oak: 45-73 % at
+    # 0.3-0.6 rad/s, 96 % at 0.8+). Walking, small turns work (Oak, vx > 0.2).
+    min_walk_speed: 0.15     # m/s
+    min_turn_rate: 0.3       # rad/s
+    sure_turn_rate: 0.8      # rad/s
+    unsure_turn_success: 0.6
+    turn_gain: 0.8           # Oak: 1.0 rad/s commanded gave 0.72-0.87
     # Lidar mount: go2.urdf's radar_joint
     lidar_x: 0.28945
     lidar_y: 0.0
     lidar_z: -0.046825
-    lidar_range: 12.0
+    lidar_range: 20.0
     self_filter_x: 0.32      # drop points of Oak's own head and legs
     self_filter_y: 0.18
+    # Floor smear: height noise on every point. Oak's floor 1-2 m away spreads
+    # from -0.50 to -0.20 m in base_link, mean -0.40, 2.3 % above -0.25. A
+    # 0.065 m sd around the true floor (-0.377) puts 2.6 % above -0.25 (fit).
+    lidar_z_noise: 0.065     # m
+    # Blind directions: no returns in this fraction of azimuth sectors, drawn
+    # again every lidar_blind_hold seconds, so the local costmap keeps unknown
+    # cells beside Oak. Oak: 42-51 % of local cells within 1 m unknown, the
+    # nearest 0.24 m from the body. 0.45 is chosen to match, not measured.
+    lidar_blind_fraction: 0.45
+    lidar_blind_sectors: 36  # 10 degree sectors
+    lidar_blind_hold: 10.0   # s
     seed: 0                  # 0 = different noise every run

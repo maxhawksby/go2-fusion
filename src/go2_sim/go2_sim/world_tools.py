@@ -40,7 +40,7 @@ REQUIRED_WORLD_PLUGINS = [
 # ----------------------------------------------------------------------------
 
 def render_robot(template_text, base_height=0.32, lidar_rate=5.0,
-                 lidar_range=12.0, lidar_samples=720, lidar_noise=0.01, camera_rate=0.0):
+                 lidar_range=20.0, lidar_samples=720, lidar_noise=0.01, camera_rate=0.0):
     """Fill the $fields of the Oak model template (models/oak/model.sdf.template).
 
     base_height is how high base_link rides above the floor; the feet slab,
@@ -424,6 +424,48 @@ def sample_start_pose(grid, rng, clearance=0.7, tries=20000):
     y = grid.origin_y + (rows[i] + 0.5) * grid.resolution
     yaw = float(rng.uniform(-math.pi, math.pi))
     return float(x), float(y), yaw
+
+
+# A backpack lying on the floor, as Oak walked into on 2026-11-16 (#127): about
+# 0.45 x 0.30 m and 0.2 m tall (not measured). Lower than the ground truth's
+# height band, so it never changes the map a run is scored against.
+FLOOR_OBJECT_SIZE = (0.45, 0.30, 0.20)
+
+
+def place_floor_objects(grid, rng, start_pose, count=3, wall_clearance=0.5,
+                        start_clearance=1.5, spacing=1.0, tries=2000):
+    """Up to count (x, y, yaw) spots for floor objects on open floor: clear of
+    walls and furniture, away from the start pose and from each other."""
+    inside = interior_mask(grid)
+    open_floor = inside & ~dilate(~inside, int(math.ceil(wall_clearance / grid.resolution)))
+    rows, cols = np.nonzero(open_floor)
+    spots = []
+    for _ in range(tries):
+        if len(spots) == count or len(rows) == 0:
+            break
+        i = int(rng.integers(len(rows)))
+        x = grid.origin_x + (cols[i] + 0.5) * grid.resolution
+        y = grid.origin_y + (rows[i] + 0.5) * grid.resolution
+        if math.hypot(x - start_pose[0], y - start_pose[1]) < start_clearance:
+            continue
+        if any(math.hypot(x - sx, y - sy) < spacing for sx, sy, _ in spots):
+            continue
+        spots.append((float(x), float(y), float(rng.uniform(-math.pi, math.pi))))
+    return spots
+
+
+def add_floor_objects(world_text, spots, size=FLOOR_OBJECT_SIZE):
+    """The world SDF with one static floor box (size x, y, z) at each spot."""
+    sx, sy, sz = size
+    models = ''
+    for i, (x, y, yaw) in enumerate(spots):
+        geometry = f'<geometry><box><size>{sx} {sy} {sz}</size></box></geometry>'
+        models += (f'    <model name="floor_object_{i}"><static>true</static>'
+                   f'<pose>{x:.3f} {y:.3f} {sz / 2:.3f} 0 0 {yaw:.4f}</pose><link name="link">'
+                   f'<collision name="collision">{geometry}</collision>'
+                   f'<visual name="visual">{geometry}</visual></link></model>\n')
+    idx = world_text.rfind('</world>')
+    return world_text[:idx] + models + world_text[idx:]
 
 
 def score_completeness(gt, slam, start_pose, wall_margin=0.10):

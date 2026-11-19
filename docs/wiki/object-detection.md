@@ -17,7 +17,7 @@ Part of: [Senses](senses.md)
 
 **Guessing where.** Oak has one ordinary camera, not a depth camera, so it cannot measure distance directly. The node guesses instead:
 
-- Direction comes from where the box sits left to right in the picture (it assumes the camera sees 90 degrees wide).
+- Direction comes from where the box sits left to right in the picture. It assumes the camera sees 90 degrees wide ([detector_node.py](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/object_detection/object_detection/detector_node.py#L148)); the lens calibration says about 73 degrees ([front_camera_720.yaml](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/go2_robot_sdk/calibration/front_camera_720.yaml)).
 - Distance comes from box height: distance = 1 / (box height / picture height). A box that fills the whole picture counts as 1 m away, a box half as tall as 2 m. It is like judging how far a person is by how tall they look.
 
 **Remembering.** Each guess goes into a small memory, a dictionary of IDs like `chair_1` and `chair_2`. A new box within about 0.5 m of a remembered object of the same class is treated as the same object and keeps its ID; otherwise it gets the next number. Anything not seen for 20 seconds is forgotten. The memory is published as JSON text, for example `{"chair_1": {"x": 2.1, "y": -0.3}}`, where x is meters ahead and y is meters to the side.
@@ -75,7 +75,7 @@ Topics (a topic is a named channel that ROS programs publish messages to and lis
 - **First run needs internet.** `ultralytics` downloads a font the first time it draws boxes, and `coco_detector` downloads its network.
 - **People forecasts are only as good as the positions.** They use the same rough distance guess. A person partly out of the picture seems to jump away, which looks like a fast walk for a moment. The straight line ignores turns and other people.
 - **No people without TF.** People need the `odom` pose from the driver; without it the node warns every 5 s ("No odom pose, people not tracked") and `/people` stays quiet. Objects still work.
-- **YOLOE is untested on Oak.** TODO(Luis): confirm `yoloe-26s-seg.pt` downloads and runs in the container (it also downloads a text model for `classes`), and how many pictures a second it manages on the CPU.
+- **YOLOE is untested on Oak.** The first time `classes` is set, YOLOE downloads a 254 MB text model (`mobileclip2_b.ts`, the `text_model` that Ultralytics 8.4.174's YOLOE-26 config names), so the first start needs internet and takes longer ([detector_node.py](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/src/object_detection/object_detection/detector_node.py#L93-L94), [requirements.txt](https://github.com/maxhawksby/go2-fusion/blob/426e5314386451e7720971e3eb55b425584e859e/requirements.txt#L13)). TODO(Luis): does `yoloe-26s-seg.pt` run in the container, and how many pictures a second does it manage on the CPU?
 
 ## Who's on it and what's next
 

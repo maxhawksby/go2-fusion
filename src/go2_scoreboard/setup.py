@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'recorder = go2_scoreboard.recorder:main',
             'replay = go2_scoreboard.replay:main',
+            'lab_measure = go2_scoreboard.lab_measure:main',
         ],
     },
 )

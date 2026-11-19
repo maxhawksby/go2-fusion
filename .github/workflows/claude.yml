@@ -30,6 +30,23 @@ jobs:
         with:
           fetch-depth: 1
 
+      # The action treats a pull request opened by a bot as untrusted and then
+      # denies python, pytest and npx, so reviews of Claude's own pull requests
+      # could not run tests. A branch in this repo can only be pushed by someone
+      # with write access, so only pull requests from forks stay restricted.
+      - name: Restrict only pull requests from forks
+        id: trust
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || (github.event.issue.pull_request && github.event.issue.number) || '' }}
+        run: |
+          restrict=true
+          if [ -n "$PR" ] && [ "$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json isCrossRepository --jq .isCrossRepository)" = "false" ]; then
+            restrict=false
+          fi
+          echo "restrict=$restrict" >> "$GITHUB_OUTPUT"
+          echo "Pull request ${PR:-none}: restrict_untrusted_prs=$restrict"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -37,6 +54,19 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/michael-denyer/pstack-claude.git'
           plugins: 'pstack@pstack-claude'
+          restrict_untrusted_prs: ${{ steps.trust.outputs.restrict }}
+          # Opus, so a teammate who asks "@claude fix this" gets the same model and
+          # pstack playbooks as a ready-for-agent run. Without this line the action
+          # picks Sonnet.
+          # Python, pytest and the wiki check are allowed so an "@claude review"
+          # can prove findings with a run. Tests that count run in ROS Humble
+          # through .github/scripts/humble-pytest.sh, on this repo's branches only.
+          # Merging stays blocked.
+          claude_args: |
+            --model opus
+            --allowedTools "Bash(python3:*),Bash(python3 -m pytest:*),Bash(pytest:*),Bash(pip install:*),Bash(python3 -m pip install:*),Bash(npx hypatia:*),Bash(git fetch:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git merge-tree:*)${{ steps.trust.outputs.restrict == 'false' && ',Bash(.github/scripts/humble-pytest.sh:*)' || '' }}"
+            --append-system-prompt "Oak runs ROS 2 Humble on Python 3.10; this runner has a newer Python. To prove a test result, run it in Humble with .github/scripts/humble-pytest.sh PYTHONPATH=src/<package> -q <test paths> and quote that output. Treat a result from the runner's own python3 as a quick check only."
+            --disallowedTools "Bash(gh pr merge:*)"
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |

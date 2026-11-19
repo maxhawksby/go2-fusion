@@ -7,7 +7,8 @@ import time
 
 
 DEFAULT_TOPICS = (
-    '/map', '/odom', '/scan', '/local_costmap/costmap', '/cmd_vel_out',
+    '/map', '/odom', '/scan', '/point_cloud2', '/local_costmap/costmap',
+    '/cmd_vel', '/cmd_vel_mapper', '/cmd_vel_out',
     '/auto_mapper/events',
     '/scoreboard/status', '/navigate_to_pose/_action/status', '/tf', '/tf_static',
     '/rosout', '/clock', '/sim/bumper',

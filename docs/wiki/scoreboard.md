@@ -2,7 +2,7 @@
 title: Scoreboard
 parent: maps-nav
 code: [src/go2_scoreboard/**]
-verified: 8d317800c468
+verified: a3fcf644db0b
 ---
 
 # Scoreboard
@@ -59,6 +59,13 @@ Git. It contains `run.json`, `scorecard.csv`, `report.md`, `timeline.csv`,
 `index.csv` has one row per run. Files are replaced atomically, so an interrupted
 run keeps its last complete checkpoint.
 
+The rosbag in `bag/` holds the map, odometry, the laser scan, the raw lidar
+point cloud (`/point_cloud2`), the local costmap, the velocity commands from
+Nav2 (`/cmd_vel`), from the auto mapper's recoveries (`/cmd_vel_mapper`) and the
+one sent to Oak (`/cmd_vel_out`), auto mapper events, goal status, TF and the
+log. The point cloud makes the bag much larger. TODO(Max): write the size of a
+5 minute run here after the next Oak run.
+
 ## Run it
 
 For the first physical-robot validation, follow the
@@ -92,6 +99,46 @@ Replay does not launch Oak or Nav2:
 ```shell
 ros2 run go2_scoreboard replay /path/to/bag --out /path/to/replays
 ```
+
+## Lab measurements
+
+`lab_measure` reads one lab recording and prints a short Markdown report. It
+reads a rosbag only. It needs no robot and sends nothing. The three recordings
+are described in [issue #141](https://github.com/maxhawksby/go2-fusion/issues/141).
+
+```shell
+ros2 run go2_scoreboard lab_measure /path/to/lab_stop --kind stop
+ros2 run go2_scoreboard lab_measure /path/to/lab_turn --kind turn
+ros2 run go2_scoreboard lab_measure /path/to/lab_object --kind object
+```
+
+- `stop` finds each burst of `/cmd_vel_joy` commands. For each it reports the
+  speed Oak reached, the time from the last command to rest, and the distance
+  travelled after the last command. Then the median and the worst.
+- `turn` reports the delay from the first command to the first motion in the
+  `/imu` gyro and in the `/odom` pose. If the two delays match, Oak itself moves
+  late. If odometry is later, the odometry reports late. It also reports the
+  turn rate reached against the rate commanded.
+- `object` reports, per 5 second window, the nearest `/scan` return within
+  0.25 m of the centre line ahead. It also counts `/point_cloud2` points in a box
+  0.2 to 1.2 m ahead and 0.25 m either side, in three height bands.
+
+Things to know when reading a report:
+
+- Speed comes from pose changes, because Oak's `/odom` twist is always zero.
+- Times are when the recorder received each message. That is the one clock all
+  topics share.
+- The last command is the last message sent. Oak's command mux keeps passing it
+  on for up to 0.5 s, so that time is inside the stop distance.
+- Oak counts as moving after 0.02 m or 0.05 rad of pose change, or 0.1 rad/s on
+  the gyro. It counts as at rest when the pose holds within 0.01 m for 0.5 s.
+  Time to rest can read a few hundredths of a second early for that reason.
+- A dash means that value could not be measured, for example no `/imu` in the
+  recording or Oak still moving when it ended.
+- The command exits with an error code when it finds nothing to measure.
+
+TODO(Max): the thresholds are untested on a real recording. Check them against
+the tape measurements from issue #141.
 
 ## How it breaks
 

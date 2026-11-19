@@ -1,15 +1,11 @@
-# Triage Labels
+# Triage labels
 
-The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
+These five labels say what an open issue needs next. An issue has at most one of them.
 
-| Label in mattpocock/skills | Label in our tracker | Meaning                                  |
-| -------------------------- | -------------------- | ---------------------------------------- |
-| `needs-triage`             | `needs-triage`       | Maintainer needs to evaluate this issue  |
-| `needs-info`               | `needs-info`         | Waiting on reporter for more information |
-| `ready-for-agent`          | `ready-for-agent`    | Fully specified, ready for an AFK agent  |
-| `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
-| `wontfix`                  | `wontfix`            | Will not be actioned                     |
-
-When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
-
-Edit the "Label in our tracker" column to match whatever vocabulary you actually use.
+| Label | What it means | Who moves it out |
+| --- | --- | --- |
+| `needs-triage` | New. Nobody has decided what to do with it yet. | Max reads it and swaps in one of the other four labels. |
+| `needs-info` | We can't act yet. We are waiting for the person who opened it to answer a question. | That person answers in a comment. Then Max triages it again. |
+| `ready-for-agent` | Fully written down. An AI agent can do it alone, with no questions. | Adding the label starts Claude on GitHub, which opens a pull request on a branch named for whoever added it and never merges. A run that ends with no pull request and no comment shows red. An issue can name its starting branch on a line that starts `Base branch:`. The issue closes when that pull request merges. |
+| `ready-for-human` | Ready, but a person has to do it, for example on the robot or with a judgment call. | A teammate assigns themselves. The issue closes when the work is done. |
+| `wontfix` | We decided not to do it. | Nobody. Max closes the issue with a comment that says why. |

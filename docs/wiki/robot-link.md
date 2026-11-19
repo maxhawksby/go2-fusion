@@ -63,7 +63,7 @@ The `external_lib/` folder holds two pieces the link needs: `aioice` (a patched 
 
 ## Who's on it and what's next
 
-Luis ported the reconnect and drop detection from the team fork. An unmerged branch (`fix_hz_lidar_stream`) has a faster lidar decoder (claimed about 2 Hz to 62 Hz); the plan is to port only its decoder file if lidar rate hurts mapping. TODO(owner): an owner for the link.
+Luis ported the reconnect and drop detection from the team fork. An old branch from the team fork (`fix_hz_lidar_stream`, never brought into this repo) has a faster lidar decoder (claimed about 2 Hz to 62 Hz); the plan is to port only its decoder file if lidar rate hurts mapping. TODO(owner): an owner for the link.
 
 ## The code
 
@@ -75,4 +75,4 @@ Unit tests for the stall detector and the per-stream watch (in a container shell
 cd /ros2_ws && python3 -m pytest src/go2_robot_sdk/test/test_connection_health.py
 ```
 
-<!-- sources: src/go2_robot_sdk/go2_robot_sdk/infrastructure/webrtc/go2_connection.py (handshake, data2==3, AES key errors); http_client.py (/con_notify, /con_ing_); webrtc_adapter.py is_connected; connection_health.py; main.py backoff; presentation/go2_driver_node.py (cyclonedds callbacks pass); .gitmodules; docker/entrypoint.sh; docker/LAB_CHECKLIST.md "Reading the result"; docs/WINDOWS_SETUP.md troubleshooting and Ethernet section; docs/FUSION.md row 15 and follow-up 2; team update 2026-10-18 (Jeth). TODO(owner): confirm the pytest command runs in the image. -->
+<!-- sources: src/go2_robot_sdk/go2_robot_sdk/infrastructure/webrtc/go2_connection.py (handshake, data2==3, AES key errors); http_client.py (/con_notify, /con_ing_); webrtc_adapter.py is_connected; connection_health.py; main.py backoff; presentation/go2_driver_node.py (cyclonedds callbacks pass); .gitmodules; docker/entrypoint.sh; docker/LAB_CHECKLIST.md "Reading the result"; docs/WINDOWS_SETUP.md troubleshooting and Ethernet section; docs/FUSION.md row 15 and follow-up 2; team update 2026-10-18 (Jeth). The robot build check runs test_connection_health.py through colcon test in a stock Humble container (master 426e531, run 43877445933: 15 passed). TODO(owner): does the plain pytest command also run in our own Docker image? -->
