@@ -56,6 +56,7 @@ Adding an action to Riley's version: add a method to both backends (`MockMotionC
 - [Voice](voice.md): Riley's version had a small web server (`speech_bridge`, `POST /command` on port 8000) that the microphone tool sends text to. Adib's branch disables it; typed commands come first.
 - [Object detection](object-detection.md): Riley's `look_for_object` was meant to ask the detector what it sees, but it only works in mock mode.
 - [Roadmap](roadmap.md) and [Decisions](decisions.md): why the agent changed direction.
+- [Auto mapper](auto-mapper.md): its VLM also defaults to Ollama on port 11434 (with the picture model `qwen3-vl:8b-instruct`), the same server Adib's agent expects, so one Ollama can serve both ([decision 0005](../adr/0005-llm-agent-and-vlm-share-one-ollama.md), proposed).
 
 ## How it breaks
 
