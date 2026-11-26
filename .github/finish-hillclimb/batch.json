@@ -1,8 +1,8 @@
 {
   "world": "placeholder_rooms",
   "seed": 33,
-  "runs": 10,
-  "timeout": 300,
+  "runs": 20,
+  "timeout": 900,
   "stall_timeout": 180,
   "startup_timeout": 300,
   "arms": {
