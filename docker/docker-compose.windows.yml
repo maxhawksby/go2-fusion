@@ -4,6 +4,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     environment:
+      - VLM_URL=${VLM_URL:-http://host.docker.internal:11434/v1/chat/completions}
+      - VLM_MODEL=${VLM_MODEL:-qwen3-vl:8b-instruct}
       - ROBOT_IP=${ROBOT_IP:-192.168.50.150}
       - CONN_TYPE=${CONN_TYPE:-webrtc}
       - ROBOT_AES_KEY=${ROBOT_AES_KEY:-}  # Required for Go2 firmware >= 1.1.15

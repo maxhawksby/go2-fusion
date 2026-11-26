@@ -45,6 +45,8 @@ docker compose down                        # stop it
 
 On Windows from PowerShell, add `-f docker-compose.windows.yml` after `docker compose`.
 
+The Linux and Windows Compose files pass `VLM_URL` and `VLM_MODEL` to the auto mapper and RViz VLM view. They default to Ollama on the host and Qwen3-VL 8B Instruct. See the [VLM setup](auto-mapper.md#using-the-vlm) for the simulator trial and remote servers.
+
 ## The files
 
 - `Dockerfile` - the main image (CPU-only PyTorch, to avoid a multi-GB GPU download).
