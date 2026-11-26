@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: fe57b5fed706
+verified: 698a380a0b64
 ---
 
 # Auto mapper
@@ -31,7 +31,7 @@ ownership and scoring repairs separate when comparing behavior.
 1. **Look around first.** At start and after each goal, Oak turns a full circle using Nav2's Spin behavior, so the lidar sees everything around it and SLAM can place it on the map.
 2. **Find frontiers.** It scans `/map` for frontier squares and groups neighbours into regions; regions under 5 squares are treated as noise. Since 2026-10-17 this is one fast numpy pass: about 4.4 ms instead of 0.5 s on a 40 x 40 m map.
 3. **Pick a goal.** For each region it picks spots 0.8 m back into known space and at least 0.5 m from walls. It skips directions it was just blocked in, spots closer than 1.5 m, and spots without a clear straight line. Of the rest, it picks the one that would reveal the most: it casts 48 imaginary rays from each spot out to 4 m and counts unknown squares they would uncover, minus a cost per meter of walking.
-   **Optionally, ask a vision-language model (VLM).** With `vlm_mode` on, the best 4 spots are also shown to a VLM (Qwen2.5-VL) running on a cloud GPU: one camera picture toward each, taken during the last 360 degree turn. It is also told what the map says about each spot (how far, how many unknown squares). It scores each from 0 to 1 for "will walking this way show a lot of new space" (a doorway or hallway scores high, a wall or dead end low), and that score is added to the reveal score. The VLM only reorders spots the map already found safe; lidar and Nav2 still decide where Oak can walk. See [Using the VLM](#using-the-vlm). In `active` mode with the panel's VLM view on, the VLM's suggested move also counts (it is told the lidar's distance each way when it suggests one): goals within 45 degrees of that direction are worth 300 more unknown squares (`vlm_suggest_weight`), unless the lidar sees something closer than 0.8 m that way or the suggestion is over 15 s old. A suggestion only picks among goals the map already found safe, and Nav2 still drives. "Stop" is not obeyed: it changes nothing.
+   **Optionally, ask a vision-language model (VLM).** With `vlm_mode` on, the best 4 spots are also shown to a VLM (Qwen3-VL 8B by default, before 2026-11-16 Qwen2.5-VL 7B) running on a cloud GPU: one camera picture toward each, taken during the last 360 degree turn. It is also told what the map says about each spot (how far, how many unknown squares). It scores each from 0 to 1 for "will walking this way show a lot of new space" (a doorway or hallway scores high, a wall or dead end low), and that score is added to the reveal score. The VLM only reorders spots the map already found safe; lidar and Nav2 still decide where Oak can walk. See [Using the VLM](#using-the-vlm). In `active` mode with the panel's VLM view on, the VLM's suggested move also counts (it is told the lidar's distance each way when it suggests one): goals within 45 degrees of that direction are worth 300 more unknown squares (`vlm_suggest_weight`), unless the lidar sees something closer than 0.8 m that way or the suggestion is over 15 s old. A suggestion only picks among goals the map already found safe, and Nav2 still drives. "Stop" is not obeyed: it changes nothing.
 4. **Go.** It sends the goal to [Nav2](nav2.md) on `/navigate_to_pose`, exactly like clicking "Nav2 Goal" in RViz, so Nav2's obstacle avoidance still applies.
 5. **Learn from it.** If a visit did not shrink the frontier (the opening can't be seen into), that frontier is skipped for 2 minutes. Failed goals are also skipped for 2 minutes.
 6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap, then slides 0.05 to 0.5 m at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If nothing is safe, it stays stopped and logs why.
@@ -91,8 +91,8 @@ frontier, change a threshold or send motion.
 | `scan_yaw` | `6.283` (2 pi) | How far to turn per scan, in radians |
 | `scan_time_allowance` | `30.0` | Seconds Nav2 has to finish the turn before giving up |
 | `vlm_mode` | `off` | `off`; `shadow` (ask the VLM and log its pick, but use the map score); `active` (add the VLM's score) |
-| `vlm_url` | `http://localhost:8000/v1/chat/completions` | The VLM server's OpenAI-style chat address (vLLM or Ollama), usually through an SSH tunnel |
-| `vlm_model` | `Qwen/Qwen2.5-VL-7B-Instruct` | Model name the server knows it by |
+| `vlm_url` | `http://localhost:11434/v1/chat/completions` | The VLM server's OpenAI-style chat address (Ollama by default, or vLLM), usually through an SSH tunnel; `VLM_URL` overrides it |
+| `vlm_model` | `qwen3-vl:8b-instruct` | Model name the server knows it by (Ollama's name); `VLM_MODEL` overrides it |
 | `vlm_weight` | `400.0` | How much the VLM counts: from a sure "no" to a sure "yes" is worth this many unknown cells (400 = 1 square meter) |
 | `vlm_timeout` | `8.0` | Seconds to wait for the VLM before going with the map score alone |
 | `nav_log_dir` | empty | Folder for the navigation log; empty is off |
@@ -108,16 +108,19 @@ Set `NAV_LOG_DIR` in the container's environment (or the `nav_log_dir` parameter
 
 ### Using the VLM
 
-The model needs an NVIDIA GPU, so it runs on a GPU server, not the laptop. **Camera pictures leave the robot:** with `vlm_mode` on or the VLM view running, Oak's camera pictures are sent to that server (the team uses a university GPU server), and with `NAV_LOG_DIR` set they are also saved where the explorer runs. Both are off by default. The laptop reaches it through an SSH tunnel; the explorer never waits on the network for more than `vlm_timeout`.
+The model needs an NVIDIA GPU, so it runs on a GPU server, not the laptop. **Camera pictures leave the robot:** with `vlm_mode` on or the VLM view running, Oak's camera pictures are sent to that server (the team uses a university GPU server), and with `NAV_LOG_DIR` set they are also saved where the explorer runs. Both are off by default. The explorer never waits on the network for more than `vlm_timeout`.
 
-1. **On the GPU server** (over SSH), start an OpenAI-style server. With vLLM: `vllm serve Qwen/Qwen2.5-VL-7B-Instruct --port 8000`. With Ollama: `ollama pull qwen2.5vl:7b`, then use port 11434 and `vlm_model:=qwen2.5vl:7b`. vLLM's own recipe says the 7B model needs one GPU with 24 GB or more ([vLLM recipe](https://recipes.vllm.ai/Qwen/Qwen2.5-VL-7B-Instruct)). TODO(Luis): how much GPU memory does the university server have?
-2. **On the laptop**, open the tunnel and leave it running: `ssh -N -L 8000:localhost:8000 <user>@<gpu-server>`. Now `localhost:8000` on the laptop is the server.
+The default is **Qwen3-VL 8B Instruct served by Ollama on port 11434**, the same server and port the [LLM agent](llm-agent.md) uses on `adib/feat/llm-agent`, so one Ollama can serve both ([decision 0005](../adr/0005-llm-agent-and-vlm-share-one-ollama.md)). Both Compose files pass `VLM_URL` and `VLM_MODEL` to the container: localhost on Linux, `host.docker.internal` on Windows. Set them to use another server.
+
+1. **On the GPU server** (over SSH), run `ollama pull qwen3-vl:8b-instruct`. Qwen3-VL needs a recent Ollama: 0.20.3 refused to download it, 0.40.16 works (measured on the university server, 2026-11-16, whose GPUs have 23 GB each). Load it once before a run with `ollama run qwen3-vl:8b-instruct "Reply with OK"`: the first answer after loading took about 65 s, longer than `vlm_timeout`, and later ones about 1-1.5 s. With vLLM instead, set `VLM_URL` to its `/v1/chat/completions` address and `VLM_MODEL=Qwen/Qwen3-VL-8B-Instruct`. The previous model still works with `VLM_MODEL=qwen2.5vl:7b`.
+2. **On the laptop**, open the tunnel and leave it running: `ssh -N -L 11434:localhost:11434 <user>@<gpu-server>`. Now `localhost:11434` on the laptop is the server, which is what the Compose defaults point at.
 3. **Start the explorer in shadow mode first**, so Oak behaves exactly as before while you read what the VLM would have done:
    ```shell
    docker compose exec unitree_ros bash -ic 'ros2 run go2_auto_mapper explorer --ros-args -p vlm_mode:=shadow'
    ```
-   On Windows (Docker Desktop), the container reaches the laptop as `host.docker.internal`, so add `-p vlm_url:=http://host.docker.internal:8000/v1/chat/completions`. TODO(Luis): confirm this reaches a tunnel bound to the laptop's localhost.
-4. Read the log: each goal prints `VLM agrees` or `VLM differs`, both picks, the scores and the model's one-line reason. When it looks sensible, try `vlm_mode:=active` and compare exploration time and map completeness on the [scorecard](roadmap.md).
+4. Read the log: each goal prints `VLM agrees` or `VLM differs`, both picks, the scores and the model's one-line reason.
+
+**What it does to mapping so far (simulator only, older settings: 0.1 s command lag, 12 m lidar, code from Luis's fork).** In 100 runs of the ITE hallway world per arm, the VLM in `active` mode mapped 7.1 points less than with it off (95 % range -10.8 to -3.4). Splitting that up: the simulated camera cost about 3.4 points and asking and waiting for the model about 2.1 more, while the model's own picks changed nothing (+0.2). Details in the [evidence page](../evidence/2026-11-26-qwen3-vl-ite-ablation.md). Nothing has been measured on Oak.
 
 ## Connects to
 

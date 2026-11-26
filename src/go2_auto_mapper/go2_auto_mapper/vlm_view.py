@@ -37,8 +37,8 @@ from go2_auto_mapper.vlm_ranking import (
     suggestion_message,
 )
 
-DEFAULT_URL = 'http://localhost:8000/v1/chat/completions'
-DEFAULT_MODEL = 'Qwen/Qwen2.5-VL-7B-Instruct'
+DEFAULT_URL = 'http://localhost:11434/v1/chat/completions'
+DEFAULT_MODEL = 'qwen3-vl:8b-instruct'
 # An older scan says nothing about what is there now.
 SCAN_MAX_AGE_SEC = 2.0
 MAP_FRAME = 'map'
