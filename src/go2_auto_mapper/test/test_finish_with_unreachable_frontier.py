@@ -5,6 +5,7 @@ import pytest
 
 import oak_corridor as oc
 from ros_stubs import Auto
+from go2_auto_mapper.frontier_scoring import find_frontier_clusters
 
 SUCCEEDED, ABORTED, CANCELED = 4, 6, 5
 FINISH_WITHIN_SEC = 300.0
@@ -69,6 +70,54 @@ class DoorwayRoom(MappedRoom):
     def inside(self, x, y):
         return (super().inside(x, y)
                 or (DOOR_X0 <= x <= DOOR_X1 and 2.0 <= y <= CLOSET_TOP))
+
+
+FAR_X = 9.5       # far wall of the long room
+HALF_Y = 3.0      # the long room is 6 m wide
+EDGE_X = 4.0      # SLAM has seen the room only up to here
+CRUMB, SPECK = 3, 3   # along the edge: 3 free cells, then 3 wall specks
+
+
+class CrumbledEdgeRoom(MappedRoom):
+    """#137: a 6 m wide room runs on to FAR_X, but SLAM has only seen it up
+    to EDGE_X, and the sparse lidar left wall specks along that edge. The
+    edge to 33 m2 of unseen floor then comes out as 3-cell crumbs, each under
+    min_frontier_size, so no frontier survives the noise filter."""
+
+    walls = [
+        (-1.6, 1.5, 0.5, 0.6), (-1.6, 1.5, -0.6, -0.5),    # corridor sides
+        (-1.7, -1.5, -0.6, 0.6),                            # corridor dead end
+        (1.5, FAR_X + 0.1, HALF_Y, HALF_Y + 0.1),           # room sides
+        (1.5, FAR_X + 0.1, -HALF_Y - 0.1, -HALF_Y),
+        (FAR_X, FAR_X + 0.1, -HALF_Y - 0.1, HALF_Y + 0.1),  # room far wall
+        (1.5, 1.6, 0.6, HALF_Y), (1.5, 1.6, -HALF_Y, -0.6),  # room near wall
+    ]
+
+    def inside(self, x, y):
+        return ((-1.5 <= x <= 1.5 and -0.5 <= y <= 0.5)
+                or (1.5 <= x <= FAR_X and -HALF_Y <= y <= HALF_Y))
+
+    def grid(self, slam):
+        x0, y0 = -2.0, -HALF_Y - 0.5
+        w, h = int(12.0 / oc.RES), int((2 * HALF_Y + 1.0) / oc.RES)
+        data = []
+        for gy in range(h):
+            for gx in range(w):
+                x, y = x0 + (gx + 0.5) * oc.RES, y0 + (gy + 0.5) * oc.RES
+                if self.occupied(x, y):
+                    cell = 100
+                elif not self.inside(x, y):
+                    cell = -1 if slam else 0
+                elif slam and x > EDGE_X:
+                    cell = -1
+                elif slam and x > EDGE_X - oc.RES and gy % (CRUMB + SPECK) >= CRUMB:
+                    cell = 100   # a speck on the last column SLAM has seen
+                else:
+                    cell = 0
+                data.append(cell)
+        info = Auto(resolution=oc.RES, width=w, height=h,
+                    origin=Auto(position=Auto(x=x0, y=y0)))
+        return info, data
 
 
 class Run(oc.Sim):
@@ -163,6 +212,25 @@ def test_finishes_when_only_an_unreachable_pocket_is_left(pocket):
         f'{run.count_log("Frontier unchanged")} visits that did not shrink it')
     assert not [g for g in run.nav_goals if g[0] > run.finished_at], (
         'kept sending goals after reporting finished')
+    assert not run.collided
+
+
+def test_crumbled_edge_world_has_no_frontier_past_the_noise_filter():
+    # The world really is #137's case: crumbs only, all dropped as noise.
+    info, data = CrumbledEdgeRoom().grid(slam=True)
+    assert find_frontier_clusters(data, info.width, info.height, 5) == []
+    crumbs = find_frontier_clusters(data, info.width, info.height, 1)
+    assert crumbs and all(len(c) <= CRUMB for c in crumbs)
+
+
+def test_edge_broken_into_crumbs_is_not_called_finished():
+    # #137: with 22 m2 of floor behind the crumbs, don't say the room is done.
+    run = Run(CrumbledEdgeRoom())
+    run.run(120.0)
+    assert not run.finished(), (
+        'reported exploration complete with most of the room unseen '
+        f'({run.count_log("Not finishing")} "Not finishing" logs)')
+    assert run.count_log('Not finishing') > 0
     assert not run.collided
 
 
