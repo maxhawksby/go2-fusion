@@ -7,8 +7,8 @@ name: Finish hillclimb batch (experiment)
 # summarize.py, trace_report.py) always comes from the pushed commit; only the
 # arm's src/ and docker/ change between arms. batch.json's explorer_params go
 # to every run's auto mapper and its launch_args to every run's sim.launch.py.
-# The summary job posts the path trace table
-# (issue #142) as a comment on that issue.
+# The summary job posts the finish table as a comment on issue #137 (this
+# batch: the #137 finish guard against its control arms).
 on:
   push:
     branches: ['max/exp/finish-hillclimb**']
@@ -125,11 +125,13 @@ jobs:
         with:
           name: summary
           path: summary.md
-      - name: post path trace report on issue 144
+      - name: post the finish table on issue 137
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          { cat trace_report.md; echo; echo "Batch run: $RUN_URL (batch commit $GITHUB_SHA)"; } > comment.md
-          gh issue comment 144 --repo "$GITHUB_REPOSITORY" --body-file comment.md
+          { echo "## Finish guard batch (Oak-matched simulator)"; echo;
+            python3 -I .github/finish-hillclimb/summarize.py results .github/finish-hillclimb/batch.json;
+            echo; echo "Batch run: $RUN_URL (batch commit $GITHUB_SHA)"; } > comment.md
+          gh issue comment 137 --repo "$GITHUB_REPOSITORY" --body-file comment.md

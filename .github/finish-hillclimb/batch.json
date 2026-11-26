@@ -2,17 +2,13 @@
   "world": "placeholder_rooms",
   "seed": 33,
   "runs": 10,
-  "timeout": 900,
+  "timeout": 300,
   "stall_timeout": 180,
   "startup_timeout": 300,
-  "explorer_params": [
-    "diagnostic_trace:=true",
-    "obstacle_watch_cancels_goals:=false"
-  ],
   "arms": {
-    "collision_monitor": "87fa8a882609c1230f7242b7a34fa3ecef357634"
-  },
-  "launch_args": [
-    "collision_monitor:=true"
-  ]
+    "control": "a44440a347a3587f1c7b41be99e37fe960125ce4",
+    "control_finish_guard": "da9ac9702c0dc240698ffe2b524a15d02c6298f9",
+    "free_goal_heading": "0604c49d0ed2d9abfd91a1cfc6e6fa3052101e8c",
+    "free_goal_heading_finish_guard": "471fa1af4b9b328a7c14028e27aef1210c398aeb"
+  }
 }
