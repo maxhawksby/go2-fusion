@@ -56,7 +56,9 @@ from go2_auto_mapper.obstacle_sensing import (
 from go2_auto_mapper.open_space import OCCUPIED_THRESHOLD, find_open_space
 from go2_auto_mapper.frontier_scoring import (
     count_revealed_unknown,
+    count_unknown_behind,
     find_frontier_clusters,
+    group_frontier_pieces,
     overlaps_dead,
     remaining_size,
     visit_utility,
@@ -1123,6 +1125,65 @@ class FrontierExplorer(Node):
             )
             for gx, gy in frontier
         )
+
+    def frontier_long_side_m(self, frontier):
+        xs = [p[0] for p in frontier]
+        ys = [p[1] for p in frontier]
+        cells = max(max(xs) - min(xs), max(ys) - min(ys)) + 1
+        return cells * self.map.info.resolution
+
+    def unknown_behind_frontiers_m2(self):
+        """Unknown floor the lidar could see from the frontiers left, in m2.
+
+        Uses every frontier piece, noise included, joined into groups within
+        FINISH_LINK_M, and adds up what each group could see (#137). Only
+        called when the room is about to be called finished: casting rays
+        from every frontier cell is too slow for every loop.
+        """
+
+        info = self.map.info
+        data = self.map.data
+        pieces = find_frontier_clusters(data, info.width, info.height, 1)
+        link_cells = max(1, int(round(FINISH_LINK_M / info.resolution)))
+        range_cells = int(self.info_gain_range / info.resolution)
+        rays = int(self.info_gain_rays)
+        cells = sum(
+            count_unknown_behind(
+                data, info.width, info.height, group, range_cells, rays)
+            for group in group_frontier_pieces(pieces, link_cells)
+        )
+        return cells * info.resolution * info.resolution
+
+    def finish_blocked(self, behind_m2):
+        """True, with a log line, if too much unseen floor is left to finish."""
+
+        if behind_m2 < UNKNOWN_BEHIND_MAX_M2:
+            return False
+        self.get_logger().info(
+            f'Not finishing: about {behind_m2:.0f} m2 of unknown space behind '
+            f'the frontiers left (limit {UNKNOWN_BEHIND_MAX_M2:.0f} m2). '
+            'Carrying on.',
+            throttle_duration_sec=10.0
+        )
+        return True
+
+    def report_complete(self, frontiers):
+
+        if self.exploration_complete_logged:
+            return
+        if frontiers:
+            detail = (
+                f'Only {len(frontiers)} frontiers shorter '
+                f'than {NARROWER_THAN_DOOR_M:.1f} m left unreached. '
+                'Exploration complete.'
+            )
+        else:
+            detail = 'No frontiers found. Exploration complete.'
+        self.get_logger().info(detail)
+        self.exploration_complete_logged = True
+        if not self.exploration_terminal_emitted:
+            self.emit_event('exploration_completed', detail)
+            self.exploration_terminal_emitted = True
 
     def prune_dead_frontiers(self):
 
@@ -2501,21 +2562,25 @@ class FrontierExplorer(Node):
                 return
             self.verify_frontier_shrank(frontiers)
 
-        if not frontiers:
+        only_small = all(
+            self.frontier_long_side_m(f) < NARROWER_THAN_DOOR_M for f in frontiers
+        )
+        few_left = sum(len(f) for f in frontiers) < LEFTOVER_CELLS_MAX
 
-            if not self.exploration_complete_logged:
-                self.get_logger().info(
-                    'No frontiers found. Exploration complete.'
-                )
-                self.exploration_complete_logged = True
-                if not self.exploration_terminal_emitted:
-                    self.emit_event(
-                        'exploration_completed',
-                        'No frontiers found. Exploration complete.',
-                    )
-                    self.exploration_terminal_emitted = True
-
-            return
+        # Before saying the room is done, check what lies behind the frontiers
+        # left: sparse lidar can break the edge of a whole unseen room into
+        # crumbs that each look like a small gap (#137). Once done, stay done.
+        behind_m2 = None
+        if not frontiers or (
+            only_small and (few_left or self.exploration_complete_logged)
+        ):
+            if self.exploration_complete_logged:
+                self.report_complete(frontiers)
+                return
+            behind_m2 = self.unknown_behind_frontiers_m2()
+            if not self.finish_blocked(behind_m2):
+                self.report_complete(frontiers)
+                return
 
         self.exploration_complete_logged = False
 
@@ -2531,6 +2596,15 @@ class FrontierExplorer(Node):
 
         if selected is WAITING_FOR_VLM:
             return
+
+        if selected is None and only_small:
+            if behind_m2 is None:
+                behind_m2 = self.unknown_behind_frontiers_m2()
+            if not self.finish_blocked(behind_m2):
+                self.report_complete(frontiers)
+                return
+            # Too much unseen floor to call it done: fall through to the
+            # "No usable goal" handling, which heads for open space.
 
         if selected is None:
             self.get_logger().info(
@@ -2675,12 +2749,6 @@ class FrontierExplorer(Node):
 # How long stop() waits for Nav2 to answer goals it hasn't accepted yet.
 SHUTDOWN_ACCEPT_WAIT_SEC = 2.0
 
-
-
-
-# How long stop() waits for Nav2 to answer goals it hasn't accepted yet.
-SHUTDOWN_ACCEPT_WAIT_SEC = 2.0
-
 PR_SET_PDEATHSIG = 1  # from <linux/prctl.h>
 
 # Final action_msgs/GoalStatus values: SUCCEEDED, CANCELED, ABORTED. Only
@@ -2757,6 +2825,18 @@ FORWARD_MOTION_MPS = 0.03
 OPEN_SPACE_SEARCH_RADIUS_M = 4.0
 OPEN_SPACE_MIN_MOVE_M = 0.5
 ESCAPE_COOLDOWN_SEC = 30.0
+
+NARROWER_THAN_DOOR_M = 0.6
+
+LEFTOVER_CELLS_MAX = 100
+
+# Not finished while the frontiers left could still see this much unknown
+# floor (#137): frontier pieces within FINISH_LINK_M are joined first, then
+# each group's view is added up. 100 m2 is halfway between the most #118's
+# good finishes left (about 46 m2) and the 48 % finish (about 155 m2), all
+# measured in the simulator.
+FINISH_LINK_M = 0.10
+UNKNOWN_BEHIND_MAX_M2 = 100.0
 
 # "No usable goal" this many loops in a row counts as stuck.
 STUCK_NO_GOAL_CYCLES = 2

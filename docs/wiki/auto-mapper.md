@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: f9ce89a9e9ec
+verified: 5596d43def5b
 ---
 
 # Auto mapper
@@ -37,7 +37,7 @@ ownership and scoring repairs separate when comparing behavior.
 6. **Get unstuck.** If something is within 0.3 m of the nose, it cancels the goal and checks short moves backward, left and right against the live `/scan` and Nav2's local costmap, then slides 0.05 to 0.5 m at 0.1 m/s along the safest one. These moves go out on `/cmd_vel_mapper`, a [twist_mux](twist-mux.md) input at priority 6 (above Nav2, below keyboard and gamepad). If no slide is safe, it asks Nav2 to turn Oak in place toward the most open direction (at most once every 10 s). If Nav2 refuses that turn too, Oak stops only until the next fresh scan. Then it hands control back to the loop, which asks Nav2 for a new goal.
 7. **Head for open space.** After 3 failed goals in a row (or similar signs of being stuck), it drives to the nearest spot with 0.8 m of room on every side, scans, and carries on.
 8. **Let people pass.** While walking to a goal, if a person, where they are about to step, or a group is within 1.5 m straight ahead, Oak stands still (zero speed on `/cmd_vel_mapper`) for up to 6 s, then carries on and lets Nav2 steer around them. It waits again only after the way has been clear once, so someone standing in a hallway can't stop exploring.
-9. **Finish.** With no frontiers left it logs "Exploration complete" and waits, in case a door opens.
+9. **Finish.** It says the room is finished (logs "Exploration complete" and sends an `exploration_completed` event) when no frontiers are left. It also finishes when every frontier left is shorter than 0.6 m, so narrower than any door, and either they add up to fewer than 100 squares or no usable goal is left. Those last bits are gaps behind furniture or in corners that the lidar can't see into; before, Oak drove to them one by one until the run timed out. Many short frontiers at once (the broken-up edge right after the first scan) do not count. Before it finishes either way, it checks what lies behind the frontiers left: it takes every frontier piece, even the tiny ones it otherwise ignores as noise, joins pieces within 0.1 m of each other, and adds up how much unknown floor the lidar could see from each group (4 m out, stopping at walls). At 100 m² or more it does not finish; it logs "Not finishing: about N m² of unknown space behind the frontiers left" and keeps exploring, heading for open space if no goal is usable. This is for sparse lidar, which can break the edge of a whole unseen room into crumbs that each look like a small gap (issue #137). Once finished, short gaps don't reopen the run; a frontier 0.6 m or longer does, in case a door opens. An overnight simulator hillclimb picked these numbers; its [decision trail](https://github.com/maxhawksby/go2-fusion/blob/max/exp/finish-hillclimb/.audit/finish-hillclimb.tsv) shows each try.
 
 **People.** When [object detection](object-detection.md) runs, it publishes `/people`: where each person is, a straight-line guess of where they will walk, and who stands together in a group (ideas from [SocialNav](https://github.com/ram95d/SocialNav)). The explorer keeps goals out of a 1 m circle around each person, out of a 0.6 m band along their next 2.4 s of walking, and out of the inside of a group (a robot should go around two people talking, not between them). A goal whose straight path crosses one of these only loses ties. This is a ranking step like the others, so a room full of people never stops exploring. Without `/people`, nothing changes.
 
@@ -133,6 +133,8 @@ The model needs an NVIDIA GPU, so it runs on a GPU server, not the laptop. **Cam
 - [Camera](camera.md) - with `vlm_mode` on, keeps one `/camera/image_raw` picture per direction for the VLM.
 
 ## How it breaks
+
+- **Says "exploration complete" with rooms unseen.** With sparser lidar, the edge toward an unseen room can come out as many crumbs, each shorter than 0.6 m and most under the noise filter's 5 squares, so the small-gaps finish fired at 48 % mapped in the Oak-matched [Simulator](simulator.md) (issue #137). The unknown-space check in step 9 now stops that run: 155 m² behind its crumbs against 12-46 m² for the 12 good finishes of pull request #118 (measured on their saved final maps). It can still miss a smaller unseen space: a 4 m wide, 5.5 m deep unseen area behind crumbs added up to only 80 m² in a test world, under the limit. The 100 m² limit rests on one bad run and 12 good ones in one simulator. The number is not the real unseen area. Each group's view is counted on its own, and crumbs more than 0.1 m apart stay separate groups that see much of the same floor, so the sum can be several times larger: 139 m² against 24 m² of real unseen floor in the crumbled-edge test. For the same reason, a closed room whose walls came out with many one-square holes can read over 100 m² and never finish (a made-up 15 m room with a hole in every tenth wall square read 245 m²). Oak then keeps exploring until the run times out, as before pull request #118. TODO(Luis): rerun the Oak-matched batch with the check, and try it on Oak.
 
 From the package README and Luis's commits (Oct 14-19):
 
