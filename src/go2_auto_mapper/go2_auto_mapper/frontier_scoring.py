@@ -16,6 +16,24 @@ OCCUPIED_THRESHOLD = 65
 UNKNOWN = -1
 
 
+def _add_visible_unknown(data, width, height, gx, gy, range_cells, num_rays,
+                         seen):
+    """Add to `seen` the unknown cells the rays from cell (gx, gy) reach."""
+    for i in range(num_rays):
+        angle = 2.0 * math.pi * i / num_rays
+        dx, dy = math.cos(angle), math.sin(angle)
+        for step in range(1, range_cells + 1):
+            x = int(math.floor(gx + 0.5 + dx * step))
+            y = int(math.floor(gy + 0.5 + dy * step))
+            if not (0 <= x < width and 0 <= y < height):
+                break
+            value = data[y * width + x]
+            if value >= OCCUPIED_THRESHOLD:
+                break
+            if value == UNKNOWN:
+                seen.add((x, y))
+
+
 def count_revealed_unknown(data, width, height, gx, gy, range_cells,
                            num_rays):
     """How many unknown cells the lidar would see from cell (gx, gy).
@@ -30,20 +48,62 @@ def count_revealed_unknown(data, width, height, gx, gy, range_cells,
     every candidate alike, which is what ranking needs.
     """
     seen = set()
-    for i in range(num_rays):
-        angle = 2.0 * math.pi * i / num_rays
-        dx, dy = math.cos(angle), math.sin(angle)
-        for step in range(1, range_cells + 1):
-            x = int(math.floor(gx + 0.5 + dx * step))
-            y = int(math.floor(gy + 0.5 + dy * step))
-            if not (0 <= x < width and 0 <= y < height):
-                break
-            value = data[y * width + x]
-            if value >= OCCUPIED_THRESHOLD:
-                break
-            if value == UNKNOWN:
-                seen.add((x, y))
+    _add_visible_unknown(data, width, height, gx, gy, range_cells, num_rays,
+                         seen)
     return len(seen)
+
+
+def count_unknown_behind(data, width, height, cells, range_cells, num_rays):
+    """How many unknown cells the lidar could see from any of `cells`.
+
+    The same rays as count_revealed_unknown, cast from every cell of a
+    frontier group; each unknown cell counts once. A few gaps behind
+    furniture see little; an opening into an unseen room sees a lot, even
+    when sparse lidar broke its edge into crumbs (#137).
+    """
+    seen = set()
+    for gx, gy in cells:
+        _add_visible_unknown(data, width, height, gx, gy, range_cells,
+                             num_rays, seen)
+    return len(seen)
+
+
+def group_frontier_pieces(pieces, link_cells):
+    """Join frontier pieces whose cells lie within `link_cells` of each other
+    (straight-line distance, in cells), chaining through pieces in between.
+
+    Sparse lidar leaves wall specks along an edge it barely saw, so one
+    opening can arrive as many tiny pieces (#137). Returns the groups, each
+    a list of cells.
+    """
+    owner = {}
+    for index, piece in enumerate(pieces):
+        for cell in piece:
+            owner[cell] = index
+    parent = list(range(len(pieces)))
+
+    def root(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    reach = [
+        (dx, dy)
+        for dx in range(-link_cells, link_cells + 1)
+        for dy in range(-link_cells, link_cells + 1)
+        if dx * dx + dy * dy <= link_cells * link_cells
+    ]
+    for (x, y), index in owner.items():
+        for dx, dy in reach:
+            other = owner.get((x + dx, y + dy))
+            if other is not None and other != index:
+                parent[root(other)] = root(index)
+
+    groups = {}
+    for index, piece in enumerate(pieces):
+        groups.setdefault(root(index), []).extend(piece)
+    return list(groups.values())
 
 
 def visit_utility(revealed_cells, travel_m, cells_per_meter):

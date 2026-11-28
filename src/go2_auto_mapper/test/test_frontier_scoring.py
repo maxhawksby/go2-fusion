@@ -1,5 +1,7 @@
 from go2_auto_mapper.frontier_scoring import (
     count_revealed_unknown,
+    count_unknown_behind,
+    group_frontier_pieces,
     overlaps_dead,
     remaining_size,
     visit_utility,
@@ -135,6 +137,59 @@ def _reference_frontiers(data, width, height, min_size):
             if len(cluster) >= min_size:
                 frontiers.append(cluster)
     return frontiers
+
+
+def test_pieces_within_the_link_distance_join_into_one_group():
+    # Three 3-cell pieces in a row, 1 cell apart: one broken edge.
+    pieces = [[(0, 0), (1, 0), (2, 0)], [(4, 0), (5, 0), (6, 0)], [(8, 0), (9, 0), (10, 0)]]
+    groups = group_frontier_pieces(pieces, link_cells=2)
+    assert len(groups) == 1
+    assert sorted(groups[0]) == sorted(cell for piece in pieces for cell in piece)
+
+
+def test_pieces_farther_apart_stay_separate_groups():
+    pieces = [[(0, 0), (1, 0)], [(5, 0), (6, 0)], [(5, 9), (6, 9)]]
+    groups = group_frontier_pieces(pieces, link_cells=2)
+    assert len(groups) == 3
+
+
+def test_groups_chain_through_nearby_pieces():
+    # A and C are 4 cells apart, but B sits between them within reach of both.
+    pieces = [[(0, 0)], [(2, 0)], [(4, 0)], [(30, 30)]]
+    groups = group_frontier_pieces(pieces, link_cells=2)
+    assert sorted(len(g) for g in groups) == [1, 3]
+
+
+def test_no_pieces_no_groups():
+    assert group_frontier_pieces([], link_cells=2) == []
+
+
+def test_unknown_behind_counts_what_the_cells_can_see():
+    # Known free strip on the left, unknown on the right: the edge sees it.
+    w, h = 40, 21
+    data = make_grid(w, h, UNKNOWN)
+    put(data, w, 0, 19, 0, 20, FREE)
+    edge = [(19, y) for y in range(8, 13)]
+    assert count_unknown_behind(data, w, h, edge, 10, 48) > 0
+
+
+def test_unknown_behind_stops_at_walls():
+    w, h = 40, 21
+    data = make_grid(w, h, UNKNOWN)
+    put(data, w, 0, 19, 0, 20, FREE)
+    put(data, w, 20, 20, 0, 20, WALL)   # a wall between the edge and the unknown
+    edge = [(19, y) for y in range(8, 13)]
+    assert count_unknown_behind(data, w, h, edge, 10, 48) == 0
+
+
+def test_unknown_behind_counts_each_cell_once():
+    # Every cell of a group sees the same unknown cells: count them once.
+    w, h = 40, 21
+    data = make_grid(w, h, UNKNOWN)
+    put(data, w, 0, 19, 0, 20, FREE)
+    one = count_unknown_behind(data, w, h, [(19, 10)], 10, 48)
+    same_twice = count_unknown_behind(data, w, h, [(19, 10), (19, 10)], 10, 48)
+    assert same_twice == one
 
 
 def test_fast_frontiers_match_reference_exactly():
