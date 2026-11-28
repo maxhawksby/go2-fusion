@@ -2,7 +2,7 @@
 title: Auto mapper
 parent: maps-nav
 code: [src/go2_auto_mapper/**]
-verified: d490b66c8040
+verified: 5596d43def5b
 ---
 
 # Auto mapper
@@ -134,7 +134,7 @@ The model needs an NVIDIA GPU, so it runs on a GPU server, not the laptop. **Cam
 
 ## How it breaks
 
-- **Says "exploration complete" with rooms unseen.** With sparser lidar, the edge toward an unseen room can come out as many crumbs, each shorter than 0.6 m and most under the noise filter's 5 squares, so the small-gaps finish fired at 48 % mapped in the Oak-matched [Simulator](simulator.md) (issue #137). The unknown-space check in step 9 now stops that run: 155 m² behind its crumbs against 12-46 m² for the 12 good finishes of pull request #118 (measured on their saved final maps). It can still miss a smaller unseen space: a 4 m wide, 5.5 m deep unseen area behind crumbs added up to only 80 m² in a test world, under the limit. The 100 m² limit rests on one bad run and 12 good ones in one simulator. TODO(Luis): rerun the Oak-matched batch with the check, and try it on Oak.
+- **Says "exploration complete" with rooms unseen.** With sparser lidar, the edge toward an unseen room can come out as many crumbs, each shorter than 0.6 m and most under the noise filter's 5 squares, so the small-gaps finish fired at 48 % mapped in the Oak-matched [Simulator](simulator.md) (issue #137). The unknown-space check in step 9 now stops that run: 155 m² behind its crumbs against 12-46 m² for the 12 good finishes of pull request #118 (measured on their saved final maps). It can still miss a smaller unseen space: a 4 m wide, 5.5 m deep unseen area behind crumbs added up to only 80 m² in a test world, under the limit. The 100 m² limit rests on one bad run and 12 good ones in one simulator. The number is not the real unseen area. Each group's view is counted on its own, and crumbs more than 0.1 m apart stay separate groups that see much of the same floor, so the sum can be several times larger: 139 m² against 24 m² of real unseen floor in the crumbled-edge test. For the same reason, a closed room whose walls came out with many one-square holes can read over 100 m² and never finish (a made-up 15 m room with a hole in every tenth wall square read 245 m²). Oak then keeps exploring until the run times out, as before pull request #118. TODO(Luis): rerun the Oak-matched batch with the check, and try it on Oak.
 
 From the package README and Luis's commits (Oct 14-19):
 
