@@ -2698,12 +2698,6 @@ class FrontierExplorer(Node):
 # How long stop() waits for Nav2 to answer goals it hasn't accepted yet.
 SHUTDOWN_ACCEPT_WAIT_SEC = 2.0
 
-
-
-
-# How long stop() waits for Nav2 to answer goals it hasn't accepted yet.
-SHUTDOWN_ACCEPT_WAIT_SEC = 2.0
-
 PR_SET_PDEATHSIG = 1  # from <linux/prctl.h>
 
 # Final action_msgs/GoalStatus values: SUCCEEDED, CANCELED, ABORTED. Only
